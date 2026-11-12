@@ -1,5 +1,4 @@
-# vleo_tally: Momentum/energy tallies and statistical reduction (M2).
-# Defined in M0 to fix the library structure and dependency graph; it is an
-# INTERFACE library until its first translation unit exists.
-add_library(vleo_tally INTERFACE)
-target_link_libraries(vleo_tally INTERFACE vleo_core)
+# vleo_tally: statistical reduction of per-history tallies (moments, standard
+# errors, confidence intervals).
+add_library(vleo_tally STATIC Statistics.cpp)
+target_link_libraries(vleo_tally PUBLIC vleo_core vleo_particles PRIVATE vleo_warnings)

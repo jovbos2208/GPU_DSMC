@@ -112,6 +112,15 @@ class RandomStream {
   // Uniform on (0, 1]: safe argument for log(). Smallest value 2^-53.
   KOKKOS_INLINE_FUNCTION double uniform_pos() { return 1.0 - uniform(); }
 
+  // Uniform on the open interval (0, 1): (2k + 1) 2^-53, k in [0, 2^52 - 1],
+  // i.e. values in [2^-53, 1 - 2^-53]. Both log(u) and log(1 - u) are finite
+  // and non-zero.
+  KOKKOS_INLINE_FUNCTION double uniform_open() {
+    const std::uint32_t a = next_u32();
+    const std::uint32_t b = next_u32();
+    return uniform_open_from_words(a, b);
+  }
+
   // Standard normal N(0, 1) via the Box-Muller transform. Values are produced
   // in pairs; the second one is cached. |z| <= sqrt(-2 ln 2^-53) ~= 8.57.
   KOKKOS_INLINE_FUNCTION double normal() {
@@ -133,6 +142,12 @@ class RandomStream {
   // i.e. a uniform double on [0, 1 - 2^-53]. Exact on every backend.
   KOKKOS_INLINE_FUNCTION static constexpr double uniform_from_words(std::uint32_t a, std::uint32_t b) {
     return (static_cast<double>(a >> 5) * 67108864.0 + static_cast<double>(b >> 6)) * 0x1.0p-53;
+  }
+
+  // (2k + 1) 2^-53 with the 52-bit k = (a >> 6) 2^26 + (b >> 6). Exact.
+  KOKKOS_INLINE_FUNCTION static constexpr double uniform_open_from_words(std::uint32_t a, std::uint32_t b) {
+    const double k = static_cast<double>(a >> 6) * 67108864.0 + static_cast<double>(b >> 6);
+    return (2.0 * k + 1.0) * 0x1.0p-53;
   }
 
   // Box-Muller transform. u_pos in (0, 1], u in [0, 1).

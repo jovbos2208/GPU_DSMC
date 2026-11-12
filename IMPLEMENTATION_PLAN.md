@@ -783,31 +783,31 @@ Abnahme: Wissenschaftliche Referenztests bestehen auf NVIDIA und AMD; Performanc
 
 #### M2 – Vollständiger TPMC-Solver
 
-- [ ] **M2.1** Gemeinsame GSI-Datentypen und Scatter-Schnittstelle implementieren.
-- [ ] **M2.2** Maxwell-Modell mit spiegelndem und diffusem Zweig implementieren.
-- [ ] **M2.3** CLL mit dokumentierter alpha-n-/sigma-t-Konvention implementieren.
-- [ ] **M2.4** Wandgeschwindigkeit und auswärts gerichtete Reflexion korrekt behandeln.
-- [ ] **M2.5** Impuls-, Drehimpuls- und Energietransfer je Ereignis implementieren.
-- [ ] **M2.6** TPMC-Ereignisgewicht herleiten, implementieren und dokumentieren.
-- [ ] **M2.7** Hierarchische Tallies für Kraft, Moment und Wärme implementieren.
-- [ ] **M2.8** Strömungsachsen sowie C_D, C_L, C_Y und C_M robust berechnen.
-- [ ] **M2.9** Globale und dreiecksweise Ergebnisse aus derselben Bilanz erzeugen.
-- [ ] **M2.10** Batches für Mittelwert, Standardfehler und Konfidenzintervall implementieren.
-- [ ] **M2.11** Optionalen Abbruch über den Fehler einer Zielgröße implementieren.
-- [ ] **M2.12** JSON-, CSV- und optional HDF5-Ausgabe implementieren.
-- [ ] **M2.13** Maxwell-Spiegelgrenzfall und null Wärmeübertrag testen.
-- [ ] **M2.14** Vollständig diffuse Maxwell-Verteilungen testen.
-- [ ] **M2.15** CLL-Grenzfälle (0,0) und (1,1) testen.
-- [ ] **M2.16** Thermisches Gleichgewicht auf Netto-Wärmefluss null testen.
-- [ ] **M2.17** Symmetrischen Körper auf verschwindende Quergrößen testen.
-- [ ] **M2.18** Flache Platte gegen analytische Freimolekulartheorie testen.
+- [x] **M2.1** Gemeinsame GSI-Datentypen und Scatter-Schnittstelle implementieren. → `gsi/Scatter.hpp`: `SurfaceProperties`, `ScatteringResult`, `scatter_particle()` (Header-only, Device)
+- [x] **M2.2** Maxwell-Modell mit spiegelndem und diffusem Zweig implementieren.
+- [x] **M2.3** CLL mit dokumentierter alpha-n-/sigma-t-Konvention implementieren. → `docs/tpmc.md` §1 (α_n Normalenergie, σ_t Tangentialimpuls, α_t = σ_t(2−σ_t))
+- [x] **M2.4** Wandgeschwindigkeit und auswärts gerichtete Reflexion korrekt behandeln. → Wandsystem c = v − v_w; offene Zufallszahl bzw. Neuziehung garantiert c_r·n > 0
+- [x] **M2.5** Impuls-, Drehimpuls- und Energietransfer je Ereignis implementieren. → `Transport.hpp`, Ereignisbilanz
+- [x] **M2.6** TPMC-Ereignisgewicht herleiten, implementieren und dokumentieren. → γ = R/N mit tatsächlich gerechneten Historien, `docs/tpmc.md` §3
+- [x] **M2.7** Hierarchische Tallies für Kraft, Moment und Wärme implementieren. → Register je Historie → deterministische Batch-Reduktion → Chan-Merge (keine globalen Atomics)
+- [x] **M2.8** Strömungsachsen sowie C_D, C_L, C_Y und C_M robust berechnen. → Achsen aus validierter Konfiguration, SE aus projizierten Historienimpulsen
+- [x] **M2.9** Globale und dreiecksweise Ergebnisse aus derselben Bilanz erzeugen. → gleiche Ereigniswerte; Σ Dreiecke = global (Test 1e-10)
+- [x] **M2.10** Batches für Mittelwert, Standardfehler und Konfidenzintervall implementieren.
+- [x] **M2.11** Optionalen Abbruch über den Fehler einer Zielgröße implementieren. → `tpmc.convergence`
+- [x] **M2.12** JSON-, CSV- und optional HDF5-Ausgabe implementieren. → `results.json`, `results.csv`, `surface_fields.csv`; HDF5 bewusst nicht im Build (wird mit klarer Meldung abgelehnt)
+- [x] **M2.13** Maxwell-Spiegelgrenzfall und null Wärmeübertrag testen.
+- [x] **M2.14** Vollständig diffuse Maxwell-Verteilungen testen.
+- [x] **M2.15** CLL-Grenzfälle (0,0) und (1,1) testen.
+- [x] **M2.16** Thermisches Gleichgewicht auf Netto-Wärmefluss null testen.
+- [x] **M2.17** Symmetrischen Körper auf verschwindende Quergrößen testen.
+- [x] **M2.18** Flache Platte gegen analytische Freimolekulartheorie testen. → Maxwell (alle Kraftkomponenten, Q̇) und CLL (Tangentialkraft, Q̇); mit 4·10⁸ Historien Abweichung ≤ 2,7·10⁻⁵ relativ
 
 **Gate M2 – Release v0.1-tpmc**
 
-- [ ] Alle sechs Hauptgrößen und ihre Unsicherheiten stehen im Ergebnis-JSON.
-- [ ] Alle Physiktests bestehen mit vorab dokumentierten Toleranzen.
-- [ ] Je ein Maxwell- und CLL-Beispiellauf ist reproduzierbar.
-- [ ] CPU-, CUDA- und HIP-Ergebnisse stimmen numerisch beziehungsweise statistisch überein.
+- [x] Alle sechs Hauptgrößen und ihre Unsicherheiten stehen im Ergebnis-JSON. → `smoke_results`
+- [x] Alle Physiktests bestehen mit vorab dokumentierten Toleranzen. → `docs/tpmc.md` §7
+- [x] Je ein Maxwell- und CLL-Beispiellauf ist reproduzierbar. → `repro_tpmc_maxwell_*`, `repro_tpmc_cll_*` (bitgleich)
+- [-] CPU-, CUDA- und HIP-Ergebnisse stimmen numerisch beziehungsweise statistisch überein. → CPU ↔ HIP numerisch gleich (≤ 9·10⁻¹⁴ relativ); CUDA nicht verfügbar (siehe Gate M0)
 
 #### M3 – DSMC mit elastischen VHS-Kollisionen
 

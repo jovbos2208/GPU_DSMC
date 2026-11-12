@@ -22,6 +22,7 @@ set_tests_properties(smoke_clean PROPERTIES FIXTURES_SETUP smoke_clean LABELS sm
 add_test(NAME smoke_run
   COMMAND vleo_solver --config "${_cfg}/simulations/tpmc_cll.yaml"
                       --platform "${_cfg}/platforms/${_platform}.yaml"
+                      --histories 200000 --quiet
                       --output-dir "${_out}")
 set_tests_properties(smoke_run PROPERTIES
   FIXTURES_REQUIRED smoke_clean FIXTURES_SETUP smoke_output LABELS smoke TIMEOUT 120)
@@ -31,6 +32,11 @@ add_test(NAME smoke_metadata
   COMMAND ${CMAKE_COMMAND} -DOUT_DIR=${_out} -DEXPECTED_BACKEND=${VLEO_BACKEND}
           -P "${CMAKE_CURRENT_SOURCE_DIR}/check_metadata.cmake")
 set_tests_properties(smoke_metadata PROPERTIES FIXTURES_REQUIRED smoke_output LABELS smoke)
+
+# 2b. The result file contains all six main quantities with uncertainties.
+add_test(NAME smoke_results
+  COMMAND ${CMAKE_COMMAND} -DRESULTS=${_out}/results.json -P "${CMAKE_CURRENT_SOURCE_DIR}/check_results.cmake")
+set_tests_properties(smoke_results PROPERTIES FIXTURES_REQUIRED smoke_output LABELS smoke)
 
 # 3. The written resolved configuration is itself a valid input.
 add_test(NAME smoke_resolved_config_reparses
@@ -78,3 +84,24 @@ add_test(NAME smoke_rejects_open_geometry
   COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/open_geometry.yaml")
 set_tests_properties(smoke_rejects_open_geometry PROPERTIES
   PASS_REGULAR_EXPRESSION "are not closed.*require_closed: false" LABELS smoke)
+
+# 7. Gate M2: Maxwell and CLL example runs are reproducible (bitwise identical
+#    results for the same configuration, seed and build).
+foreach(_sim tpmc_maxwell tpmc_cll)
+  foreach(_rep a b)
+    add_test(NAME repro_${_sim}_${_rep}
+      COMMAND vleo_solver --config "${_cfg}/simulations/${_sim}.yaml" --histories 300000 --quiet
+                          --output-dir "${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_${_rep}")
+    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT 300)
+  endforeach()
+  add_test(NAME repro_${_sim}_compare
+    COMMAND ${CMAKE_COMMAND} -DA=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_a/results.json
+                             -DB=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_b/results.json
+                             -P "${CMAKE_CURRENT_SOURCE_DIR}/compare_results.cmake")
+  set_tests_properties(repro_${_sim}_compare PROPERTIES FIXTURES_REQUIRED repro_${_sim} LABELS smoke)
+endforeach()
+
+# 8. DSMC is rejected until M3; HDF5 output is not part of this build.
+add_test(NAME smoke_rejects_dsmc_run
+  COMMAND vleo_solver --config "${_cfg}/simulations/dsmc_cll.yaml" --output-dir "${CMAKE_CURRENT_BINARY_DIR}/dsmc")
+set_tests_properties(smoke_rejects_dsmc_run PROPERTIES PASS_REGULAR_EXPRESSION "dsmc is not available yet" LABELS smoke)

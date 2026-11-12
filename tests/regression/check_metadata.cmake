@@ -27,7 +27,7 @@ function(require_equal expected)
 endfunction()
 
 require_equal("vleo-run-metadata/1" schema)
-require_equal("configured" status)
+require_equal("completed" status)
 require_equal("tpmc" simulation mode)
 require_equal("cll" simulation gsi_model)
 require_equal("${EXPECTED_BACKEND}" simulation backend)

@@ -17,6 +17,8 @@ vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | `--check` | validate only (no Kokkos initialisation, no output); exit 0 if valid |
 | `--print-config` | print the resolved configuration (YAML) to stdout |
 | `--output-dir DIR` | overrides `output.directory` |
+| `-n, --histories N` | overrides `tpmc.particle_histories` (recorded in `resolved_config.yaml`) |
+| `-q, --quiet` | no progress output |
 | `--version` | build provenance (git commit, compiler, build type, Kokkos, backend) |
 
 Exit codes: 0 success, 1 runtime error, 2 invalid configuration, 64 usage error.
@@ -110,6 +112,9 @@ Material files cannot reference other material files.
 | `particle_histories` | uint64 | 1000000 | ≥ 1 |
 | `max_reflections` | uint32 | 100 | ≥ 1; histories needing more surface interactions are truncated and counted |
 | `batch_size` | uint64 | 1048576 | 1 … 2³¹; histories per kernel launch (memory vs. launch overhead) |
+| `convergence.quantity` | enum | – | `C_D`, `C_L`, `C_Y`, `C_Mx`, `C_My`, `C_Mz`, `heat_rate_W` (block optional) |
+| `convergence.relative_error` / `absolute_error` | real | – | > 0; exactly one; stop once SE ≤ target ([tpmc.md](tpmc.md) §5) |
+| `convergence.min_histories` | uint64 | 0 | run at least this many histories |
 
 ### `dsmc` (O)
 
@@ -136,8 +141,8 @@ Material files cannot reference other material files.
 | Key | Type | Default | Constraint |
 | --- | ---- | ------- | ---------- |
 | `directory` | string | `results/` | relative to the working directory |
-| `format` | enum | `json` | `json` \| `csv` \| `hdf5` |
-| `save_surface_fields` | bool | false | |
+| `format` | enum | `json` | `json` \| `csv` \| `hdf5`; `results.json` is always written, `csv` adds `results.csv`; `hdf5` is not available in this build and is rejected |
+| `save_surface_fields` | bool | false | write per-triangle force/heat to `surface_fields.csv` |
 
 ## Platform schema
 
@@ -149,7 +154,13 @@ platform:
   description: ...    # O: free text
 ```
 
-## Outputs of a run (M1)
+## Outputs of a run
+
+The TPMC result files (`results.json`, `results.csv`, `surface_fields.csv`)
+are described in [tpmc.md](tpmc.md) §8. `simulation.mode: dsmc` is validated
+but cannot be run before milestone M3.
+
+### Common files
 
 Geometry errors (unreadable STL, open or non-manifold mesh with
 `require_closed: true`, domain box not containing the body) are reported like

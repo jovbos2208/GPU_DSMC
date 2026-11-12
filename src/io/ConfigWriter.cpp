@@ -68,6 +68,14 @@ void walk(const SimulationConfig& c, Sink& s) {
   s.u64("particle_histories", c.tpmc.particle_histories);
   s.u64("max_reflections", c.tpmc.max_reflections);
   s.u64("batch_size", c.tpmc.batch_size);
+  if (c.tpmc.convergence) {
+    s.begin("convergence");
+    s.str("quantity", to_string(c.tpmc.convergence->quantity));
+    if (c.tpmc.convergence->relative_error) s.dbl("relative_error", *c.tpmc.convergence->relative_error);
+    if (c.tpmc.convergence->absolute_error) s.dbl("absolute_error", *c.tpmc.convergence->absolute_error);
+    s.u64("min_histories", c.tpmc.convergence->min_histories);
+    s.end();
+  }
   s.end();
 
   s.begin("dsmc");

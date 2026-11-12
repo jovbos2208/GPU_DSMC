@@ -1,12 +1,13 @@
 // vleo_solver - command-line entry point.
 //
-// Current state (milestone M1): reads and validates the simulation (and
-// optional platform) configuration and the geometry (STL import, topology and
-// orientation checks, BVH), sets up the simulation domain and the free-stream
-// inflow, initialises Kokkos on the compiled backend, runs a backend self-test
-// and archives the resolved configuration plus complete run metadata. The
-// physical surface models and force/heat tallies follow in M2.
+// Current state (milestone M2): reads and validates the simulation (and
+// optional platform) configuration and the geometry, sets up the domain and
+// the free-stream inflow, initialises Kokkos on the compiled backend, runs a
+// backend self-test and the TPMC solver (Maxwell or CLL), and writes the
+// results with uncertainties plus the resolved configuration and complete run
+// metadata. DSMC follows in M3.
 
+#include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -27,6 +28,8 @@
 #include "vleo/io/PlatformConfig.hpp"
 #include "vleo/io/RunMetadata.hpp"
 #include "vleo/particles/Inflow.hpp"
+#include "vleo/tpmc/Results.hpp"
+#include "vleo/tpmc/Tpmc.hpp"
 
 namespace fs = std::filesystem;
 
@@ -41,7 +44,9 @@ struct Options {
   std::optional<fs::path> config;
   std::optional<fs::path> platform;
   std::optional<fs::path> output_dir;
+  std::uint64_t histories = 0;  // 0: use tpmc.particle_histories
   bool check_only = false;
+  bool quiet = false;
   bool print_config = false;
   bool version = false;
   bool help = false;
@@ -54,6 +59,8 @@ void print_usage(std::ostream& os) {
         "  -c, --config <file>      Simulation configuration (required)\n"
         "  -p, --platform <file>    Platform configuration; its backend must match this build\n"
         "  -o, --output-dir <dir>   Override output.directory from the configuration\n"
+        "  -n, --histories <N>      Override tpmc.particle_histories (recorded in the resolved config)\n"
+        "  -q, --quiet              No progress output\n"
         "      --check              Validate the configuration(s) and exit (no Kokkos initialisation)\n"
         "      --print-config       Print the resolved configuration (YAML) to stdout\n"
         "      --version            Print build information and exit\n"
@@ -85,6 +92,18 @@ std::optional<Options> parse_args(int argc, char** argv) {
       auto v = need_value("--output-dir");
       if (!v) return std::nullopt;
       o.output_dir = *v;
+    } else if (a == "-n" || a == "--histories") {
+      auto v = need_value("--histories");
+      if (!v) return std::nullopt;
+      std::uint64_t n = 0;
+      const auto [p, ec] = std::from_chars(v->data(), v->data() + v->size(), n);
+      if (ec != std::errc() || p != v->data() + v->size() || n == 0) {
+        std::cerr << "error: --histories expects a positive integer\n";
+        return std::nullopt;
+      }
+      o.histories = n;
+    } else if (a == "-q" || a == "--quiet") {
+      o.quiet = true;
     } else if (a == "--check") {
       o.check_only = true;
     } else if (a == "--print-config") {
@@ -224,11 +243,22 @@ int run(const Options& opt, int argc, char** argv) {
     return kExitConfigError;
   }
 
+  if (cfg.output.format == vleo::OutputFormat::HDF5) {
+    std::cerr << "error: output.format: hdf5 is not available in this build (use json or csv)\n";
+    return kExitConfigError;
+  }
+  if (opt.histories > 0) cfg.tpmc.particle_histories = opt.histories;
+
   if (opt.print_config) std::cout << vleo::to_resolved_yaml(cfg);
   if (opt.check_only) {
     std::cerr << "configuration valid: " << cfg.source_file.string() << " (" << geometry.report.triangles
               << " triangles, " << geometry.report.components.size() << " component(s))\n";
     return kExitOk;
+  }
+
+  if (cfg.simulation.mode == vleo::SolverMode::DSMC) {
+    std::cerr << "error: simulation.mode: dsmc is not available yet (milestone M3); use tpmc\n";
+    return kExitConfigError;
   }
 
   // --- Kokkos ----------------------------------------------------------------
@@ -254,8 +284,27 @@ int run(const Options& opt, int argc, char** argv) {
   notes.push_back(self_test.detail);
   if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
-  notes.push_back("milestone M1: geometry, domain and inflow set up; no surface model is available yet, so "
-                  "no particle simulation was performed");
+  // --- TPMC ------------------------------------------------------------------
+  vleo::TpmcResult result;
+  if (self_test_ok) {
+    vleo::TpmcProgressCallback progress;
+    if (!opt.quiet) {
+      progress = [](const vleo::TpmcProgress& p) {
+        std::cerr << "  tpmc: " << p.histories << " / " << p.target << " histories, " << p.elapsed_s << " s, "
+                  << "monitored = " << p.monitored.value << " +- " << p.monitored.std_error << "\n";
+      };
+    }
+    try {
+      result = vleo::run_tpmc(cfg, geometry, inflow, 0, progress);
+    } catch (const std::exception& e) {
+      std::cerr << "error: TPMC run failed: " << e.what() << "\n";
+      return kExitRuntimeError;
+    }
+    for (const auto& w : result.warnings) {
+      notes.push_back("tpmc: " + w);
+      std::cerr << "warning: tpmc: " << w << "\n";
+    }
+  }
 
   // --- Outputs -----------------------------------------------------------------
   const fs::path out_dir = opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory);
@@ -266,6 +315,23 @@ int run(const Options& opt, int argc, char** argv) {
     const fs::path f_input = out_dir / "input_config.yaml";
     const fs::path f_kokkos = out_dir / "kokkos_configuration.txt";
     const fs::path f_meta = out_dir / "run_metadata.json";
+    const fs::path f_results = out_dir / "results.json";
+    const fs::path f_csv = out_dir / "results.csv";
+    const fs::path f_surface = out_dir / "surface_fields.csv";
+    std::vector<std::string> files = {f_meta.filename().string(), f_resolved.filename().string(),
+                                      f_input.filename().string(), f_kokkos.filename().string()};
+    if (self_test_ok) {
+      write_text_file(f_results, vleo::results_json(result, cfg, rt.timestamp_utc));
+      files.push_back(f_results.filename().string());
+      if (cfg.output.format == vleo::OutputFormat::CSV) {
+        write_text_file(f_csv, vleo::results_csv(result));
+        files.push_back(f_csv.filename().string());
+      }
+      if (result.surface) {
+        write_text_file(f_surface, vleo::surface_fields_csv(result, geometry));
+        files.push_back(f_surface.filename().string());
+      }
+    }
 
     write_text_file(f_resolved, vleo::to_resolved_yaml(cfg));
     write_text_file(f_input, read_text_file(cfg.source_file));
@@ -277,16 +343,23 @@ int run(const Options& opt, int argc, char** argv) {
     meta.config = &cfg;
     meta.platform = platform ? &*platform : nullptr;
     meta.runtime = rt;
-    meta.status = self_test_ok ? "configured" : "self_test_failed";
+    const bool clean = result.counters.lost_inside_body + result.counters.invalid == 0;
+    meta.status = !self_test_ok ? "self_test_failed" : (clean ? "completed" : "completed_with_errors");
     meta.notes = notes;
     meta.sections.emplace_back("geometry", [&](vleo::JsonWriter& w) { write_geometry_json(w, geometry, cfg); });
     meta.sections.emplace_back("inflow", [&](vleo::JsonWriter& w) { write_inflow_json(w, inflow, cfg); });
-    meta.output_files = {f_meta.filename().string(), f_resolved.filename().string(), f_input.filename().string(),
-                         f_kokkos.filename().string()};
+    meta.output_files = files;
     write_text_file(f_meta, vleo::make_run_metadata_json(meta));
 
     std::cerr << "vleo_solver: backend " << vleo::to_string(vleo::compiled_backend()) << " ("
-              << rt.execution_space << "), wrote " << fs::absolute(f_meta).lexically_normal().string() << "\n";
+              << rt.execution_space << "), " << result.histories << " histories in " << result.wall_time_s
+              << " s, wrote " << fs::absolute(out_dir).lexically_normal().string() << "\n";
+    if (self_test_ok && !opt.quiet) {
+      const auto& e = result.estimates;
+      std::cerr << "  C_D = " << e.C_D.value << " +- " << e.C_D.std_error << ", C_L = " << e.C_L.value << " +- "
+                << e.C_L.std_error << ", Q = " << e.heat_rate_W.value << " +- " << e.heat_rate_W.std_error
+                << " W\n";
+    }
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";
     return kExitRuntimeError;

@@ -309,6 +309,23 @@ TEST_CASE("Uniform conversion edge cases", "[rng][edge]") {
   static_assert(RandomStream::uniform_from_words(0x80000000u, 0u) == 0.5);
   static_assert(RandomStream::uniform_from_words(0xFFFFFFFFu, 0xFFFFFFFFu) < 1.0);
 
+  static_assert(RandomStream::uniform_open_from_words(0u, 0u) == eps53);
+  static_assert(RandomStream::uniform_open_from_words(0xFFFFFFFFu, 0xFFFFFFFFu) == 1.0 - eps53);
+  static_assert(RandomStream::uniform_open_from_words(0x80000000u, 0u) == 0.5 + eps53);
+  {
+    RandomStream r(kSeed, 77, 0, RngStream::Test);
+    double lo = 1.0, hi = 0.0, sum = 0.0;
+    for (int i = 0; i < 100000; ++i) {
+      const double u = r.uniform_open();
+      lo = std::min(lo, u);
+      hi = std::max(hi, u);
+      sum += u;
+    }
+    CHECK(lo > 0.0);
+    CHECK(hi < 1.0);
+    CHECK(std::fabs(sum / 100000 - 0.5) < 5.0 * std::sqrt(1.0 / 12.0 / 100000));
+  }
+
   // uniform_pos = 1 - uniform lies in (0, 1]; its extreme values keep log finite.
   CHECK(1.0 - RandomStream::uniform_from_words(0xFFFFFFFFu, 0xFFFFFFFFu) == eps53);
   double z0 = 0.0, z1 = 0.0;

@@ -1,6 +1,6 @@
 # Test suite. Run everything with:   ctest --preset <preset>
 # (equivalently: ctest --test-dir build/<preset> --output-on-failure)
-# Labels: unit, smoke, config, rng, geometry, particles, gate.
+# Labels: unit, smoke, config, rng, geometry, particles, gate, physics.
 
 add_library(vleo_test_main STATIC unit/test_main.cpp)
 target_link_libraries(vleo_test_main PUBLIC Catch2::Catch2 Kokkos::kokkos vleo_core)
@@ -27,5 +27,8 @@ vleo_add_unit_test(test_mesh      SOURCES unit/test_mesh.cpp LIBS vleo_geometry 
 vleo_add_unit_test(test_ray       SOURCES unit/test_ray.cpp LIBS vleo_geometry LABELS geometry)
 vleo_add_unit_test(test_inflow    SOURCES unit/test_inflow.cpp LIBS vleo_particles LABELS particles)
 vleo_add_unit_test(test_transport SOURCES unit/test_transport.cpp LIBS vleo_particles LABELS "particles;gate")
+vleo_add_unit_test(test_gsi       SOURCES unit/test_gsi.cpp LIBS vleo_gsi LABELS physics)
+vleo_add_unit_test(test_tpmc      SOURCES unit/test_tpmc.cpp LIBS vleo_tpmc LABELS physics)
+target_compile_definitions(test_tpmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
 
 add_subdirectory(regression)

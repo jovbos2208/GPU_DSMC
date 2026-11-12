@@ -520,3 +520,37 @@ TEST_CASE("Rejected: invalid domain and M1 options", "[config][negative]") {
   expect_invalid(mutate("file: body.stl", "file: body.stl\n  require_closed: no"),
                  "geometry.require_closed: expected true or false");
 }
+
+// ----------------------------------------------------------------------------
+// M2 additions: tpmc.convergence
+// ----------------------------------------------------------------------------
+
+TEST_CASE("Convergence criterion", "[config]") {
+  CHECK(!parse_simulation_config(kMinimal, kData).tpmc.convergence);
+  const SimulationConfig c = parse_simulation_config(
+      std::string(kMinimal) +
+          "tpmc:\n  convergence:\n    quantity: heat_rate_W\n    absolute_error: 1e-3\n    min_histories: 5000\n",
+      kData);
+  REQUIRE(c.tpmc.convergence);
+  CHECK(c.tpmc.convergence->quantity == ConvergenceQuantity::HeatRate);
+  CHECK(*c.tpmc.convergence->absolute_error == 1e-3);
+  CHECK(!c.tpmc.convergence->relative_error);
+  CHECK(c.tpmc.convergence->min_histories == 5000);
+  const std::string yaml = to_resolved_yaml(c);
+  CHECK_THAT(yaml, ContainsSubstring("quantity: \"heat_rate_W\""));
+  CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
+}
+
+TEST_CASE("Rejected: invalid convergence criteria", "[config][negative]") {
+  const auto [block, needle] = GENERATE(table<std::string, std::string>({
+      {"    quantity: C_D\n", "give exactly one of relative_error or absolute_error"},
+      {"    quantity: C_D\n    relative_error: 0.01\n    absolute_error: 0.1\n", "give exactly one of"},
+      {"    quantity: drag\n    relative_error: 0.01\n", "tpmc.convergence.quantity: invalid value 'drag'"},
+      {"    relative_error: 0.01\n", "tpmc.convergence.quantity: required key is missing"},
+      {"    quantity: C_L\n    relative_error: 0\n", "tpmc.convergence.relative_error: value 0 is outside"},
+      {"    quantity: C_L\n    absolute_error: -1\n", "tpmc.convergence.absolute_error: value -1 is outside"},
+      {"    quantity: C_L\n    relative_error: 0.1\n    tolerance: 1\n", "tpmc.convergence.tolerance: unknown key"},
+  }));
+  INFO(needle);
+  expect_invalid(std::string(kMinimal) + "tpmc:\n  convergence:\n" + block, needle);
+}

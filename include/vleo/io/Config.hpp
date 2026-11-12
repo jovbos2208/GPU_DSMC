@@ -23,6 +23,7 @@ enum class LengthUnit { Metre, Centimetre, Millimetre };
 enum class OutputFormat { JSON, CSV, HDF5 };
 enum class CollisionModel { VHS };
 enum class ParameterMode { Automatic, Fixed };
+enum class ConvergenceQuantity { CD, CL, CY, CMx, CMy, CMz, HeatRate };
 
 std::string_view to_string(SolverMode v);
 std::string_view to_string(LengthUnit v);
@@ -30,6 +31,7 @@ std::string_view to_string(OutputFormat v);
 std::string_view to_string(CollisionModel v);
 std::string_view to_string(ParameterMode v);
 std::string_view to_string(GSIModel v);
+std::string_view to_string(ConvergenceQuantity v);
 
 double length_unit_to_metre(LengthUnit u);
 
@@ -97,10 +99,22 @@ struct SurfaceSection {
   std::filesystem::path material_file;       // empty unless loaded via surface.material_file
 };
 
+// Optional early stop: after every batch the standard error of `quantity` is
+// compared with the target (exactly one of relative_error / absolute_error);
+// the run stops once it is reached and at least min_histories were run.
+// tpmc.particle_histories remains the upper limit.
+struct ConvergenceCriterion {
+  ConvergenceQuantity quantity = ConvergenceQuantity::CD;
+  std::optional<double> relative_error;  // std_error / |value|
+  std::optional<double> absolute_error;  // std_error in the unit of the quantity
+  std::uint64_t min_histories = 0;
+};
+
 struct TPMCSection {
   std::uint64_t particle_histories = 1'000'000;
   std::uint32_t max_reflections = 100;
   std::uint64_t batch_size = 1u << 20;  // histories processed per kernel launch
+  std::optional<ConvergenceCriterion> convergence;
 };
 
 struct DSMCSection {

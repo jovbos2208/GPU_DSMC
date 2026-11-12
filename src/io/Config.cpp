@@ -30,6 +30,19 @@ std::string_view to_string(ParameterMode v) { return v == ParameterMode::Automat
 
 std::string_view to_string(GSIModel v) { return v == GSIModel::Maxwell ? "maxwell" : "cll"; }
 
+std::string_view to_string(ConvergenceQuantity v) {
+  switch (v) {
+    case ConvergenceQuantity::CD: return "C_D";
+    case ConvergenceQuantity::CL: return "C_L";
+    case ConvergenceQuantity::CY: return "C_Y";
+    case ConvergenceQuantity::CMx: return "C_Mx";
+    case ConvergenceQuantity::CMy: return "C_My";
+    case ConvergenceQuantity::CMz: return "C_Mz";
+    case ConvergenceQuantity::HeatRate: return "heat_rate_W";
+  }
+  return "?";
+}
+
 double length_unit_to_metre(LengthUnit u) {
   switch (u) {
     case LengthUnit::Metre: return units::metre;

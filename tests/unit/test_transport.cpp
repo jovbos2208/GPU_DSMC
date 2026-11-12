@@ -32,11 +32,13 @@ struct RandomCosineInteraction {
     if (!(local.z > 0.0)) return e.normal_gas * norm(e.velocity_in);  // r2 == 1 has probability 2^-53
     return norm(e.velocity_in) * b.to_global(local);
   }
+  KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int) const { return Vec3(); }
 };
 
 // Deliberately broken model: re-emits into the surface.
 struct IntoTheWallInteraction {
   KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent& e, RandomStream&) const { return -e.normal_gas; }
+  KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int) const { return Vec3(); }
 };
 
 GasSection make_gas(const Vec3& u) {

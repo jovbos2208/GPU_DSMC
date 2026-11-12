@@ -30,6 +30,13 @@ constexpr std::array<EnumEntry<GSIModel>, 2> kGsi{{{"maxwell", GSIModel::Maxwell
 constexpr std::array<EnumEntry<CollisionModel>, 1> kCollision{{{"VHS", CollisionModel::VHS}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
     {{"automatic", ParameterMode::Automatic}, {"fixed", ParameterMode::Fixed}}};
+constexpr std::array<EnumEntry<ConvergenceQuantity>, 7> kConvQuantities{{{"C_D", ConvergenceQuantity::CD},
+                                                                          {"C_L", ConvergenceQuantity::CL},
+                                                                          {"C_Y", ConvergenceQuantity::CY},
+                                                                          {"C_Mx", ConvergenceQuantity::CMx},
+                                                                          {"C_My", ConvergenceQuantity::CMy},
+                                                                          {"C_Mz", ConvergenceQuantity::CMz},
+                                                                          {"heat_rate_W", ConvergenceQuantity::HeatRate}}};
 constexpr std::array<EnumEntry<OutputFormat>, 3> kFormats{
     {{"json", OutputFormat::JSON}, {"csv", OutputFormat::CSV}, {"hdf5", OutputFormat::HDF5}}};
 
@@ -257,7 +264,31 @@ void parse_surface(const YAML::Node& n, const fs::path& base_dir, SurfaceSection
 void parse_tpmc(const YAML::Node& n, TPMCSection& out, Issues& is) {
   const std::string p = "tpmc";
   if (!n.IsDefined()) return;
-  if (!check_map(n, p, {"particle_histories", "max_reflections", "batch_size"}, is)) return;
+  if (!check_map(n, p, {"particle_histories", "max_reflections", "batch_size", "convergence"}, is)) return;
+  if (auto c = child(n, "convergence", p, is, Need::Optional)) {
+    const std::string cp = p + ".convergence";
+    if (check_map(*c, cp, {"quantity", "relative_error", "absolute_error", "min_histories"}, is)) {
+      ConvergenceCriterion crit;
+      bool ok = true;
+      if (auto q = get_enum(*c, "quantity", cp, is, Need::Required, kConvQuantities))
+        crit.quantity = *q;
+      else
+        ok = false;
+      const bool has_rel = (*c)["relative_error"].IsDefined(), has_abs = (*c)["absolute_error"].IsDefined();
+      if (has_rel == has_abs) {
+        is.add(cp, "give exactly one of relative_error or absolute_error", &*c);
+        ok = false;
+      } else if (has_rel) {
+        crit.relative_error = get_double_in(*c, "relative_error", cp, is, Need::Required, kPositive);
+        ok = ok && crit.relative_error.has_value();
+      } else {
+        crit.absolute_error = get_double_in(*c, "absolute_error", cp, is, Need::Required, kPositive);
+        ok = ok && crit.absolute_error.has_value();
+      }
+      if (auto m = get_uint64(*c, "min_histories", cp, is, Need::Optional)) crit.min_histories = *m;
+      if (ok) out.convergence = crit;
+    }
+  }
   if (auto v = get_uint64(n, "batch_size", p, is, Need::Optional)) {
     if (*v == 0 || *v > (std::uint64_t{1} << 31))
       is.add(p + ".batch_size", "must be in [1, 2147483648]");

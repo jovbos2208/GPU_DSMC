@@ -42,7 +42,7 @@ Build directories are `build/<preset>/`. Any CMake generator works; add
 Useful subsets: `ctest --preset cpu-debug -L unit`, `-L smoke`, `-L rng`, `-L config`,
 `-L geometry`, `-L particles`, `-L gate`.
 
-## What the tests cover (M0, M1)
+## What the tests cover (M0 – M2)
 
 | Test | Content |
 | ---- | ------- |
@@ -57,6 +57,9 @@ Useful subsets: `ctest --preset cpu-debug -L unit`, `-L smoke`, `-L rng`, `-L co
 | `test_ray` | ray-triangle analytic cases, watertightness, BVH ≡ brute force (host and device) |
 | `test_inflow` | flux-weighted inflow distribution (KS, χ², moments), domain |
 | `test_transport` | Gate M1: cube particle balance and analytic hit rate, multiple reflections, truncation, failure states |
+| `test_gsi` | Maxwell and CLL kernels: limits, distributions (KS), moments, wall velocity, outward re-emission |
+| `test_tpmc` | flat plate vs. free-molecular theory, specular/diffuse limits, thermal equilibrium, symmetry, surface fields, batching, convergence stop (Debug: ¼ of the histories) |
+| `smoke_results`, `repro_*` | Gate M2: all six quantities with uncertainties in `results.json`; Maxwell and CLL example runs bitwise reproducible |
 | `smoke_*` | the `vleo_solver` executable: full start-up with the platform file of the build, metadata completeness (incl. geometry and inflow), re-parse of the resolved config, all shipped simulation configs, failure paths (foreign platform, invalid config, missing or open geometry, usage), `--version` |
 
 Device tests run on the default execution space of the build (Serial/OpenMP on
@@ -66,11 +69,23 @@ CPU builds, the GPU on CUDA/HIP builds).
 
 | Date | Preset | Toolchain | Result |
 | ---- | ------ | --------- | ------ |
-| 2026-11-12 | `cpu-debug` | GCC 15.2.0, CMake 4.2.3, Linux x86_64 | build without warnings (`-Werror`), M0: 20/20, M1: 27/27 tests pass |
-| 2026-11-12 | `cpu-release` | GCC 15.2.0, CMake 4.2.3, OpenMP, 12 threads | M0: 20/20, M1: 27/27 tests pass |
+| 2026-11-12 | `cpu-debug` | GCC 15.2.0, CMake 4.2.3, Linux x86_64 | build without warnings (`-Werror`), M0: 20/20, M1: 27/27, M2: 37/37 tests pass |
+| 2026-11-12 | `cpu-release` | GCC 15.2.0, CMake 4.2.3, OpenMP, 12 threads | M0: 20/20, M1: 27/27, M2: 37/37 tests pass |
 | – | `cuda` | not yet available | **open** – requires a machine with CUDA ≥ 12.2 |
-| 2026-11-12 | `hip-gfx1100` | hipcc (HIP 7.1.52801, Clang 21.1.8), CMake 4.2.3, Radeon 740M iGPU (gfx1103 run as gfx1100 via `HSA_OVERRIDE_GFX_VERSION=11.0.0`) | build without warnings, M0: 20/20, M1: 27/27 tests pass; RNG self-test checksum bitwise identical to the CPU builds |
+| 2026-11-12 | `hip-gfx1100` | hipcc (HIP 7.1.52801, Clang 21.1.8), CMake 4.2.3, Radeon 740M iGPU (gfx1103 run as gfx1100 via `HSA_OVERRIDE_GFX_VERSION=11.0.0`) | build without warnings, M0: 20/20, M1: 27/27, M2: 37/37 tests pass; RNG self-test checksum bitwise identical to the CPU builds |
 | – | `hip` (GFX942) | not yet available | **open** – compiles the same sources for MI300X; requires that hardware to run |
+
+### Cross-backend comparison (Gate M2)
+
+`scripts/compare_results.py` on `configs/simulations/tpmc_maxwell.yaml` and
+`tpmc_cll.yaml` with 2·10⁷ histories each (2026-11-12):
+
+| A | B | Result |
+| - | - | ------ |
+| `cpu-release` (OpenMP, 12 threads) | `hip-gfx1100` (Radeon 740M) | all 15 quantities (F, M, C_D, C_L, C_Y, C_M, Q̇, Q̇⁺, Q̇⁻) **numerically equal**: max. relative difference 9·10⁻¹⁴ (Maxwell 1.3·10⁻¹⁴) |
+
+The histories are identical on all backends (counter-based RNG), so the
+results differ only by floating-point rounding in device math and reductions.
 
 Add a row whenever a preset is built on a new toolchain. Gate M0 still
 requires a `cuda` row.

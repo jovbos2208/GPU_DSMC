@@ -6,11 +6,11 @@ Cercignani–Lampis–Lord gas-surface interaction. C++20 + Kokkos: one source t
 for CPU, NVIDIA (CUDA) and AMD (HIP).
 
 The roadmap and checklist are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-**Status: milestone M1** (geometry and particle transport) – STL import and
-mesh validation, watertight ray tracing with a GPU BVH, flux-exact free-stream
-inflow, collisionless transport with multiple reflections and a complete
-particle balance. The physical surface models (Maxwell, CLL) and the force /
-moment / heat tallies follow in M2.
+**Status: milestone M2 – release v0.1-tpmc.** Complete free-molecular TPMC
+solver: Maxwell and CLL gas-surface interaction, forces, moments, C_D, C_L,
+C_Y, C_M and heat transfer with standard errors and confidence intervals,
+optional convergence stop, JSON/CSV output and per-triangle surface fields.
+Verified against analytic free-molecular theory. DSMC follows in M3.
 
 ## Quick start (CPU)
 
@@ -22,6 +22,7 @@ ctest --preset cpu-debug
 build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
                             --platform configs/platforms/cpu.yaml \
                             --output-dir results/tpmc_cll
+# -> results/tpmc_cll/results.json (F, M, C_D, C_L, C_M, Q with uncertainties)
 ```
 
 ## Documentation
@@ -32,6 +33,7 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/configuration.md](docs/configuration.md) | YAML schema, CLI, output files |
 | [docs/conventions.md](docs/conventions.md) | SI units, axes, normals, sign conventions, RNG |
 | [docs/geometry.md](docs/geometry.md) | STL import, mesh checks, epsilon strategy, BVH, inflow, transport |
+| [docs/tpmc.md](docs/tpmc.md) | Maxwell/CLL kernels, event weight, tallies, statistics, output, physics verification |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
 
 ## Layout
