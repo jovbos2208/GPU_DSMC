@@ -3,10 +3,13 @@
 // Run metadata: everything required to reproduce and audit a run (build
 // provenance, runtime environment, resolved configuration, derived values).
 
+#include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "vleo/io/Config.hpp"
+#include "vleo/io/JsonWriter.hpp"
 #include "vleo/io/PlatformConfig.hpp"
 
 namespace vleo {
@@ -29,6 +32,9 @@ struct RunMetadataInput {
   std::string status;                           // e.g. "configured", "completed"
   std::vector<std::string> notes;               // human-readable remarks / warnings
   std::vector<std::string> output_files;        // files written next to the metadata
+  // Additional top-level sections (e.g. "geometry", "inflow"): key and a
+  // callback that writes exactly one JSON value.
+  std::vector<std::pair<std::string, std::function<void(JsonWriter&)>>> sections;
 };
 
 std::string make_run_metadata_json(const RunMetadataInput& in);

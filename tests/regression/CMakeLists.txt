@@ -68,3 +68,13 @@ set_tests_properties(smoke_usage_error PROPERTIES WILL_FAIL ON LABELS smoke)
 add_test(NAME smoke_version COMMAND vleo_solver --version)
 set_tests_properties(smoke_version PROPERTIES
   PASS_REGULAR_EXPRESSION "Kokkos version   : [0-9]+\\.[0-9]+\\.[0-9]+" LABELS smoke)
+
+# 6. Geometry errors are configuration errors (exit code 2) with a clear message.
+add_test(NAME smoke_rejects_missing_geometry
+  COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/missing_geometry.yaml")
+set_tests_properties(smoke_rejects_missing_geometry PROPERTIES
+  PASS_REGULAR_EXPRESSION "cannot open STL file" LABELS smoke)
+add_test(NAME smoke_rejects_open_geometry
+  COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/open_geometry.yaml")
+set_tests_properties(smoke_rejects_open_geometry PROPERTIES
+  PASS_REGULAR_EXPRESSION "are not closed.*require_closed: false" LABELS smoke)

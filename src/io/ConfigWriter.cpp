@@ -21,7 +21,16 @@ void walk(const SimulationConfig& c, Sink& s) {
   s.begin("geometry");
   s.str("file", c.geometry.resolved_file.string());
   s.str("units", to_string(c.geometry.units));
+  s.boolean("require_closed", c.geometry.require_closed);
   s.end();
+
+  if (c.domain.margin_m || c.domain.box_min_m) {
+    s.begin("domain");
+    if (c.domain.margin_m) s.dbl("margin_m", *c.domain.margin_m);
+    if (c.domain.box_min_m) s.vec("box_min_m", *c.domain.box_min_m);
+    if (c.domain.box_max_m) s.vec("box_max_m", *c.domain.box_max_m);
+    s.end();
+  }
 
   s.begin("reference");
   s.dbl("area_m2", c.reference.area_m2);
@@ -58,6 +67,7 @@ void walk(const SimulationConfig& c, Sink& s) {
   s.begin("tpmc");
   s.u64("particle_histories", c.tpmc.particle_histories);
   s.u64("max_reflections", c.tpmc.max_reflections);
+  s.u64("batch_size", c.tpmc.batch_size);
   s.end();
 
   s.begin("dsmc");

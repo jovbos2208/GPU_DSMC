@@ -1,0 +1,258 @@
+solid bus
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex -0.5 0.5 -0.75
+      vertex 0.5 0.5 -0.75
+    endloop
+  endfacet
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex 0.5 0.5 -0.75
+      vertex 0.5 -0.5 -0.75
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 -0.5 0.75
+      vertex 0.5 -0.5 0.75
+      vertex 0.5 0.5 0.75
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 -0.5 0.75
+      vertex 0.5 0.5 0.75
+      vertex -0.5 0.5 0.75
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex 0.5 -0.5 -0.75
+      vertex 0.5 -0.5 0.75
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex 0.5 -0.5 0.75
+      vertex -0.5 -0.5 0.75
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 0.5 -0.75
+      vertex -0.5 0.5 0.75
+      vertex 0.5 0.5 0.75
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 0.5 -0.75
+      vertex 0.5 0.5 0.75
+      vertex 0.5 0.5 -0.75
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex -0.5 -0.5 0.75
+      vertex -0.5 0.5 0.75
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 -0.5 -0.75
+      vertex -0.5 0.5 0.75
+      vertex -0.5 0.5 -0.75
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 -0.5 -0.75
+      vertex 0.5 0.5 -0.75
+      vertex 0.5 0.5 0.75
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 -0.5 -0.75
+      vertex 0.5 0.5 0.75
+      vertex 0.5 -0.5 0.75
+    endloop
+  endfacet
+endsolid bus
+solid panel_left
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex -0.5 -0.55 -0.01
+      vertex 0.5 -0.55 -0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex 0.5 -0.55 -0.01
+      vertex 0.5 -2.55 -0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 -2.55 0.01
+      vertex 0.5 -2.55 0.01
+      vertex 0.5 -0.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 -2.55 0.01
+      vertex 0.5 -0.55 0.01
+      vertex -0.5 -0.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex 0.5 -2.55 -0.01
+      vertex 0.5 -2.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex 0.5 -2.55 0.01
+      vertex -0.5 -2.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 -0.55 -0.01
+      vertex -0.5 -0.55 0.01
+      vertex 0.5 -0.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 -0.55 -0.01
+      vertex 0.5 -0.55 0.01
+      vertex 0.5 -0.55 -0.01
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex -0.5 -2.55 0.01
+      vertex -0.5 -0.55 0.01
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 -2.55 -0.01
+      vertex -0.5 -0.55 0.01
+      vertex -0.5 -0.55 -0.01
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 -2.55 -0.01
+      vertex 0.5 -0.55 -0.01
+      vertex 0.5 -0.55 0.01
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 -2.55 -0.01
+      vertex 0.5 -0.55 0.01
+      vertex 0.5 -2.55 0.01
+    endloop
+  endfacet
+endsolid panel_left
+solid panel_right
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex -0.5 2.55 -0.01
+      vertex 0.5 2.55 -0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 -1.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex 0.5 2.55 -0.01
+      vertex 0.5 0.55 -0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 0.55 0.01
+      vertex 0.5 0.55 0.01
+      vertex 0.5 2.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 0.0 1.0
+    outer loop
+      vertex -0.5 0.55 0.01
+      vertex 0.5 2.55 0.01
+      vertex -0.5 2.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex 0.5 0.55 -0.01
+      vertex 0.5 0.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 -1.0 0.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex 0.5 0.55 0.01
+      vertex -0.5 0.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 2.55 -0.01
+      vertex -0.5 2.55 0.01
+      vertex 0.5 2.55 0.01
+    endloop
+  endfacet
+  facet normal 0.0 1.0 0.0
+    outer loop
+      vertex -0.5 2.55 -0.01
+      vertex 0.5 2.55 0.01
+      vertex 0.5 2.55 -0.01
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex -0.5 0.55 0.01
+      vertex -0.5 2.55 0.01
+    endloop
+  endfacet
+  facet normal -1.0 0.0 0.0
+    outer loop
+      vertex -0.5 0.55 -0.01
+      vertex -0.5 2.55 0.01
+      vertex -0.5 2.55 -0.01
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 0.55 -0.01
+      vertex 0.5 2.55 -0.01
+      vertex 0.5 2.55 0.01
+    endloop
+  endfacet
+  facet normal 1.0 0.0 0.0
+    outer loop
+      vertex 0.5 0.55 -0.01
+      vertex 0.5 2.55 0.01
+      vertex 0.5 0.55 0.01
+    endloop
+  endfacet
+endsolid panel_right

@@ -759,27 +759,27 @@ Abnahme: Wissenschaftliche Referenztests bestehen auf NVIDIA und AMD; Performanc
 
 #### M1 – GPU-Geometrie und Partikeltransport
 
-- [ ] **M1.1** Binäres und ASCII-STL mit Einheitenumrechnung importieren.
-- [ ] **M1.2** Degenerierte Dreiecke, Orientierung, Geschlossenheit und nicht-manifold Kanten prüfen.
-- [ ] **M1.3** Flächen, Normalen, Bounding Box und Material-IDs GPU-tauglich speichern.
-- [ ] **M1.4** Mesh-Tests für Dreieck, Würfel, Skalierung und Fehlerfälle ergänzen.
-- [ ] **M1.5** Robusten Ray-Triangle-Test mit dokumentierter Epsilon-Strategie implementieren.
-- [ ] **M1.6** CPU-BVH-Builder mit flachen GPU-Knotenarrays implementieren.
-- [ ] **M1.7** Iterative GPU-BVH-Traversierung implementieren.
-- [ ] **M1.8** Selbsttreffer, Kanten- und Ecktreffer robust behandeln.
-- [ ] **M1.9** BVH gegen Brute-Force-Suche auf zufälligen Meshes testen.
-- [ ] **M1.10** SoA-Partikelspeicher vollständig implementieren.
-- [ ] **M1.11** Simulationsgebiet und Einlassflächen konfigurierbar erzeugen.
-- [ ] **M1.12** Flussgewichtete Einlassverteilung statistisch validieren.
-- [ ] **M1.13** Transport bis Oberflächentreffer oder Gebietsaustritt implementieren.
-- [ ] **M1.14** Mehrfachreflexionen mit Obergrenze und Abbruchdiagnose unterstützen.
-- [ ] **M1.15** Zähler und Test für die vollständige Partikelbilanz implementieren.
+- [x] **M1.1** Binäres und ASCII-STL mit Einheitenumrechnung importieren. → `geometry/Stl.hpp`; Material-ID je `solid`-Block
+- [x] **M1.2** Degenerierte Dreiecke, Orientierung, Geschlossenheit und nicht-manifold Kanten prüfen. → `geometry/Mesh.hpp`: Vertex-Welding, Kantenklassifikation, Komponenten, Orientierung per Volumenvorzeichen; offene Flächen nur mit `geometry.require_closed: false` (zweiseitig)
+- [x] **M1.3** Flächen, Normalen, Bounding Box und Material-IDs GPU-tauglich speichern. → `DeviceMesh` (SoA in BVH-Reihenfolge, Rückabbildung über `source_index`)
+- [x] **M1.4** Mesh-Tests für Dreieck, Würfel, Skalierung und Fehlerfälle ergänzen. → `test_stl`, `test_mesh`
+- [x] **M1.5** Robusten Ray-Triangle-Test mit dokumentierter Epsilon-Strategie implementieren. → Watertight-Algorithmus (Woop et al. 2013), FMA-frei; `docs/geometry.md` §3
+- [x] **M1.6** CPU-BVH-Builder mit flachen GPU-Knotenarrays implementieren. → Binned SAH, DFS-Layout, Tiefe ≤ 64
+- [x] **M1.7** Iterative GPU-BVH-Traversierung implementieren. → Stack-basiert, konservativer Box-Test (`kBoxSlack`)
+- [x] **M1.8** Selbsttreffer, Kanten- und Ecktreffer robust behandeln. → Kanten inklusiv + deterministischer Tie-Break; Ursprungs-Offset 1e-9·L plus Ausschluss des zuletzt getroffenen Dreiecks
+- [x] **M1.9** BVH gegen Brute-Force-Suche auf zufälligen Meshes testen. → `test_ray`: identisches Dreieck und bitgleiches t
+- [x] **M1.10** SoA-Partikelspeicher vollständig implementieren. → `particles/ParticleStorage.hpp`
+- [x] **M1.11** Simulationsgebiet und Einlassflächen konfigurierbar erzeugen. → `domain.margin_m` oder `domain.box_min_m/box_max_m`; Einlass über alle 6 Flächen
+- [x] **M1.12** Flussgewichtete Einlassverteilung statistisch validieren. → `test_inflow`: KS-Test, Mittelwert, χ² der Kanäle, Tangentialmomente
+- [x] **M1.13** Transport bis Oberflächentreffer oder Gebietsaustritt implementieren. → `particles/Transport.hpp`
+- [x] **M1.14** Mehrfachreflexionen mit Obergrenze und Abbruchdiagnose unterstützen. → Status `Truncated`, Zähler, max. Interaktionen je Historie
+- [x] **M1.15** Zähler und Test für die vollständige Partikelbilanz implementieren. → `TransportCounters::balanced()`, `test_transport`
 
 **Gate M1**
 
-- [ ] Analytische Strahltests bestehen auf allen verfügbaren Backends.
-- [ ] BVH und Brute Force liefern innerhalb dokumentierter Toleranzen denselben Treffer.
-- [ ] Der Würfel-Testfall endet ohne verlorene oder doppelt gezählte Partikel.
+- [x] Analytische Strahltests bestehen auf allen verfügbaren Backends. → CPU Serial, OpenMP und HIP (Radeon 740M); CUDA nicht verfügbar (siehe Gate M0)
+- [x] BVH und Brute Force liefern innerhalb dokumentierter Toleranzen denselben Treffer. → Toleranz: exakt (gleiches Dreieck, bitgleiches t), `docs/geometry.md` §4
+- [x] Der Würfel-Testfall endet ohne verlorene oder doppelt gezählte Partikel. → 400 000 Historien, alle `Exited`; Trefferquote = analytische freimolekulare Stoßrate innerhalb 5σ
 
 #### M2 – Vollständiger TPMC-Solver
 

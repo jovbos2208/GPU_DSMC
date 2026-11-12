@@ -51,7 +51,10 @@ to 1 within 1e-6. They are stored as given; consumers normalise by their sum.
 - The surface normal **n points from the solid into the gas** (outward normal).
 - Triangle vertices (a, b, c) are ordered **counter-clockwise seen from the gas
   side**; then n = (b − a) × (c − a) / |(b − a) × (c − a)| (right-hand rule).
-  The STL importer (M1) verifies and, if required, repairs this orientation.
+  The STL importer verifies this orientation per closed component and flips
+  components with negative signed volume ([geometry.md](geometry.md)).
+- Open components (only with `geometry.require_closed: false`) are two-sided:
+  the interaction uses the normal on the side the particle comes from.
 - Velocities at a wall are taken relative to the wall: **c = v − v_w**.
 - An incident particle satisfies **c_i · n < 0**, a re-emitted one c_r · n > 0.
 - The local surface frame (t1, t2, n) is right-handed orthonormal with

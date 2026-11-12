@@ -105,6 +105,11 @@ std::string make_run_metadata_json(const RunMetadataInput& in) {
   w.key("derived");
   write_derived_json(w, cfg);
 
+  for (const auto& [key, write] : in.sections) {
+    w.key(key);
+    write(w);
+  }
+
   w.key("output_files").begin_array();
   for (const auto& f : in.output_files) w.value(f);
   w.end_array();

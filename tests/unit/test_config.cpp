@@ -474,3 +474,49 @@ TEST_CASE("Rejected: platform configurations", "[config][negative]") {
   CHECK_THROWS_AS(load_platform_config(kData / "no_such_platform.yaml"), ConfigError);
   CHECK_THROWS_AS(load_simulation_config(kData / "no_such_config.yaml"), ConfigError);
 }
+
+// ----------------------------------------------------------------------------
+// M1 additions: domain, geometry.require_closed, tpmc.batch_size
+// ----------------------------------------------------------------------------
+
+TEST_CASE("Domain, require_closed and batch_size", "[config]") {
+  const SimulationConfig d = parse_simulation_config(kMinimal, kData);
+  CHECK(d.geometry.require_closed);
+  CHECK(!d.domain.margin_m);
+  CHECK(!d.domain.box_min_m);
+  CHECK(d.tpmc.batch_size == (1u << 20));
+
+  const SimulationConfig m = parse_simulation_config(
+      std::string(kMinimal) + "domain:\n  margin_m: 0.25\ntpmc:\n  batch_size: 4096\n", kData);
+  CHECK(*m.domain.margin_m == 0.25);
+  CHECK(m.tpmc.batch_size == 4096);
+
+  const SimulationConfig b = parse_simulation_config(
+      mutate("file: body.stl", "file: body.stl\n  require_closed: false") +
+          "domain:\n  box_min_m: [-1, -2, -3]\n  box_max_m: [1, 2, 3]\n",
+      kData);
+  CHECK(!b.geometry.require_closed);
+  CHECK(*b.domain.box_min_m == Vec3(-1, -2, -3));
+  CHECK(*b.domain.box_max_m == Vec3(1, 2, 3));
+  // Round trip keeps the domain block.
+  const std::string yaml = to_resolved_yaml(b);
+  CHECK_THAT(yaml, ContainsSubstring("box_max_m: [1.0, 2.0, 3.0]"));
+  CHECK_THAT(yaml, ContainsSubstring("require_closed: false"));
+  CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
+}
+
+TEST_CASE("Rejected: invalid domain and M1 options", "[config][negative]") {
+  const auto [extra, needle] = GENERATE(table<std::string, std::string>({
+      {"domain:\n  margin_m: 0\n", "domain.margin_m: value 0 is outside"},
+      {"domain:\n  margin_m: 1\n  box_min_m: [0, 0, 0]\n", "give either margin_m or box_min_m/box_max_m"},
+      {"domain:\n  box_min_m: [0, 0, 0]\n", "domain.box_max_m: required key is missing"},
+      {"domain:\n  box_min_m: [0, 0, 0]\n  box_max_m: [1, 0, 1]\n", "box_min_m must be smaller than box_max_m"},
+      {"domain:\n  size: 3\n", "domain.size: unknown key"},
+      {"tpmc:\n  batch_size: 0\n", "tpmc.batch_size: must be in [1, 2147483648]"},
+      {"tpmc:\n  batch_size: 2147483649\n", "tpmc.batch_size: must be in [1, 2147483648]"},
+  }));
+  INFO(needle);
+  expect_invalid(std::string(kMinimal) + extra, needle);
+  expect_invalid(mutate("file: body.stl", "file: body.stl\n  require_closed: no"),
+                 "geometry.require_closed: expected true or false");
+}

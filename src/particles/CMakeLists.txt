@@ -1,5 +1,7 @@
-# vleo_particles: SoA particle storage, inflow-flux injection and transport (M1).
-# Defined in M0 to fix the library structure and dependency graph; it is an
-# INTERFACE library until its first translation unit exists.
-add_library(vleo_particles INTERFACE)
-target_link_libraries(vleo_particles INTERFACE vleo_core vleo_geometry)
+# vleo_particles: SoA particle storage, simulation domain, free-stream inflow
+# sampling and collisionless transport with multiple surface interactions.
+add_library(vleo_particles STATIC
+  Inflow.cpp
+  ParticleStorage.cpp
+  Transport.cpp)
+target_link_libraries(vleo_particles PUBLIC vleo_core vleo_geometry vleo_io PRIVATE vleo_warnings)

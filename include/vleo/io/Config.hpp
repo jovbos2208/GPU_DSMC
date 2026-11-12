@@ -43,7 +43,22 @@ struct GeometrySection {
   std::string file;                     // as written in the input
   std::filesystem::path resolved_file;  // absolute, relative paths resolved against the config file directory
   LengthUnit units = LengthUnit::Metre;
+  // Every connected component must be a closed, consistently oriented
+  // 2-manifold. If false, open components are allowed and treated as
+  // two-sided surfaces (e.g. a flat plate).
+  bool require_closed = true;
 };
+
+// Simulation domain: axis-aligned box around the body. Exactly one of
+// margin_m (box = mesh bounding box grown by the margin on every side) or the
+// explicit box_min_m/box_max_m pair is set after parsing; if neither is given
+// the margin defaults to kDefaultDomainMarginFraction * largest mesh extent.
+struct DomainSection {
+  std::optional<double> margin_m;
+  std::optional<Vec3> box_min_m;
+  std::optional<Vec3> box_max_m;
+};
+inline constexpr double kDefaultDomainMarginFraction = 0.05;
 
 struct ReferenceSection {
   double area_m2 = 0.0;
@@ -85,6 +100,7 @@ struct SurfaceSection {
 struct TPMCSection {
   std::uint64_t particle_histories = 1'000'000;
   std::uint32_t max_reflections = 100;
+  std::uint64_t batch_size = 1u << 20;  // histories processed per kernel launch
 };
 
 struct DSMCSection {
@@ -123,6 +139,7 @@ struct SimulationConfig {
   std::filesystem::path source_file;  // absolute; empty if parsed from a string
   SimulationSection simulation;
   GeometrySection geometry;
+  DomainSection domain;
   ReferenceSection reference;
   GasSection gas;
   SurfaceSection surface;

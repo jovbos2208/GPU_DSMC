@@ -1,4 +1,9 @@
-# vleo_geometry: triangle primitives and basic geometric operations.
-# M1 adds STL import, normal checks and the BVH (then this becomes a STATIC library).
-add_library(vleo_geometry INTERFACE)
-target_link_libraries(vleo_geometry INTERFACE vleo_core)
+# vleo_geometry: STL import, mesh validation/orientation, ray-triangle
+# intersection, BVH (host build, device traversal).
+add_library(vleo_geometry STATIC
+  Bvh.cpp
+  Geometry.cpp
+  Mesh.cpp
+  Primitives.cpp
+  Stl.cpp)
+target_link_libraries(vleo_geometry PUBLIC vleo_core PRIVATE vleo_warnings)

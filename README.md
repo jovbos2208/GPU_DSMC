@@ -6,8 +6,11 @@ Cercignani–Lampis–Lord gas-surface interaction. C++20 + Kokkos: one source t
 for CPU, NVIDIA (CUDA) and AMD (HIP).
 
 The roadmap and checklist are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-**Status: milestone M0** (project base and CPU reference) – configuration,
-provenance, core math, RNG and tests. No particle simulation yet.
+**Status: milestone M1** (geometry and particle transport) – STL import and
+mesh validation, watertight ray tracing with a GPU BVH, flux-exact free-stream
+inflow, collisionless transport with multiple reflections and a complete
+particle balance. The physical surface models (Maxwell, CLL) and the force /
+moment / heat tallies follow in M2.
 
 ## Quick start (CPU)
 
@@ -28,6 +31,7 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/building.md](docs/building.md) | presets (CPU/CUDA/HIP), test command, verified toolchains |
 | [docs/configuration.md](docs/configuration.md) | YAML schema, CLI, output files |
 | [docs/conventions.md](docs/conventions.md) | SI units, axes, normals, sign conventions, RNG |
+| [docs/geometry.md](docs/geometry.md) | STL import, mesh checks, epsilon strategy, BVH, inflow, transport |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
 
 ## Layout

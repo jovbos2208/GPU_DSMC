@@ -1,4 +1,5 @@
 # Examples
 
-`configs/simulations/*.yaml` reference `examples/geometry/satellite.stl`, which is
-added together with the STL importer in milestone M1.
+- `geometry/satellite.stl`: simple box-wing satellite (bus + two solar panels,
+  three closed solids / material ids), referenced by `configs/simulations/*.yaml`.
+  Regenerate with `python3 scripts/make_example_geometry.py`.

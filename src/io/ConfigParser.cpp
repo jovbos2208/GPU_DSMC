@@ -69,12 +69,42 @@ void parse_simulation(const YAML::Node& n, SimulationSection& out, Issues& is) {
 
 void parse_geometry(const YAML::Node& n, const fs::path& base_dir, GeometrySection& out, Issues& is) {
   const std::string p = "geometry";
-  if (!check_map(n, p, {"file", "units"}, is)) return;
+  if (!check_map(n, p, {"file", "units", "require_closed"}, is)) return;
   if (auto v = get_string(n, "file", p, is, Need::Required)) {
     out.file = *v;
     out.resolved_file = resolve(base_dir, *v);
   }
   if (auto v = get_enum(n, "units", p, is, Need::Optional, kUnits, {{"in", "use m, cm or mm"}})) out.units = *v;
+  if (auto v = get_bool(n, "require_closed", p, is, Need::Optional)) out.require_closed = *v;
+}
+
+void parse_domain(const YAML::Node& n, DomainSection& out, Issues& is) {
+  const std::string p = "domain";
+  if (!n.IsDefined()) return;
+  if (!check_map(n, p, {"margin_m", "box_min_m", "box_max_m"}, is)) return;
+  const bool has_margin = n["margin_m"].IsDefined();
+  const bool has_min = n["box_min_m"].IsDefined();
+  const bool has_max = n["box_max_m"].IsDefined();
+  if (has_margin && (has_min || has_max)) {
+    is.add(p, "give either margin_m or box_min_m/box_max_m, not both", &n);
+    return;
+  }
+  if (has_margin) {
+    if (auto v = get_double_in(n, "margin_m", p, is, Need::Required, kPositive)) out.margin_m = *v;
+    return;
+  }
+  if (has_min || has_max) {
+    const auto lo = get_vec3(n, "box_min_m", p, is, Need::Required);
+    const auto hi = get_vec3(n, "box_max_m", p, is, Need::Required);
+    if (lo && hi) {
+      if (!(lo->x < hi->x && lo->y < hi->y && lo->z < hi->z))
+        is.add(p, "box_min_m must be smaller than box_max_m in every component", &n);
+      else {
+        out.box_min_m = *lo;
+        out.box_max_m = *hi;
+      }
+    }
+  }
 }
 
 void parse_reference(const YAML::Node& n, ReferenceSection& out, Issues& is) {
@@ -227,7 +257,13 @@ void parse_surface(const YAML::Node& n, const fs::path& base_dir, SurfaceSection
 void parse_tpmc(const YAML::Node& n, TPMCSection& out, Issues& is) {
   const std::string p = "tpmc";
   if (!n.IsDefined()) return;
-  if (!check_map(n, p, {"particle_histories", "max_reflections"}, is)) return;
+  if (!check_map(n, p, {"particle_histories", "max_reflections", "batch_size"}, is)) return;
+  if (auto v = get_uint64(n, "batch_size", p, is, Need::Optional)) {
+    if (*v == 0 || *v > (std::uint64_t{1} << 31))
+      is.add(p + ".batch_size", "must be in [1, 2147483648]");
+    else
+      out.batch_size = *v;
+  }
   if (auto v = get_uint64(n, "particle_histories", p, is, Need::Optional)) {
     if (*v == 0)
       is.add(p + ".particle_histories", "must be at least 1");
@@ -331,7 +367,8 @@ SimulationConfig parse_root(const YAML::Node& root, const fs::path& base_dir) {
     is.throw_if_any("simulation configuration");
   }
   if (!check_map(root, "",
-                 {"simulation", "geometry", "reference", "gas", "surface", "tpmc", "dsmc", "statistics", "output"},
+                 {"simulation", "geometry", "domain", "reference", "gas", "surface", "tpmc", "dsmc", "statistics",
+                  "output"},
                  is)) {
     is.throw_if_any("simulation configuration");
   }
@@ -341,6 +378,7 @@ SimulationConfig parse_root(const YAML::Node& root, const fs::path& base_dir) {
   if (auto n = child(root, "reference", "", is, Need::Required)) parse_reference(*n, cfg.reference, is);
   if (auto n = child(root, "gas", "", is, Need::Required)) parse_gas(*n, cfg.gas, is);
   if (auto n = child(root, "surface", "", is, Need::Required)) parse_surface(*n, base_dir, cfg.surface, is);
+  parse_domain(section(root, "domain", is, Need::Optional), cfg.domain, is);
   parse_tpmc(section(root, "tpmc", is, Need::Optional), cfg.tpmc, is);
   parse_dsmc(section(root, "dsmc", is, Need::Optional), cfg.dsmc, is);
   parse_statistics(section(root, "statistics", is, Need::Optional), cfg.statistics, is);

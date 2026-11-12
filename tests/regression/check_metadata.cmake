@@ -56,4 +56,20 @@ if(NOT notes MATCHES "self-test.*\\(passed\\)")
   message(FATAL_ERROR "metadata: backend self-test did not pass: ${notes}")
 endif()
 
+
+# M1: geometry, domain and inflow sections
+foreach(path
+    "geometry;triangles" "geometry;vertices" "geometry;closed" "geometry;total_area_m2" "geometry;bbox_min_m"
+    "geometry;components" "geometry;materials" "geometry;bvh;nodes" "geometry;bvh;max_depth"
+    "geometry;surface_offset_m" "inflow;domain_min_m" "inflow;domain_max_m" "inflow;total_rate_per_s"
+    "inflow;tpmc_event_rate_factor_per_s" "inflow;channels")
+  require_nonempty(${path})
+endforeach()
+require_equal("36" geometry triangles)
+require_equal("ON" geometry closed)
+string(JSON n_components LENGTH "${J}" geometry components)
+if(NOT n_components EQUAL 3)
+  message(FATAL_ERROR "metadata: expected 3 geometry components, got ${n_components}")
+endif()
+
 message(STATUS "run metadata complete (backend ${EXPECTED_BACKEND})")

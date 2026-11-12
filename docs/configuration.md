@@ -51,8 +51,16 @@ R = required, O = optional (default in the last column).
 
 | Key | Type | | Constraint / default |
 | --- | ---- | - | -------------------- |
-| `file` | path | R | STL file; existence is checked at start-up (warning in M0, error from M1) |
+| `file` | path | R | binary or ASCII STL (see [geometry.md](geometry.md)) |
 | `units` | enum | O | `m` \| `cm` \| `mm`; default `m` |
+| `require_closed` | bool | O | default `true`: every component must be a closed, consistently oriented manifold; `false` accepts open components as two-sided surfaces |
+
+### `domain` (O)
+
+| Key | Type | Constraint / default |
+| --- | ---- | -------------------- |
+| `margin_m` | real | > 0; box = mesh bounding box grown by this margin. Default: 5 % of the largest mesh extent |
+| `box_min_m`, `box_max_m` | [x, y, z] | explicit box (both required, min < max); must contain the body. Exclusive with `margin_m` |
 
 ### `reference` (R)
 
@@ -100,7 +108,8 @@ Material files cannot reference other material files.
 | Key | Type | Default | Constraint |
 | --- | ---- | ------- | ---------- |
 | `particle_histories` | uint64 | 1000000 | ≥ 1 |
-| `max_reflections` | uint32 | 100 | ≥ 1 |
+| `max_reflections` | uint32 | 100 | ≥ 1; histories needing more surface interactions are truncated and counted |
+| `batch_size` | uint64 | 1048576 | 1 … 2³¹; histories per kernel launch (memory vs. launch overhead) |
 
 ### `dsmc` (O)
 
@@ -140,13 +149,17 @@ platform:
   description: ...    # O: free text
 ```
 
-## Outputs of a run (M0)
+## Outputs of a run (M1)
+
+Geometry errors (unreadable STL, open or non-manifold mesh with
+`require_closed: true`, domain box not containing the body) are reported like
+configuration errors (exit code 2), also with `--check`.
 
 `vleo_solver` writes into the output directory:
 
 | File | Content |
 | ---- | ------- |
-| `run_metadata.json` | schema `vleo-run-metadata/1`: build provenance (git commit/dirty, compiler, build type, Kokkos version/backends/arch), runtime (UTC time, command line, execution space, concurrency, device), platform, resolved configuration, derived quantities (ρ∞, q∞, aerodynamic axes, species masses), notes incl. the backend self-test |
+| `run_metadata.json` | schema `vleo-run-metadata/1`: build provenance (git commit/dirty, compiler, build type, Kokkos version/backends/arch), runtime (UTC time, command line, execution space, concurrency, device), platform, resolved configuration, derived quantities (ρ∞, q∞, aerodynamic axes, species masses), `geometry` (mesh report: triangles, vertices, edges, defects, components with area/volume/orientation, materials, bounding box, BVH statistics, warnings), `inflow` (domain box, inflow rate per face and species, TPMC event-rate factor), notes incl. the backend self-test |
 | `resolved_config.yaml` | the resolved configuration (all defaults filled in, absolute geometry path, material file inlined); valid input that reproduces the run |
 | `input_config.yaml` | byte-exact copy of the input file |
 | `kokkos_configuration.txt` | `Kokkos::print_configuration(verbose)` |
