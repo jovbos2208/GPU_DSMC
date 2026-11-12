@@ -1,0 +1,5 @@
+# NVIDIA GPU (Kokkos CUDA backend). Use with a binary built from the cuda preset.
+platform:
+  backend: cuda
+  device_id: 0
+  description: NVIDIA GPU via CUDA (e.g. A100, Kokkos_ARCH_AMPERE80)

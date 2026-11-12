@@ -1,0 +1,3 @@
+# Invalid test material: material files cannot chain
+surface:
+  material_file: material_cll.yaml

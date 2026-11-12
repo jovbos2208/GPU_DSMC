@@ -1,0 +1,70 @@
+# Smoke / regression tests of the vleo_solver executable (labels: smoke).
+
+if(VLEO_BACKEND STREQUAL "cuda")
+  set(_platform nvidia)
+  set(_foreign_platform amd)
+elseif(VLEO_BACKEND STREQUAL "hip")
+  set(_platform amd)
+  set(_foreign_platform cpu)
+else()
+  set(_platform cpu)
+  set(_foreign_platform nvidia)
+endif()
+
+set(_cfg "${PROJECT_SOURCE_DIR}/configs")
+set(_out "${CMAKE_CURRENT_BINARY_DIR}/smoke_out")
+
+# 1. Full start-up on the compiled backend: read config, init Kokkos, run the
+#    backend self-test, write resolved config + metadata.
+add_test(NAME smoke_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${_out}")
+set_tests_properties(smoke_clean PROPERTIES FIXTURES_SETUP smoke_clean LABELS smoke)
+
+add_test(NAME smoke_run
+  COMMAND vleo_solver --config "${_cfg}/simulations/tpmc_cll.yaml"
+                      --platform "${_cfg}/platforms/${_platform}.yaml"
+                      --output-dir "${_out}")
+set_tests_properties(smoke_run PROPERTIES
+  FIXTURES_REQUIRED smoke_clean FIXTURES_SETUP smoke_output LABELS smoke TIMEOUT 120)
+
+# 2. The metadata file is complete.
+add_test(NAME smoke_metadata
+  COMMAND ${CMAKE_COMMAND} -DOUT_DIR=${_out} -DEXPECTED_BACKEND=${VLEO_BACKEND}
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/check_metadata.cmake")
+set_tests_properties(smoke_metadata PROPERTIES FIXTURES_REQUIRED smoke_output LABELS smoke)
+
+# 3. The written resolved configuration is itself a valid input.
+add_test(NAME smoke_resolved_config_reparses
+  COMMAND vleo_solver --check --config "${_out}/resolved_config.yaml")
+set_tests_properties(smoke_resolved_config_reparses PROPERTIES FIXTURES_REQUIRED smoke_output LABELS smoke)
+
+# 4. Identical simulation configurations are accepted by every build.
+foreach(_sim tpmc_maxwell tpmc_cll dsmc_maxwell dsmc_cll)
+  add_test(NAME smoke_check_${_sim}
+    COMMAND vleo_solver --check --config "${_cfg}/simulations/${_sim}.yaml"
+                        --platform "${_cfg}/platforms/${_platform}.yaml")
+  set_tests_properties(smoke_check_${_sim} PROPERTIES LABELS smoke)
+endforeach()
+
+# 5. Failure paths.
+add_test(NAME smoke_rejects_foreign_platform
+  COMMAND vleo_solver --check --config "${_cfg}/simulations/tpmc_cll.yaml"
+                      --platform "${_cfg}/platforms/${_foreign_platform}.yaml")
+set_tests_properties(smoke_rejects_foreign_platform PROPERTIES
+  WILL_FAIL ON LABELS smoke)
+add_test(NAME smoke_rejects_foreign_platform_message
+  COMMAND vleo_solver --check --config "${_cfg}/simulations/tpmc_cll.yaml"
+                      --platform "${_cfg}/platforms/${_foreign_platform}.yaml")
+set_tests_properties(smoke_rejects_foreign_platform_message PROPERTIES
+  PASS_REGULAR_EXPRESSION "this binary was built for '${VLEO_BACKEND}'" LABELS smoke)
+
+add_test(NAME smoke_rejects_invalid_config
+  COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/invalid_simulation.yaml")
+set_tests_properties(smoke_rejects_invalid_config PROPERTIES
+  PASS_REGULAR_EXPRESSION "invalid simulation configuration \\(3 issues\\)" LABELS smoke)
+
+add_test(NAME smoke_usage_error COMMAND vleo_solver --no-such-option)
+set_tests_properties(smoke_usage_error PROPERTIES WILL_FAIL ON LABELS smoke)
+
+add_test(NAME smoke_version COMMAND vleo_solver --version)
+set_tests_properties(smoke_version PROPERTIES
+  PASS_REGULAR_EXPRESSION "Kokkos version   : [0-9]+\\.[0-9]+\\.[0-9]+" LABELS smoke)

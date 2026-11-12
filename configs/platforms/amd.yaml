@@ -1,0 +1,5 @@
+# AMD GPU (Kokkos HIP backend). Use with a binary built from the hip preset.
+platform:
+  backend: hip
+  device_id: 0
+  description: AMD GPU via HIP/ROCm (e.g. MI300X, Kokkos_ARCH_AMD_GFX942)

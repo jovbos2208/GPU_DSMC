@@ -1,0 +1,12 @@
+# Example surface material. Reference it from a simulation file with
+#   surface:
+#     material_file: ../materials/example_surface.yaml
+# Illustrative values only - not a calibrated VLEO material.
+surface:
+  model: cll
+  temperature_K: 300.0
+  maxwell:
+    diffuse_fraction: 0.9
+  cll:
+    alpha_n: 0.85      # normal energy accommodation, [0, 1]
+    sigma_t: 0.65      # tangential MOMENTUM accommodation, [0, 2] (alpha_t = sigma_t (2 - sigma_t))

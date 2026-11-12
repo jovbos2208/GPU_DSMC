@@ -1,0 +1,6 @@
+# CPU reference backend (Kokkos Serial / OpenMP). Use with a binary built from
+# the cpu-debug or cpu-release preset.
+platform:
+  backend: cpu
+  num_threads: 0        # 0 = Kokkos default (OMP_NUM_THREADS / all cores)
+  description: CPU reference build

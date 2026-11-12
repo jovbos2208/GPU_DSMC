@@ -1,0 +1,7 @@
+# Invalid test material: alpha_n out of range
+surface:
+  model: cll
+  temperature_K: 350.0
+  cll:
+    alpha_n: 1.5
+    sigma_t: 0.8

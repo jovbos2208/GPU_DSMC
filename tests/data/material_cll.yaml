@@ -1,0 +1,7 @@
+# Test material (tests/unit/test_config.cpp)
+surface:
+  model: cll
+  temperature_K: 350.0
+  cll:
+    alpha_n: 0.9
+    sigma_t: 0.8
