@@ -10,6 +10,7 @@ by Kokkos; a configuration file cannot switch it.
 | `cuda`        | cuda    | Cuda + Serial    | Release    | NVIDIA GPUs (default `Kokkos_ARCH_AMPERE80`, A100) |
 | `hip`         | hip     | HIP + Serial     | Release    | AMD GPUs (default `Kokkos_ARCH_AMD_GFX942`, MI300X) |
 | `hip-gfx1100` | hip     | HIP + Serial     | Release    | AMD RDNA3 (`Kokkos_ARCH_AMD_GFX1100`): RX 7900, Radeon 7xxM iGPUs with `HSA_OVERRIDE_GFX_VERSION=11.0.0` |
+| `hip-gfx1101` | hip     | HIP + Serial     | Release    | AMD RDNA3 Navi 32 (`Kokkos_ARCH_AMD_GFX1101`): Radeon PRO W7700/W7800, RX 7700/7800 |
 
 Requirements: CMake ≥ 3.27, a C++20 compiler (GCC ≥ 10.4, Clang ≥ 14), for CUDA
 NVCC ≥ 12.2, for HIP ROCm ≥ 6.2 (minimums of Kokkos 5.2.2, see

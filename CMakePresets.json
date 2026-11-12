@@ -63,6 +63,15 @@
         "Kokkos_ARCH_AMD_GFX942": "OFF",
         "Kokkos_ARCH_AMD_GFX1100": "ON"
       }
+    },
+    {
+      "name": "hip-gfx1101",
+      "displayName": "AMD HIP Release for RDNA3 Navi 32 (Kokkos_ARCH_AMD_GFX1101, e.g. Radeon PRO W7700/W7800, RX 7700/7800)",
+      "inherits": "hip",
+      "cacheVariables": {
+        "Kokkos_ARCH_AMD_GFX942": "OFF",
+        "Kokkos_ARCH_AMD_GFX1101": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -70,7 +79,8 @@
     { "name": "cpu-release", "configurePreset": "cpu-release" },
     { "name": "cuda", "configurePreset": "cuda" },
     { "name": "hip", "configurePreset": "hip" },
-    { "name": "hip-gfx1100", "configurePreset": "hip-gfx1100" }
+    { "name": "hip-gfx1100", "configurePreset": "hip-gfx1100" },
+    { "name": "hip-gfx1101", "configurePreset": "hip-gfx1101" }
   ],
   "testPresets": [
     {
@@ -84,6 +94,7 @@
       "environment": { "OMP_PROC_BIND": "spread", "OMP_PLACES": "threads" } },
     { "name": "cuda", "inherits": "base", "configurePreset": "cuda" },
     { "name": "hip", "inherits": "base", "configurePreset": "hip" },
-    { "name": "hip-gfx1100", "inherits": "base", "configurePreset": "hip-gfx1100" }
+    { "name": "hip-gfx1100", "inherits": "base", "configurePreset": "hip-gfx1100" },
+    { "name": "hip-gfx1101", "inherits": "base", "configurePreset": "hip-gfx1101" }
   ]
 }
