@@ -12,6 +12,7 @@
 
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/io/Config.hpp"
+#include "vleo/io/JsonWriter.hpp"
 #include "vleo/tpmc/Tpmc.hpp"
 
 namespace vleo {
@@ -21,5 +22,12 @@ inline constexpr const char* kResultsSchema = "vleo-results/1";
 std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const std::string& timestamp_utc);
 std::string results_csv(const TpmcResult& r);
 std::string surface_fields_csv(const TpmcResult& r, const Geometry& g);
+
+// Building blocks shared with the DSMC result writer (same schema).
+void write_simulation_and_reference(JsonWriter& w, const SimulationConfig& cfg);
+void write_estimate_blocks(JsonWriter& w, const TpmcEstimates& e);  // results, std_error, confidence_interval
+void write_provenance(JsonWriter& w, const std::string& timestamp_utc);
+std::string estimates_csv(const TpmcEstimates& e);
+std::string surface_fields_csv(const SurfaceFields& f, const Geometry& g);
 
 }  // namespace vleo

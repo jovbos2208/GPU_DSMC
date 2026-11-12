@@ -811,30 +811,32 @@ Abnahme: Wissenschaftliche Referenztests bestehen auf NVIDIA und AMD; Performanc
 
 #### M3 – DSMC mit elastischen VHS-Kollisionen
 
-- [ ] **M3.1** Zeitschleife für Transport, Wandkontakt, Binning, Kollision und Sampling implementieren.
-- [ ] **M3.2** Kartesisches Kollisionsgitter samt Position-zu-Zelle-Abbildung implementieren.
-- [ ] **M3.3** GPU-Binning mittels Histogramm und Prefix-Sum implementieren und Eindeutigkeit prüfen.
-- [ ] **M3.4** VHS-Querschnitt und NTC-Kandidatenzahl implementieren.
-- [ ] **M3.5** Partner ohne Selbstkollision auswählen und Akzeptanzentscheidung implementieren.
-- [ ] **M3.6** Nachkollisionsgeschwindigkeiten isotrop im Schwerpunktsystem erzeugen.
-- [ ] **M3.7** Zellweise Obergrenze für sigma mal g sicher aktualisieren.
-- [ ] **M3.8** Akzeptierte und verworfene Kollisionen diagnostizieren.
-- [ ] **M3.9** Gasvolumenanteile angeschnittener Zellen festlegen und validieren.
-- [ ] **M3.10** Kleine Volumenanteile sicher behandeln und schlechte Auflösung melden.
-- [ ] **M3.11** Einlauf- und Samplingphase trennen.
-- [ ] **M3.12** Blockmittelung für korrelierte DSMC-Zeitreihen implementieren.
-- [ ] **M3.13** Auflösungsdiagnosen für Zelle, Zeitschritt und Partikelzahl ausgeben.
-- [ ] **M3.14** Binäre Kollisionen auf Impuls- und Energieerhaltung testen.
-- [ ] **M3.15** Homogenes Gas und Kollisionsrate gegen Referenzfälle testen.
-- [ ] **M3.16** Verdünnungsstudie DSMC gegen TPMC durchführen.
-- [ ] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren.
+- [x] **M3.1** Zeitschleife für Transport, Wandkontakt, Binning, Kollision und Sampling implementieren. → `dsmc/Dsmc.hpp`
+- [x] **M3.2** Kartesisches Kollisionsgitter samt Position-zu-Zelle-Abbildung implementieren. → `dsmc/CollisionGrid.hpp`
+- [x] **M3.3** GPU-Binning mittels Histogramm und Prefix-Sum implementieren und Eindeutigkeit prüfen. → plus Sortierung je Zelle nach ID (deterministisch); `test_grid`
+- [x] **M3.4** VHS-Querschnitt und NTC-Kandidatenzahl implementieren. → mit Restübertrag je Zelle
+- [x] **M3.5** Partner ohne Selbstkollision auswählen und Akzeptanzentscheidung implementieren.
+- [x] **M3.6** Nachkollisionsgeschwindigkeiten isotrop im Schwerpunktsystem erzeugen.
+- [x] **M3.7** Zellweise Obergrenze für sigma mal g sicher aktualisieren. → ein Thread je Zelle, kein Race
+- [x] **M3.8** Akzeptierte und verworfene Kollisionen diagnostizieren.
+- [x] **M3.9** Gasvolumenanteile angeschnittener Zellen festlegen und validieren. → stratifizierte Stichprobe + Paritätstest; exakt bzw. Schalenschranke getestet
+- [x] **M3.10** Kleine Volumenanteile sicher behandeln und schlechte Auflösung melden. → V_eff = max(f, 0,05) V
+- [x] **M3.11** Einlauf- und Samplingphase trennen.
+- [x] **M3.12** Blockmittelung für korrelierte DSMC-Zeitreihen implementieren. → plus τ_int (Geyer)
+- [x] **M3.13** Auflösungsdiagnosen für Zelle, Zeitschritt und Partikelzahl ausgeben.
+- [x] **M3.14** Binäre Kollisionen auf Impuls- und Energieerhaltung testen.
+- [x] **M3.15** Homogenes Gas und Kollisionsrate gegen Referenzfälle testen. → Kollisionsrate −0,34 % (1,9σ), Maxwell-Gleichgewicht, Relaxation
+- [x] **M3.16** Verdünnungsstudie DSMC gegen TPMC durchführen. → `docs/dsmc.md` §8
+- [-] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren. → Skript `scripts/dsmc_studies.py` vorhanden, Läufe vor Abschluss abgebrochen
 
 **Gate M3 – Release v0.2-dsmc**
 
-- [ ] Konservative Kollisions- und Gleichgewichtstests bestehen.
-- [ ] Angeschnittene Zellvolumina sind analytisch validiert.
-- [ ] Der freimolekulare DSMC-Grenzfall stimmt statistisch mit TPMC überein.
-- [ ] Ein monatomarer DSMC-Beispiellauf ist reproduzierbar.
+- [x] Konservative Kollisions- und Gleichgewichtstests bestehen.
+- [x] Angeschnittene Zellvolumina sind analytisch validiert.
+- [x] Der freimolekulare DSMC-Grenzfall stimmt statistisch mit TPMC überein.
+- [x] Ein monatomarer DSMC-Beispiellauf ist reproduzierbar.
+
+Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische und O/N-Daten folgen in M4.
 
 #### M4 – Gasgemische, innere Energie und Validierung
 

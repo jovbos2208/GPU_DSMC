@@ -73,6 +73,7 @@ enum class RngStream : std::uint16_t {
   SurfaceInteraction = 2,
   GasCollision = 3,
   CollisionPairSelection = 4,
+  InjectionCount = 5,  // DSMC: number of entering particles per (step, channel)
   Test = 0xFFFF,
 };
 

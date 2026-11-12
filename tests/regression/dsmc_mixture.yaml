@@ -1,0 +1,27 @@
+# DSMC with a gas mixture: rejected until milestone M4 (smoke test).
+simulation:
+  name: dsmc_mixture
+  mode: dsmc
+  random_seed: 1
+geometry:
+  file: body.stl
+reference:
+  area_m2: 1.0
+  length_m: 1.0
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+gas:
+  number_density_m3: 1.0e14
+  translational_temperature_K: 900.0
+  bulk_velocity_body_mps: [-7800.0, 0.0, 0.0]
+  species:
+    He: 0.5
+    Ar: 0.5
+surface:
+  model: cll
+  temperature_K: 300.0
+  cll:
+    alpha_n: 0.5
+    sigma_t: 0.5
+output:
+  format: json

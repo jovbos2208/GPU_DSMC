@@ -18,6 +18,7 @@ vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | `--print-config` | print the resolved configuration (YAML) to stdout |
 | `--output-dir DIR` | overrides `output.directory` |
 | `-n, --histories N` | overrides `tpmc.particle_histories` (recorded in `resolved_config.yaml`) |
+| `--warmup-steps N`, `--sample-steps N` | override `dsmc.warmup_steps` / `dsmc.sample_steps` |
 | `-q, --quiet` | no progress output |
 | `--version` | build provenance (git commit, compiler, build type, Kokkos, backend) |
 
@@ -80,7 +81,7 @@ R = required, O = optional (default in the last column).
 | `number_density_m3` | real | R | > 0 |
 | `translational_temperature_K` | real | R | > 0 |
 | `bulk_velocity_body_mps` | [x, y, z] | R | non-zero; gas velocity relative to the body |
-| `species` | map name → fraction | R | non-empty; fractions ∈ [0, 1], sum = 1 ± 1e-6; species `O`, `N`, `He`. `N2`/`O2` are recognised but rejected until M4 (internal energy). |
+| `species` | map name → fraction | R | non-empty; fractions ∈ [0, 1], sum = 1 ± 1e-6; species `O`, `N`, `He`, `Ar`. `N2`/`O2` are recognised but rejected until M4 (internal energy). DSMC: one species with VHS data (`He`, `Ar`) |
 
 ### `surface` (R)
 
@@ -125,9 +126,15 @@ Material files cannot reference other material files.
 | `timestep_s` | real | – | > 0; required iff `timestep_mode: fixed`, forbidden otherwise |
 | `cell_size_mode` | enum | `automatic` | `automatic` \| `fixed` |
 | `cell_size_m` | real | – | > 0; required iff `cell_size_mode: fixed`, forbidden otherwise |
-| `particles_per_cell_target` | uint32 | 30 | ≥ 1 |
+| `particles_per_cell_target` | uint32 | 30 | ≥ 1; sets the particle weight W = n∞ V_cell / target |
+| `warmup_steps` | uint64 | automatic | steps before sampling starts |
+| `sample_steps` | uint64 | 1000 | ≥ 2; sampled steps |
+| `blocks` | uint32 | 20 | 2 … 100000, ≤ `sample_steps`; blocks for the block-averaged SE |
+| `max_particles` | uint64 | automatic | hard limit of the particle arrays |
 
-`automatic` is a planned solver function (M3); M0 only validates the input.
+The automatic rules are in [dsmc.md](dsmc.md) §3. `mode: dsmc` currently
+requires exactly one species with VHS data (`He` or `Ar`); mixtures and atomic
+O/N follow in M4.
 
 ### `statistics` (O)
 
@@ -157,8 +164,8 @@ platform:
 ## Outputs of a run
 
 The TPMC result files (`results.json`, `results.csv`, `surface_fields.csv`)
-are described in [tpmc.md](tpmc.md) §8. `simulation.mode: dsmc` is validated
-but cannot be run before milestone M3.
+are described in [tpmc.md](tpmc.md) §8 (DSMC: same schema, see
+[dsmc.md](dsmc.md) §7).
 
 ### Common files
 

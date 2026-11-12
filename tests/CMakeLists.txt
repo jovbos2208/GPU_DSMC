@@ -1,6 +1,6 @@
 # Test suite. Run everything with:   ctest --preset <preset>
 # (equivalently: ctest --test-dir build/<preset> --output-on-failure)
-# Labels: unit, smoke, config, rng, geometry, particles, gate, physics.
+# Labels: unit, smoke, config, rng, geometry, particles, gate, physics, dsmc.
 
 add_library(vleo_test_main STATIC unit/test_main.cpp)
 target_link_libraries(vleo_test_main PUBLIC Catch2::Catch2 Kokkos::kokkos vleo_core)
@@ -30,5 +30,10 @@ vleo_add_unit_test(test_transport SOURCES unit/test_transport.cpp LIBS vleo_part
 vleo_add_unit_test(test_gsi       SOURCES unit/test_gsi.cpp LIBS vleo_gsi LABELS physics)
 vleo_add_unit_test(test_tpmc      SOURCES unit/test_tpmc.cpp LIBS vleo_tpmc LABELS physics)
 target_compile_definitions(test_tpmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
+vleo_add_unit_test(test_vhs       SOURCES unit/test_vhs.cpp LIBS vleo_dsmc LABELS "dsmc;physics")
+vleo_add_unit_test(test_grid      SOURCES unit/test_grid.cpp LIBS vleo_dsmc LABELS dsmc)
+vleo_add_unit_test(test_dsmc      SOURCES unit/test_dsmc.cpp LIBS vleo_dsmc LABELS "dsmc;physics;gate")
+target_compile_definitions(test_dsmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
+set_tests_properties(test_dsmc PROPERTIES TIMEOUT 900)
 
 add_subdirectory(regression)

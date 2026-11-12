@@ -117,6 +117,12 @@ struct DeviceInflow {
     }
     // Guard against selecting a trailing zero-rate channel through rounding.
     while (ch > 0 && channels(ch).rate_per_s == 0.0) --ch;
+    return sample_channel(ch, rng);
+  }
+
+  // Sample entering through channel `ch` (used by DSMC, which draws the
+  // number of entering particles per channel and time step itself).
+  KOKKOS_INLINE_FUNCTION InflowSample sample_channel(int ch, RandomStream& rng) const {
     const InflowChannel& c = channels(ch);
 
     const int axis = c.face / 2;

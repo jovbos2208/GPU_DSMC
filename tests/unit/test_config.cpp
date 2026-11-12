@@ -86,7 +86,7 @@ TEST_CASE("Shipped simulation configurations are valid", "[config]") {
   CHECK(c.surface.model == (name.ends_with("cll") ? GSIModel::CLL : GSIModel::Maxwell));
   CHECK(c.source_file.is_absolute());
   CHECK(c.geometry.resolved_file.is_absolute());
-  CHECK(c.gas.species.size() == 3);
+  CHECK(c.gas.species.size() == (name.starts_with("dsmc") ? 1u : 3u));  // DSMC examples: He only (M3)
 }
 
 TEST_CASE("Shipped platform configurations are valid", "[config]") {
@@ -392,7 +392,7 @@ TEST_CASE("Rejected: invalid enumerations and unsupported features", "[config][n
       {"model: maxwell", "model: specular", "surface.model: invalid value 'specular' (allowed: maxwell, cll)"},
       {"file: body.stl", "file: body.stl\n  units: km", "geometry.units: invalid value 'km'"},
       {"file: body.stl", "file: body.stl\n  units: in", "geometry.units: 'in' is not supported yet"},
-      {"    O: 1.0", "    Xe: 1.0", "gas.species.Xe: unknown species (supported: O, N, He)"},
+      {"    O: 1.0", "    Xe: 1.0", "gas.species.Xe: unknown species (supported: O, N, He, Ar)"},
       {"    O: 1.0", "    N2: 1.0", "gas.species.N2: molecular species are not supported yet"},
       {"    O: 1.0", "    O2: 0.5\n    O: 0.5", "gas.species.O2: molecular species are not supported yet"},
   }));
@@ -553,4 +553,46 @@ TEST_CASE("Rejected: invalid convergence criteria", "[config][negative]") {
   }));
   INFO(needle);
   expect_invalid(std::string(kMinimal) + "tpmc:\n  convergence:\n" + block, needle);
+}
+
+// ----------------------------------------------------------------------------
+// M3 additions: DSMC sampling options and scope
+// ----------------------------------------------------------------------------
+
+TEST_CASE("DSMC options and scope", "[config]") {
+  const std::string dsmc = mutate("mode: tpmc", "mode: dsmc");
+  expect_invalid(dsmc, "gas.species.O: no validated VHS collision data for DSMC yet");
+  const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
+  const SimulationConfig c = parse_simulation_config(he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n", kData);
+  CHECK(*c.dsmc.warmup_steps == 50);
+  CHECK(c.dsmc.sample_steps == 400);
+  CHECK(c.dsmc.blocks == 10);
+  CHECK(*c.dsmc.max_particles == 1000000);
+  CHECK(c.gas.species[0].vhs.available);
+  CHECK(c.gas.species[0].vhs.omega == 0.66);
+  const std::string yaml = to_resolved_yaml(c);
+  CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
+  const SimulationConfig d = parse_simulation_config(he, kData);
+  CHECK(!d.dsmc.warmup_steps);  // automatic
+  CHECK(d.dsmc.sample_steps == 1000);
+  CHECK(d.dsmc.blocks == 20);
+  // TPMC keeps accepting mixtures and species without VHS data.
+  CHECK_NOTHROW(parse_simulation_config(mutate("    O: 1.0", "    O: 0.5\n    N: 0.5"), kData));
+}
+
+TEST_CASE("Rejected: DSMC options", "[config][negative]") {
+  std::string he = mutate("mode: tpmc", "mode: dsmc");
+  he.replace(he.find("    O: 1.0"), 10, "    He: 1.0");
+  const auto [extra, needle] = GENERATE(table<std::string, std::string>({
+      {"dsmc:\n  sample_steps: 1\n", "dsmc.sample_steps: must be at least 2"},
+      {"dsmc:\n  blocks: 1\n", "dsmc.blocks: must be in [2, 100000]"},
+      {"dsmc:\n  sample_steps: 10\n  blocks: 20\n", "dsmc.blocks: must not exceed dsmc.sample_steps"},
+      {"dsmc:\n  max_particles: 0\n", "dsmc.max_particles: must be at least 1"},
+      {"dsmc:\n  warmup_steps: -3\n", "dsmc.warmup_steps: expected a non-negative integer"},
+  }));
+  INFO(needle);
+  expect_invalid(he + extra, needle);
+  std::string mix = he;
+  mix.replace(mix.find("    He: 1.0"), 11, "    He: 0.5\n    Ar: 0.5");
+  expect_invalid(mix, "DSMC currently supports a single species");
 }

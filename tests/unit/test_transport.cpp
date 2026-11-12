@@ -46,8 +46,8 @@ GasSection make_gas(const Vec3& u) {
   g.number_density_m3 = 1e14;
   g.translational_temperature_K = 900.0;
   g.bulk_velocity_body_mps = u;
-  g.species.push_back({"O", 0.8, find_species("O")->mass_kg});
-  g.species.push_back({"He", 0.2, find_species("He")->mass_kg});
+  g.species.push_back({"O", 0.8, find_species("O")->mass_kg, find_species("O")->vhs});
+  g.species.push_back({"He", 0.2, find_species("He")->mass_kg, find_species("He")->vhs});
   return g;
 }
 

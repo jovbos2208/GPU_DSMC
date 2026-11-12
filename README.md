@@ -6,11 +6,13 @@ Cercignani–Lampis–Lord gas-surface interaction. C++20 + Kokkos: one source t
 for CPU, NVIDIA (CUDA) and AMD (HIP).
 
 The roadmap and checklist are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-**Status: milestone M2 – release v0.1-tpmc.** Complete free-molecular TPMC
-solver: Maxwell and CLL gas-surface interaction, forces, moments, C_D, C_L,
-C_Y, C_M and heat transfer with standard errors and confidence intervals,
-optional convergence stop, JSON/CSV output and per-triangle surface fields.
-Verified against analytic free-molecular theory. DSMC follows in M3.
+**Status: milestone M3 – release v0.2-dsmc.** TPMC (free-molecular) and DSMC
+(transitional, elastic VHS collisions, NTC, cut cells) with Maxwell and CLL
+gas-surface interaction: forces, moments, C_D, C_L, C_Y, C_M and heat transfer
+with standard errors and confidence intervals, JSON/CSV output and
+per-triangle surface fields. Verified against analytic free-molecular theory,
+equilibrium collision theory and TPMC. DSMC currently supports one monatomic
+species (He, Ar); mixtures and internal energy follow in M4.
 
 ## Quick start (CPU)
 
@@ -34,6 +36,7 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/conventions.md](docs/conventions.md) | SI units, axes, normals, sign conventions, RNG |
 | [docs/geometry.md](docs/geometry.md) | STL import, mesh checks, epsilon strategy, BVH, inflow, transport |
 | [docs/tpmc.md](docs/tpmc.md) | Maxwell/CLL kernels, event weight, tallies, statistics, output, physics verification |
+| [docs/dsmc.md](docs/dsmc.md) | DSMC time loop, grid and cut cells, NTC/VHS, block averaging, diagnostics, convergence studies |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
 
 ## Layout

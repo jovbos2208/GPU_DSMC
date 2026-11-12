@@ -101,7 +101,27 @@ foreach(_sim tpmc_maxwell tpmc_cll)
   set_tests_properties(repro_${_sim}_compare PROPERTIES FIXTURES_REQUIRED repro_${_sim} LABELS smoke)
 endforeach()
 
-# 8. DSMC is rejected until M3; HDF5 output is not part of this build.
-add_test(NAME smoke_rejects_dsmc_run
-  COMMAND vleo_solver --config "${_cfg}/simulations/dsmc_cll.yaml" --output-dir "${CMAKE_CURRENT_BINARY_DIR}/dsmc")
-set_tests_properties(smoke_rejects_dsmc_run PROPERTIES PASS_REGULAR_EXPRESSION "dsmc is not available yet" LABELS smoke)
+# 8. Gate M3: monatomic DSMC example runs are reproducible and complete.
+foreach(_sim dsmc_maxwell dsmc_cll)
+  foreach(_rep a b)
+    add_test(NAME repro_${_sim}_${_rep}
+      COMMAND vleo_solver --config "${_cfg}/simulations/${_sim}.yaml" --warmup-steps 30 --sample-steps 40 --quiet
+                          --output-dir "${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_${_rep}")
+    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT 300)
+  endforeach()
+  add_test(NAME repro_${_sim}_compare
+    COMMAND ${CMAKE_COMMAND} -DA=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_a/results.json
+                             -DB=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_b/results.json
+                             -P "${CMAKE_CURRENT_SOURCE_DIR}/compare_results.cmake")
+  set_tests_properties(repro_${_sim}_compare PROPERTIES FIXTURES_REQUIRED repro_${_sim} LABELS smoke)
+  add_test(NAME repro_${_sim}_results
+    COMMAND ${CMAKE_COMMAND} -DRESULTS=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_a/results.json
+                             -P "${CMAKE_CURRENT_SOURCE_DIR}/check_results.cmake")
+  set_tests_properties(repro_${_sim}_results PROPERTIES FIXTURES_REQUIRED repro_${_sim} LABELS smoke)
+endforeach()
+
+# 9. DSMC scope of M3: mixtures and species without VHS data are rejected.
+add_test(NAME smoke_rejects_dsmc_mixture
+  COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/dsmc_mixture.yaml")
+set_tests_properties(smoke_rejects_dsmc_mixture PROPERTIES
+  PASS_REGULAR_EXPRESSION "DSMC currently supports a single species" LABELS smoke)

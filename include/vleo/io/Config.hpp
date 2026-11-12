@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "vleo/core/Frames.hpp"
+#include "vleo/core/Species.hpp"
 #include "vleo/core/Vec3.hpp"
 #include "vleo/gsi/GSIModel.hpp"
 
@@ -73,6 +74,7 @@ struct SpeciesFraction {
   std::string name;
   double mole_fraction = 0.0;  // number fraction as given; all fractions sum to 1 within 1e-6
   double mass_kg = 0.0;
+  VhsParameters vhs;
 };
 
 struct GasSection {
@@ -124,6 +126,10 @@ struct DSMCSection {
   ParameterMode cell_size_mode = ParameterMode::Automatic;
   std::optional<double> cell_size_m;  // set iff cell_size_mode == Fixed
   std::uint32_t particles_per_cell_target = 30;
+  std::optional<std::uint64_t> warmup_steps;  // unset: automatic (docs/dsmc.md)
+  std::uint64_t sample_steps = 1000;
+  std::uint32_t blocks = 20;                  // blocks for the block-averaged standard error
+  std::optional<std::uint64_t> max_particles; // unset: automatic
 };
 
 struct StatisticsSection {

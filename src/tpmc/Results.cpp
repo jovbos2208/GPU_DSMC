@@ -69,13 +69,8 @@ void block(JsonWriter& w, const TpmcEstimates& e, double Estimate::*f) {
 
 }  // namespace
 
-std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const std::string& timestamp_utc) {
+void write_simulation_and_reference(JsonWriter& w, const SimulationConfig& cfg) {
   const BuildInfo& b = build_info();
-  const TpmcEstimates& e = r.estimates;
-  JsonWriter w;
-  w.begin_object();
-  w.field("schema", kResultsSchema);
-
   w.key("simulation").begin_object();
   w.field("name", cfg.simulation.name);
   w.field("mode", to_string(cfg.simulation.mode));
@@ -95,7 +90,9 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   w.field("lift_axis_e_L", cfg.derived.aero_axes.lift);
   w.field("side_axis_e_Y", cfg.derived.aero_axes.side);
   w.end_object();
+}
 
+void write_estimate_blocks(JsonWriter& w, const TpmcEstimates& e) {
   w.key("results");
   block(w, e, &Estimate::value);
   w.key("std_error");
@@ -106,6 +103,28 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   w.key("high");
   block(w, e, &Estimate::ci_high);
   w.end_object();
+}
+
+void write_provenance(JsonWriter& w, const std::string& timestamp_utc) {
+  const BuildInfo& b = build_info();
+  w.key("provenance").begin_object();
+  w.field("solver_version", b.configure.solver_version);
+  w.field("git_commit", b.git.commit);
+  w.field("git_dirty", b.git.dirty);
+  w.field("build_type", b.configure.build_type);
+  w.field("kokkos_version", b.kokkos_version);
+  w.field("execution_space", b.default_execution_space);
+  w.field("timestamp_utc", timestamp_utc);
+  w.end_object();
+}
+
+std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const std::string& timestamp_utc) {
+  const TpmcEstimates& e = r.estimates;
+  JsonWriter w;
+  w.begin_object();
+  w.field("schema", kResultsSchema);
+  write_simulation_and_reference(w, cfg);
+  write_estimate_blocks(w, e);
 
   w.key("statistics").begin_object();
   w.field("confidence_level", cfg.statistics.confidence_level);
@@ -147,15 +166,7 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   w.field("histories_per_s", r.wall_time_s > 0 ? static_cast<double>(r.histories) / r.wall_time_s : 0.0);
   w.end_object();
 
-  w.key("provenance").begin_object();
-  w.field("solver_version", b.configure.solver_version);
-  w.field("git_commit", b.git.commit);
-  w.field("git_dirty", b.git.dirty);
-  w.field("build_type", b.configure.build_type);
-  w.field("kokkos_version", b.kokkos_version);
-  w.field("execution_space", b.default_execution_space);
-  w.field("timestamp_utc", timestamp_utc);
-  w.end_object();
+  write_provenance(w, timestamp_utc);
 
   w.key("warnings").begin_array();
   for (const auto& s : r.warnings) w.value(s);
@@ -164,10 +175,12 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   return w.str();
 }
 
-std::string results_csv(const TpmcResult& r) {
+std::string results_csv(const TpmcResult& r) { return estimates_csv(r.estimates); }
+
+std::string estimates_csv(const TpmcEstimates& e) {
   std::ostringstream os;
   os << "quantity,unit,value,std_error,ci_low,ci_high\n";
-  for (const Row& row : rows(r.estimates))
+  for (const Row& row : rows(e))
     os << row.name << "," << row.unit << "," << num(row.e->value) << "," << num(row.e->std_error) << ","
        << num(row.e->ci_low) << "," << num(row.e->ci_high) << "\n";
   return os.str();
@@ -175,7 +188,10 @@ std::string results_csv(const TpmcResult& r) {
 
 std::string surface_fields_csv(const TpmcResult& r, const Geometry& g) {
   if (!r.surface) throw std::logic_error("surface fields were not tallied");
-  const SurfaceFields& f = *r.surface;
+  return surface_fields_csv(*r.surface, g);
+}
+
+std::string surface_fields_csv(const SurfaceFields& f, const Geometry& g) {
   std::ostringstream os;
   os << "triangle,source_index,material,centroid_x_m,centroid_y_m,centroid_z_m,normal_x,normal_y,normal_z,area_m2,"
         "force_x_N,force_y_N,force_z_N,pressure_Pa,shear_Pa,heat_rate_W,heat_flux_W_m2,heat_rate_positive_W,"

@@ -38,10 +38,12 @@ def main():
     ra, rb = (json.load(open(f)) for f in (args.a, args.b))
     va, vb = flatten(ra["results"]), flatten(rb["results"])
     sa, sb = flatten(ra["std_error"]), flatten(rb["std_error"])
-    print(f"A: {ra['simulation']['backend']} ({ra['provenance']['execution_space']}), "
-          f"{ra['statistics']['histories']} histories")
-    print(f"B: {rb['simulation']['backend']} ({rb['provenance']['execution_space']}), "
-          f"{rb['statistics']['histories']} histories")
+    for tag, r in (("A", ra), ("B", rb)):
+        st = r["statistics"]
+        size = (f"{st['histories']} histories" if "histories" in st
+                else f"{st['sample_steps']} sampled steps")
+        print(f"{tag}: {r['simulation']['mode']} on {r['simulation']['backend']} "
+              f"({r['provenance']['execution_space']}), {size}")
     print(f"{'quantity':<22}{'A':>24}{'B':>24}{'rel diff':>11}{'z':>8}  verdict")
     ok_all = True
     for k in va:

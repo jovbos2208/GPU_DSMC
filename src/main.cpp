@@ -5,7 +5,8 @@
 // the free-stream inflow, initialises Kokkos on the compiled backend, runs a
 // backend self-test and the TPMC solver (Maxwell or CLL), and writes the
 // results with uncertainties plus the resolved configuration and complete run
-// metadata. DSMC follows in M3.
+// metadata. With simulation.mode: dsmc the DSMC solver (single monatomic
+// species, VHS collisions) is run instead.
 
 #include <charconv>
 #include <cstdint>
@@ -28,6 +29,7 @@
 #include "vleo/io/PlatformConfig.hpp"
 #include "vleo/io/RunMetadata.hpp"
 #include "vleo/particles/Inflow.hpp"
+#include "vleo/dsmc/DsmcResults.hpp"
 #include "vleo/tpmc/Results.hpp"
 #include "vleo/tpmc/Tpmc.hpp"
 
@@ -45,6 +47,7 @@ struct Options {
   std::optional<fs::path> platform;
   std::optional<fs::path> output_dir;
   std::uint64_t histories = 0;  // 0: use tpmc.particle_histories
+  std::optional<std::uint64_t> sample_steps, warmup_steps;
   bool check_only = false;
   bool quiet = false;
   bool print_config = false;
@@ -60,6 +63,8 @@ void print_usage(std::ostream& os) {
         "  -p, --platform <file>    Platform configuration; its backend must match this build\n"
         "  -o, --output-dir <dir>   Override output.directory from the configuration\n"
         "  -n, --histories <N>      Override tpmc.particle_histories (recorded in the resolved config)\n"
+        "      --sample-steps <N>   Override dsmc.sample_steps\n"
+        "      --warmup-steps <N>   Override dsmc.warmup_steps\n"
         "  -q, --quiet              No progress output\n"
         "      --check              Validate the configuration(s) and exit (no Kokkos initialisation)\n"
         "      --print-config       Print the resolved configuration (YAML) to stdout\n"
@@ -102,6 +107,16 @@ std::optional<Options> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       o.histories = n;
+    } else if (a == "--sample-steps" || a == "--warmup-steps") {
+      auto v = need_value(a.c_str());
+      if (!v) return std::nullopt;
+      std::uint64_t n = 0;
+      const auto [p, ec] = std::from_chars(v->data(), v->data() + v->size(), n);
+      if (ec != std::errc() || p != v->data() + v->size()) {
+        std::cerr << "error: " << a << " expects a non-negative integer\n";
+        return std::nullopt;
+      }
+      (a == "--sample-steps" ? o.sample_steps : o.warmup_steps) = n;
     } else if (a == "-q" || a == "--quiet") {
       o.quiet = true;
     } else if (a == "--check") {
@@ -248,17 +263,30 @@ int run(const Options& opt, int argc, char** argv) {
     return kExitConfigError;
   }
   if (opt.histories > 0) cfg.tpmc.particle_histories = opt.histories;
+  if (opt.sample_steps) {
+    if (*opt.sample_steps < 2 || *opt.sample_steps < cfg.dsmc.blocks) {
+      std::cerr << "error: --sample-steps must be at least 2 and at least dsmc.blocks\n";
+      return kExitUsage;
+    }
+    cfg.dsmc.sample_steps = *opt.sample_steps;
+  }
+  if (opt.warmup_steps) cfg.dsmc.warmup_steps = *opt.warmup_steps;
+
+  vleo::DsmcSettings dsmc_settings;
+  if (cfg.simulation.mode == vleo::SolverMode::DSMC) {
+    try {
+      dsmc_settings = vleo::resolve_dsmc_settings(cfg, inflow.domain);
+    } catch (const std::exception& e) {
+      std::cerr << "error: DSMC setup: " << e.what() << "\n";
+      return kExitConfigError;
+    }
+  }
 
   if (opt.print_config) std::cout << vleo::to_resolved_yaml(cfg);
   if (opt.check_only) {
     std::cerr << "configuration valid: " << cfg.source_file.string() << " (" << geometry.report.triangles
               << " triangles, " << geometry.report.components.size() << " component(s))\n";
     return kExitOk;
-  }
-
-  if (cfg.simulation.mode == vleo::SolverMode::DSMC) {
-    std::cerr << "error: simulation.mode: dsmc is not available yet (milestone M3); use tpmc\n";
-    return kExitConfigError;
   }
 
   // --- Kokkos ----------------------------------------------------------------
@@ -284,9 +312,34 @@ int run(const Options& opt, int argc, char** argv) {
   notes.push_back(self_test.detail);
   if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
-  // --- TPMC ------------------------------------------------------------------
+  // --- Solver ----------------------------------------------------------------
+  const bool dsmc = cfg.simulation.mode == vleo::SolverMode::DSMC;
   vleo::TpmcResult result;
-  if (self_test_ok) {
+  vleo::DsmcResult dresult;
+  if (self_test_ok && dsmc) {
+    vleo::DsmcProgressCallback progress;
+    if (!opt.quiet) {
+      progress = [](const vleo::DsmcProgress& p) {
+        std::cerr << "  dsmc: step " << p.step << " / " << p.total_steps << (p.sampling ? " (sampling)" : " (warm-up)")
+                  << ", " << p.particles << " particles, " << p.elapsed_s << " s\n";
+      };
+      std::cerr << "  dsmc: dt = " << dsmc_settings.timestep_s << " s, cell = " << dsmc_settings.cell_size_m
+                << " m, W = " << dsmc_settings.particle_weight << ", lambda_inf = " << dsmc_settings.lambda_inf_m
+                << " m, warm-up " << dsmc_settings.warmup_steps << " + sampling " << dsmc_settings.sample_steps
+                << " steps\n";
+    }
+    try {
+      dresult = vleo::run_dsmc(cfg, geometry, inflow, dsmc_settings, progress);
+    } catch (const std::exception& e) {
+      std::cerr << "error: DSMC run failed: " << e.what() << "\n";
+      return kExitRuntimeError;
+    }
+    for (const auto& w : dresult.warnings) {
+      notes.push_back("dsmc: " + w);
+      std::cerr << "warning: dsmc: " << w << "\n";
+    }
+  }
+  if (self_test_ok && !dsmc) {
     vleo::TpmcProgressCallback progress;
     if (!opt.quiet) {
       progress = [](const vleo::TpmcProgress& p) {
@@ -320,15 +373,18 @@ int run(const Options& opt, int argc, char** argv) {
     const fs::path f_surface = out_dir / "surface_fields.csv";
     std::vector<std::string> files = {f_meta.filename().string(), f_resolved.filename().string(),
                                       f_input.filename().string(), f_kokkos.filename().string()};
+    const vleo::TpmcEstimates& est = dsmc ? dresult.estimates : result.estimates;
+    const std::optional<vleo::SurfaceFields>& surface = dsmc ? dresult.surface : result.surface;
     if (self_test_ok) {
-      write_text_file(f_results, vleo::results_json(result, cfg, rt.timestamp_utc));
+      write_text_file(f_results, dsmc ? vleo::dsmc_results_json(dresult, cfg, rt.timestamp_utc)
+                                      : vleo::results_json(result, cfg, rt.timestamp_utc));
       files.push_back(f_results.filename().string());
       if (cfg.output.format == vleo::OutputFormat::CSV) {
-        write_text_file(f_csv, vleo::results_csv(result));
+        write_text_file(f_csv, vleo::estimates_csv(est));
         files.push_back(f_csv.filename().string());
       }
-      if (result.surface) {
-        write_text_file(f_surface, vleo::surface_fields_csv(result, geometry));
+      if (surface) {
+        write_text_file(f_surface, vleo::surface_fields_csv(*surface, geometry));
         files.push_back(f_surface.filename().string());
       }
     }
@@ -343,7 +399,8 @@ int run(const Options& opt, int argc, char** argv) {
     meta.config = &cfg;
     meta.platform = platform ? &*platform : nullptr;
     meta.runtime = rt;
-    const bool clean = result.counters.lost_inside_body + result.counters.invalid == 0;
+    const bool clean = dsmc ? dresult.counters.lost_inside_body + dresult.counters.invalid == 0
+                            : result.counters.lost_inside_body + result.counters.invalid == 0;
     meta.status = !self_test_ok ? "self_test_failed" : (clean ? "completed" : "completed_with_errors");
     meta.notes = notes;
     meta.sections.emplace_back("geometry", [&](vleo::JsonWriter& w) { write_geometry_json(w, geometry, cfg); });
@@ -352,10 +409,12 @@ int run(const Options& opt, int argc, char** argv) {
     write_text_file(f_meta, vleo::make_run_metadata_json(meta));
 
     std::cerr << "vleo_solver: backend " << vleo::to_string(vleo::compiled_backend()) << " ("
-              << rt.execution_space << "), " << result.histories << " histories in " << result.wall_time_s
+              << rt.execution_space << "), "
+              << (dsmc ? std::to_string(dresult.counters.steps) + " steps in " + std::to_string(dresult.wall_time_s)
+                       : std::to_string(result.histories) + " histories in " + std::to_string(result.wall_time_s))
               << " s, wrote " << fs::absolute(out_dir).lexically_normal().string() << "\n";
     if (self_test_ok && !opt.quiet) {
-      const auto& e = result.estimates;
+      const auto& e = est;
       std::cerr << "  C_D = " << e.C_D.value << " +- " << e.C_D.std_error << ", C_L = " << e.C_L.value << " +- "
                 << e.C_L.std_error << ", Q = " << e.heat_rate_W.value << " +- " << e.heat_rate_W.std_error
                 << " W\n";

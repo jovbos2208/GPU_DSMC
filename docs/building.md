@@ -42,7 +42,7 @@ Build directories are `build/<preset>/`. Any CMake generator works; add
 Useful subsets: `ctest --preset cpu-debug -L unit`, `-L smoke`, `-L rng`, `-L config`,
 `-L geometry`, `-L particles`, `-L gate`.
 
-## What the tests cover (M0 – M2)
+## What the tests cover (M0 – M3)
 
 | Test | Content |
 | ---- | ------- |
@@ -59,7 +59,10 @@ Useful subsets: `ctest --preset cpu-debug -L unit`, `-L smoke`, `-L rng`, `-L co
 | `test_transport` | Gate M1: cube particle balance and analytic hit rate, multiple reflections, truncation, failure states |
 | `test_gsi` | Maxwell and CLL kernels: limits, distributions (KS), moments, wall velocity, outward re-emission |
 | `test_tpmc` | flat plate vs. free-molecular theory, specular/diffuse limits, thermal equilibrium, symmetry, surface fields, batching, convergence stop (Debug: ¼ of the histories) |
-| `smoke_results`, `repro_*` | Gate M2: all six quantities with uncertainties in `results.json`; Maxwell and CLL example runs bitwise reproducible |
+| `smoke_results`, `repro_tpmc_*` | Gate M2: all six quantities with uncertainties in `results.json`; Maxwell and CLL example runs bitwise reproducible |
+| `test_vhs`, `test_grid` | VHS cross-section and collisions (conservation, isotropy), grid mapping, binning uniqueness, cut-cell volumes |
+| `test_dsmc` | homogeneous gas (collision rate, Maxwellian, energy), relaxation, free-molecular DSMC vs TPMC, reproducibility, diagnostics, block averaging (Debug: ¼ of the steps) |
+| `repro_dsmc_*` | Gate M3: DSMC example runs bitwise reproducible and complete |
 | `smoke_*` | the `vleo_solver` executable: full start-up with the platform file of the build, metadata completeness (incl. geometry and inflow), re-parse of the resolved config, all shipped simulation configs, failure paths (foreign platform, invalid config, missing or open geometry, usage), `--version` |
 
 Device tests run on the default execution space of the build (Serial/OpenMP on

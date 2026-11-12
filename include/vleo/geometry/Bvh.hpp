@@ -117,6 +117,52 @@ KOKKOS_INLINE_FUNCTION void consider(RayHit& best, int tri, const TriangleHit& h
 struct DeviceBvh {
   Kokkos::View<const BvhNode*> nodes;
 
+  // Number of closed-surface (one-sided) triangles crossed by the ray
+  // origin + t dir, t > 0 (open, two-sided surfaces are ignored). Odd parity
+  // means the origin lies inside a closed component. A ray passing exactly
+  // through an edge may count both neighbours; callers use generic directions
+  // and a majority vote (CollisionGrid.cpp).
+  KOKKOS_INLINE_FUNCTION int count_crossings(const DeviceMesh& mesh, const Vec3& origin, const Vec3& dir) const {
+    const WatertightRay wr(origin, dir);
+    const BoxRay br(origin, dir);
+    constexpr double inf = Kokkos::infinity_v<double>;
+    int count = 0;
+    double t_entry = 0.0;
+    if (!hit_box(br, nodes(0).lo, nodes(0).hi, inf, t_entry)) return 0;
+    int stack[kMaxBvhDepth];
+    int sp = 0;
+    int node = 0;
+    for (;;) {
+      const BvhNode& n = nodes(node);
+      if (n.count > 0) {
+        for (int i = n.right_or_first; i < n.right_or_first + n.count; ++i) {
+          if (mesh.two_sided(i) != 0) continue;
+          TriangleHit h;
+          if (intersect(wr, mesh.v0(i), mesh.v1(i), mesh.v2(i), inf, h)) ++count;
+        }
+        if (sp == 0) break;
+        node = stack[--sp];
+        continue;
+      }
+      const int left = node + 1, right = n.right_or_first;
+      double tl = 0.0, tr = 0.0;
+      const bool hl = hit_box(br, nodes(left).lo, nodes(left).hi, inf, tl);
+      const bool hr = hit_box(br, nodes(right).lo, nodes(right).hi, inf, tr);
+      if (hl && hr) {
+        stack[sp++] = right;
+        node = left;
+      } else if (hl) {
+        node = left;
+      } else if (hr) {
+        node = right;
+      } else {
+        if (sp == 0) break;
+        node = stack[--sp];
+      }
+    }
+    return count;
+  }
+
   // Closest hit with 0 < t <= t_max, skipping triangle `ignore` (-1: none).
   KOKKOS_INLINE_FUNCTION RayHit closest_hit(const DeviceMesh& mesh, const Vec3& origin, const Vec3& dir,
                                             double t_max, int ignore = -1) const {

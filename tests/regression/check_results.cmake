@@ -25,7 +25,17 @@ foreach(q force_N moment_Nm C_M)
     message(FATAL_ERROR "results: ${q} must have 3 components")
   endif()
 endforeach()
-foreach(p "statistics;confidence_level" "statistics;histories" "statistics;converged" "reference;area_m2"
+string(JSON mode GET "${J}" simulation mode)
+if(mode STREQUAL "tpmc")
+  require("statistics;histories")
+else()
+  foreach(p "statistics;sample_steps" "statistics;blocks" "statistics;tau_int_steps_drag" "diagnostics;timestep_s"
+            "diagnostics;cell_size_m" "diagnostics;mean_free_path_inf_m" "diagnostics;collisions;accepted"
+            "diagnostics;grid;gas_volume_m3" "diagnostics;mean_particles_per_gas_cell")
+    require("${p}")
+  endforeach()
+endif()
+foreach(p "statistics;confidence_level" "statistics;converged" "reference;area_m2"
           "reference;length_m" "reference;moment_center_m" "reference;dynamic_pressure_Pa" "diagnostics;injected"
           "diagnostics;particle_balance_ok" "provenance;git_commit" "simulation;gsi_model")
   require("${p}")
@@ -33,6 +43,7 @@ endforeach()
 string(JSON ok GET "${J}" diagnostics particle_balance_ok)
 string(JSON lost GET "${J}" diagnostics lost_inside_body)
 string(JSON invalid GET "${J}" diagnostics invalid)
+# (DSMC example runs are short in the smoke test; only failures, not statistics, are checked)
 if(NOT ok OR NOT lost EQUAL 0 OR NOT invalid EQUAL 0)
   message(FATAL_ERROR "results: particle balance violated (lost ${lost}, invalid ${invalid})")
 endif()

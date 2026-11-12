@@ -171,7 +171,7 @@ void parse_species(const YAML::Node& n, const std::string& p, std::vector<Specie
       ok = false;
       continue;
     }
-    list.push_back({name, *x, info->mass_kg});
+    list.push_back({name, *x, info->mass_kg, info->vhs});
   }
   if (!ok) return;
 
@@ -327,7 +327,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   if (!n.IsDefined()) return;
   if (!check_map(n, p,
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m",
-                  "particles_per_cell_target"},
+                  "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision,
@@ -341,6 +341,26 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
     else
       out.particles_per_cell_target = static_cast<std::uint32_t>(*v);
   }
+  if (auto v = get_uint64(n, "warmup_steps", p, is, Need::Optional)) out.warmup_steps = *v;
+  if (auto v = get_uint64(n, "sample_steps", p, is, Need::Optional)) {
+    if (*v < 2)
+      is.add(p + ".sample_steps", "must be at least 2");
+    else
+      out.sample_steps = *v;
+  }
+  if (auto v = get_uint64(n, "blocks", p, is, Need::Optional)) {
+    if (*v < 2 || *v > 100000)
+      is.add(p + ".blocks", "must be in [2, 100000]");
+    else
+      out.blocks = static_cast<std::uint32_t>(*v);
+  }
+  if (auto v = get_uint64(n, "max_particles", p, is, Need::Optional)) {
+    if (*v == 0)
+      is.add(p + ".max_particles", "must be at least 1");
+    else
+      out.max_particles = *v;
+  }
+  if (out.blocks > out.sample_steps) is.add(p + ".blocks", "must not exceed dsmc.sample_steps");
 }
 
 void parse_statistics(const YAML::Node& n, StatisticsSection& out, Issues& is) {
@@ -414,6 +434,18 @@ SimulationConfig parse_root(const YAML::Node& root, const fs::path& base_dir) {
   parse_dsmc(section(root, "dsmc", is, Need::Optional), cfg.dsmc, is);
   parse_statistics(section(root, "statistics", is, Need::Optional), cfg.statistics, is);
   parse_output(section(root, "output", is, Need::Optional), cfg.output, is);
+
+  // DSMC scope of the current release (milestone M3): one monatomic species
+  // with VHS collision data. Gas mixtures (pair collisions) follow in M4.
+  if (cfg.simulation.mode == SolverMode::DSMC && !cfg.gas.species.empty()) {
+    if (cfg.gas.species.size() > 1)
+      is.add("gas.species", "DSMC currently supports a single species; gas mixtures (species-pair collisions) "
+                            "follow in milestone M4 - use mode: tpmc for mixtures");
+    for (const auto& sp : cfg.gas.species)
+      if (!sp.vhs.available)
+        is.add("gas.species." + sp.name, "no validated VHS collision data for DSMC yet (milestone M4.1); "
+                                         "DSMC species available now: He, Ar");
+  }
 
   // Cross-field checks need valid individual fields.
   if (is.empty()) compute_derived(cfg, is);
