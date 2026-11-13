@@ -150,5 +150,20 @@ its cell and writes itself to its final position (`RankSortEntries` in
 unchanged, all tests pass); the work no longer depends on the fill order and
 uses one thread per particle. On the 740M it is neutral (`ranksort-hip-gfx1103`:
 B3 15.5 s, B4 25.1 s vs. 16.6/26.2 s; the sort itself 0.9 s vs. 0.7 s
-because the input was already nearly sorted there). The W7700 measurement of
-this version is still to be done (`m5-ranksort-hip-gfx1101`).
+because the input was already nearly sorted there). On the W7700 (`m5-ranksort-hip-gfx1101`, server run, median of 3):
+
+| Case | insertion sort [s] | rank sort [s] | Speed-up | sort share | C_D (identical) |
+| ---- | ------------------ | ------------- | -------- | ---------- | --------------- |
+| B3 | 6.10 | **2.75** | 2.2× | 59 % → 5 % | 0.71246 |
+| B4 | 6.73 | **5.12** | 1.31× | 28 % → 2 % | 4.61486 |
+
+B3 now runs at 7.9·10⁷ particle steps/s (4.3× the 12-thread CPU, 5.7× the
+iGPU), B4 at 5.6·10⁷ (3.2× CPU). TPMC unchanged (B1 0.32 s, B2 0.25 s).
+
+New profile on the W7700: collisions 42 % (B3) and **69 % (B4)**, move
+21 %/15 %, step reduce 12 %/6 %. The collision kernel has the same structure
+as the old sort – one thread per cell, the NTC pairs of a cell are processed
+sequentially – which is the next bottleneck on large GPUs. Parallelising
+within a cell changes the order of the random numbers, so results would stay
+deterministic and statistically equivalent but no longer bitwise equal to
+the current version (open, not done).
