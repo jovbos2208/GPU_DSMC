@@ -41,6 +41,7 @@ add_custom_target(vleo_git_info
 
 add_library(vleo_core STATIC
   BuildInfo.cpp
+  Profiler.cpp
   SelfTest.cpp
   Species.cpp
   "${_gen_dir}/BuildConfig.cpp"

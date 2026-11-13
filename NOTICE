@@ -1,0 +1,23 @@
+VLEO Particle Solver
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository vendors the following third-party software, unmodified, under
+third_party/ (versions and upstream commits: third_party/VERSIONS.md). Each is
+distributed under its own license, included in its directory:
+
+  Kokkos 5.2.2            third_party/kokkos/LICENSE
+    Copyright Contributors to the Kokkos Project
+    (third_party/kokkos/COPYRIGHT.md).
+    License: Apache-2.0 WITH LLVM-exception
+
+  yaml-cpp 0.9.0          third_party/yaml-cpp/LICENSE
+    Copyright (c) 2008-2015 Jesse Beder.
+    License: MIT
+
+  Catch2 3.8.1            third_party/catch2/LICENSE.txt   (tests only)
+    Copyright Catch2 Authors.
+    License: Boost Software License 1.0
+
+Executables built from this repository link Kokkos and yaml-cpp; test
+executables additionally link Catch2. SPARTA (validation/sparta) is not
+included and not linked; it is an optional external reference code (GPLv2).

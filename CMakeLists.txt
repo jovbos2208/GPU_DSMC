@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.27)
 
 project(VLEOParticleSolver
-  VERSION 0.1.0
+  VERSION 0.9.0
   DESCRIPTION "GPU TPMC/DSMC solver with Maxwell and CLL gas-surface interaction"
   LANGUAGES CXX)
 

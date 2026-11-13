@@ -6,15 +6,17 @@ Cercignani–Lampis–Lord gas-surface interaction. C++20 + Kokkos: one source t
 for CPU, NVIDIA (CUDA) and AMD (HIP).
 
 The roadmap and checklist are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
-**Status: milestone M3 – release v0.2-dsmc.** TPMC (free-molecular) and DSMC
-(transitional, elastic VHS collisions, NTC, cut cells) with Maxwell and CLL
-gas-surface interaction: forces, moments, C_D, C_L, C_Y, C_M and heat transfer
-with standard errors and confidence intervals, JSON/CSV output and
-per-triangle surface fields. Verified against analytic free-molecular theory,
-equilibrium collision theory and TPMC. Since M4: gas mixtures (O, N, He, Ar,
-N2, O2), rotational and vibrational energy (Larsen-Borgnakke) in collisions,
-at the wall and in the heat balance, VHS and VSS collisions. Supported
-combinations: [docs/capabilities.md](docs/capabilities.md).
+**Status: version 0.9.0 – milestone M5 (release candidate for v1.0).** TPMC
+(free-molecular) and DSMC (transitional regime) for gas mixtures (O, N, He, Ar,
+N2, O2) with VHS/VSS collisions, Larsen–Borgnakke rotational and vibrational
+energy, Maxwell and CLL gas-surface interaction including internal energy:
+forces, moments, C_D, C_L, C_Y, C_M and heat transfer with standard errors and
+confidence intervals, JSON/CSV output and per-triangle surface fields.
+Verified against analytic theory, equilibrium collision theory, TPMC and
+SPARTA (cases S1–S4). Automatic DSMC cell size from the local mean free path,
+phase profiler, benchmarks and CI. Open for v1.0: CUDA builds on NVIDIA
+hardware. Supported combinations: [docs/capabilities.md](docs/capabilities.md);
+changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start (CPU)
 
@@ -33,6 +35,7 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 
 | Document | Content |
 | -------- | ------- |
+| [docs/user_guide.md](docs/user_guide.md) | workflow: geometry, solver choice, configuration, running, convergence checks, validation evidence |
 | [docs/building.md](docs/building.md) | presets (CPU/CUDA/HIP), test command, verified toolchains |
 | [docs/configuration.md](docs/configuration.md) | YAML schema, CLI, output files |
 | [docs/conventions.md](docs/conventions.md) | SI units, axes, normals, sign conventions, RNG |
@@ -42,6 +45,9 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/species.md](docs/species.md) | species data with sources |
 | [docs/capabilities.md](docs/capabilities.md) | capability matrix: supported combinations and their validation |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
+| [docs/sparta.md](docs/sparta.md) | SPARTA comparison cases S1–S4 and results |
+| [docs/development.md](docs/development.md) | checks, sanitizers, CI and GPU runners, fixed-seed examples, versioning, release checklist |
+| [benchmarks/README.md](benchmarks/README.md) | benchmark cases, profiles, optimisations, before/after results |
 
 ## Layout
 

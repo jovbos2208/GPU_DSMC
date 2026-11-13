@@ -68,7 +68,11 @@ struct MoveKernel {
 
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     for (int k = 0; k < kStepTallies; ++k) tally(i, k) = 0.0;
-    if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) return;
+    if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) {
+      // ended in an earlier step and not yet compacted: retire (counted once, M5.3)
+      p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Free);
+      return;
+    }
     Vec3 pos = p.position(i);
     Vec3 vel = p.velocity(i);
     const std::uint64_t id = p.particle_id(i);
@@ -219,6 +223,27 @@ struct StepReduce {
   }
 };
 
+// Status counts and interactions only (steps outside the sampling phase).
+struct StatusReduce {
+  using value_type = double[];
+  using size_type = std::size_t;
+  static constexpr int kSlots = kNumParticleStatus + 1;
+  size_type value_count = kSlots;
+  Kokkos::View<const std::uint8_t*> status;
+  Kokkos::View<double**, Kokkos::LayoutLeft> tally;
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
+    const int st = status(i) < kNumParticleStatus ? status(i) : static_cast<int>(ParticleStatus::Invalid);
+    s[st] += 1.0;
+    s[kNumParticleStatus] += tally(i, kStepInteractions);
+  }
+  KOKKOS_INLINE_FUNCTION void init(value_type s) const {
+    for (int k = 0; k < kSlots; ++k) s[k] = 0.0;
+  }
+  KOKKOS_INLINE_FUNCTION void join(value_type d, const value_type s) const {
+    for (int k = 0; k < kSlots; ++k) d[k] += s[k];
+  }
+};
+
 struct InjectKernel {
   ParticleStorage p;
   Kokkos::View<double*> dt_rem;
@@ -330,6 +355,10 @@ struct CellIndexKernel {
   Kokkos::View<int*> cell;
   Kokkos::View<int*> count;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
+    if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) {
+      cell(i) = -1;  // not yet compacted
+      return;
+    }
     const int c = grid.cell_of(p.position(i));
     cell(i) = c;
     Kokkos::atomic_inc(&count(c));
@@ -355,24 +384,28 @@ struct FillCells {
   Kokkos::View<int*> list;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     const int c = cell(i);
+    if (c < 0) return;
     const int slot = Kokkos::atomic_fetch_add(&cursor(c), 1);
     list(offset(c) + slot) = static_cast<int>(i);
   }
 };
 
-// Insertion sort of each cell by particle id: the order within a cell no
-// longer depends on the (non-deterministic) atomic fill order.
+// Insertion sort of each cell: the order within a cell no longer depends on
+// the (non-deterministic) atomic fill order. Sorting by storage index is the
+// same as sorting by particle id, because ids increase with the storage index
+// (fill, injection and set_particles assign ids in index order; compaction
+// preserves the order) - checked in test_grid. Comparing indices avoids one
+// gather per comparison (M5.3).
 struct SortCells {
   Kokkos::View<const int*> offset;
   Kokkos::View<int*> list;
-  Kokkos::View<const std::uint64_t*> id;
   KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
     const int b = offset(c), e = offset(c + 1);
     for (int a = b + 1; a < e; ++a) {
       const int v = list(a);
-      const std::uint64_t key = id(v);
+      const int key = v;
       int k = a - 1;
-      while (k >= b && id(list(k)) > key) {
+      while (k >= b && list(k) > key) {
         list(k + 1) = list(k);
         --k;
       }
@@ -492,6 +525,7 @@ struct AccumulateCounts {
 struct MaxSpeed {
   ParticleStorage p;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, double& m) const {
+    if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) return;
     const double s = norm(p.velocity(i));
     if (s > m) m = s;
   }
@@ -501,7 +535,8 @@ struct MaxSpeed {
 
 // ============================================================================
 
-DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& domain) {
+DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& domain,
+                                   std::optional<double> cell_size_override_m) {
   if (cfg.gas.species.empty() || cfg.gas.species.size() > static_cast<std::size_t>(kMaxDsmcSpecies))
     throw std::invalid_argument("DSMC: 1 to 8 species are supported");
   for (const auto& sp : cfg.gas.species)
@@ -536,6 +571,7 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
 
   s.cell_size_automatic = cfg.dsmc.cell_size_mode == ParameterMode::Automatic;
   s.cell_size_m = s.cell_size_automatic ? std::min(0.5 * s.lambda_inf_m, l_max / 16.0) : *cfg.dsmc.cell_size_m;
+  if (cell_size_override_m) s.cell_size_m = *cell_size_override_m;
   const DeviceGrid g = make_device_grid(domain, s.cell_size_m, s.grid.max_cells);
   const double dx_min = std::min({g.cell_size.x, g.cell_size.y, g.cell_size.z});
   const double v_char = cfg.derived.freestream_speed_mps + 3.0 * s.c_mp_inf_mps;
@@ -577,7 +613,8 @@ struct DsmcSimulation::Impl {
   int nsp = 1;
 
   std::size_t capacity = 0;
-  std::size_t n = 0;
+  std::size_t n = 0;         // occupied slots (active + ended, not yet compacted)
+  std::size_t n_active = 0;  // active particles
   std::uint64_t next_id = 0;
   std::uint64_t step_index = 0;
   ParticleStorage cur, alt;
@@ -601,6 +638,8 @@ struct DsmcSimulation::Impl {
   double particles_sum = 0.0, particles_min = 1e300, particles_max = 0.0;
   double max_speed = 0.0;
   std::uint64_t sampled_cand = 0, sampled_acc = 0, sampled_particle_steps = 0;
+  double total_particle_steps = 0.0;
+  Profiler prof;
 
   void allocate(std::size_t cap) {
     if (cap > set.max_particles) {
@@ -652,6 +691,7 @@ struct DsmcSimulation::Impl {
     std::swap(cur, alt);
     std::swap(dt_cur, dt_alt);
     n = alive;
+    n_active = alive;
   }
 
   void inject() {
@@ -676,19 +716,32 @@ struct DsmcSimulation::Impl {
                          InjectKernel{cur, dt_cur, inflow, off, nch, n, next_id, cfg.simulation.random_seed,
                                       set.timestep_s, set.particle_weight});
     n += total;
+    n_active += total;
     next_id += total;
     counters.injected += total;
   }
 
   void bin() {
     const int nc = grid.grid.num_cells();
-    Kokkos::deep_copy(count, 0);
-    Kokkos::deep_copy(cursor, 0);
-    Kokkos::parallel_for("vleo::dsmc_cell_index", policy(0, n), CellIndexKernel{cur, grid.grid, cell_of_particle, count});
-    int total = 0;
-    Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(0, nc), OffsetScan{count, offset, nc}, total);
-    Kokkos::parallel_for("vleo::dsmc_fill_cells", policy(0, n), FillCells{cell_of_particle, offset, cursor, list});
-    Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(0, nc), SortCells{offset, list, cur.particle_id});
+    {
+      Profiler::Scope ps(prof, "dsmc.bin.histogram");
+      Kokkos::deep_copy(count, 0);
+      Kokkos::deep_copy(cursor, 0);
+      Kokkos::parallel_for("vleo::dsmc_cell_index", policy(0, n), CellIndexKernel{cur, grid.grid, cell_of_particle, count});
+    }
+    {
+      Profiler::Scope ps(prof, "dsmc.bin.scan");
+      int total = 0;
+      Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(0, nc), OffsetScan{count, offset, nc}, total);
+    }
+    {
+      Profiler::Scope ps(prof, "dsmc.bin.fill");
+      Kokkos::parallel_for("vleo::dsmc_fill_cells", policy(0, n), FillCells{cell_of_particle, offset, cursor, list});
+    }
+    {
+      Profiler::Scope ps(prof, "dsmc.bin.sort");
+      Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(0, nc), SortCells{offset, list});
+    }
   }
 
   void collide() {
@@ -708,7 +761,11 @@ struct DsmcSimulation::Impl {
   std::uint64_t last_cand = 0, last_acc = 0;
 
   void step(bool sample) {
-    if (set.boundary == DsmcBoundary::Open) inject();
+    if (set.boundary == DsmcBoundary::Open) {
+      Profiler::Scope ps(prof, "dsmc.inject");
+      inject();
+    }
+    total_particle_steps += static_cast<double>(n_active);
     MoveKernel mk{cur,
                   dt_cur,
                   tally,
@@ -723,17 +780,31 @@ struct DsmcSimulation::Impl {
                   set.timestep_s,
                   set.max_interactions_per_step,
                   set.boundary == DsmcBoundary::Specular};
-    Kokkos::parallel_for("vleo::dsmc_move", policy(0, n), mk);
+    {
+      Profiler::Scope ps(prof, "dsmc.move");
+      Kokkos::parallel_for("vleo::dsmc_move", policy(0, n), mk);
+    }
 
     double s[StepReduce::kSlots] = {};
-    if (n > 0) {
+    if (n > 0 && sample) {
+      Profiler::Scope ps(prof, "dsmc.step_reduce");
       StepReduce red;
       red.tally = tally;
       red.status = cur.status;
       red.species = cur.species;
       red.value_count = static_cast<std::size_t>(StepReduce::kGlobal + kSpeciesSlots * nsp);
       Kokkos::parallel_reduce("vleo::dsmc_step_reduce", policy(0, n), red, s);
+    } else if (n > 0) {
+      Profiler::Scope ps(prof, "dsmc.step_reduce");
+      double c[StatusReduce::kSlots] = {};
+      StatusReduce red;
+      red.status = cur.status;
+      red.tally = tally;
+      Kokkos::parallel_reduce("vleo::dsmc_status_reduce", policy(0, n), red, c);
+      for (int k = 0; k < kNumParticleStatus; ++k) s[kStepTallies + k] = c[k];
+      s[kStepInteractions] = c[kNumParticleStatus];
     }
+    n_active = static_cast<std::size_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
     counters.exited += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Exited)]);
     counters.truncated += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Truncated)]);
     counters.lost_inside_body +=
@@ -757,23 +828,32 @@ struct DsmcSimulation::Impl {
       }
     }
 
-    compact();
+    // Compact only when more than 5 % of the slots are no longer active
+    // (deterministic decision; ended particles are skipped meanwhile).
+    if (n - n_active > n / 20) {
+      Profiler::Scope ps(prof, "dsmc.compact");
+      compact();
+    }
     bin();
-    collide();
+    {
+      Profiler::Scope ps(prof, "dsmc.collide");
+      collide();
+    }
 
     if (sample) {
+      Profiler::Scope ps(prof, "dsmc.sample");
       Kokkos::parallel_for("vleo::dsmc_count_sum", IntPolicy(0, grid.grid.num_cells()), AccumulateCounts{count, count_sum});
       double vmax = 0.0;
       if (n > 0)
         Kokkos::parallel_reduce("vleo::dsmc_max_speed", policy(0, n), MaxSpeed{cur}, Kokkos::Max<double>(vmax));
       max_speed = std::max(max_speed, vmax);
-      const double np = static_cast<double>(n);
+      const double np = static_cast<double>(n_active);
       particles_sum += np;
       particles_min = std::min(particles_min, np);
       particles_max = std::max(particles_max, np);
       sampled_cand += last_cand;
       sampled_acc += last_acc;
-      sampled_particle_steps += n;
+      sampled_particle_steps += n_active;
       ++sampled;
     }
     ++step_index;
@@ -792,6 +872,7 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
   for (auto t : geometry.host.two_sided) s.has_closed = s.has_closed || t == 0;
   s.inflow_host = inflow;
   s.inflow = upload(inflow);
+  s.prof = Profiler(settings.profile || profiling_requested_by_environment());
   s.grid = make_collision_grid(inflow.domain, settings.cell_size_m, geometry, settings.grid);
 
   std::vector<SurfaceProperties> props(geometry.host.material_names.size(), make_surface_properties(cfg.surface));
@@ -915,12 +996,18 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
   Kokkos::deep_copy(s.cur.e_rot, her);
   Kokkos::deep_copy(s.cur.e_vib, hev);
   s.n = total;
+  s.n_active = total;
   s.next_id += total;
   s.bin();
 }
 
 void DsmcSimulation::step(bool sample) { impl_->step(sample); }
-std::size_t DsmcSimulation::num_particles() const { return impl_->n; }
+std::size_t DsmcSimulation::num_particles() const { return impl_->n_active; }
+
+void DsmcSimulation::compact() {
+  impl_->compact();
+  impl_->bin();
+}
 const DsmcCounters& DsmcSimulation::counters() const { return impl_->counters; }
 const CollisionGrid& DsmcSimulation::grid() const { return impl_->grid; }
 const DsmcSettings& DsmcSimulation::settings() const { return impl_->set; }
@@ -974,7 +1061,7 @@ void DsmcSimulation::binning(std::vector<int>& offsets, std::vector<int>& list) 
   auto ho = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->offset);
   auto hl = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->list);
   offsets.assign(ho.data(), ho.data() + ho.extent(0));
-  list.assign(hl.data(), hl.data() + impl_->n);
+  list.assign(hl.data(), hl.data() + ho(ho.extent(0) - 1));
 }
 
 DsmcResult DsmcSimulation::result() const {
@@ -1059,7 +1146,7 @@ DsmcResult DsmcSimulation::result() const {
     auto cs = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.count_sum);
     auto fr = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.grid.gas_fraction);
     std::int64_t gas = 0, below5 = 0, coarse = 0;
-    double ppc = 0.0, min_lambda = Kokkos::infinity_v<double>;
+    double ppc = 0.0, min_lambda = Kokkos::infinity_v<double>, min_lambda_resolved = Kokkos::infinity_v<double>;
     const double n_ref = s.cfg.gas.number_density_m3;
     for (int c = 0; c < g.num_cells(); ++c) {
       if (fr(c) <= 0.0) continue;
@@ -1071,6 +1158,7 @@ DsmcResult DsmcSimulation::result() const {
       if (n_cell > 0.0) {
         const double lam = s.set.lambda_inf_m * n_ref / n_cell;  // density scaling at free-stream temperature
         min_lambda = std::min(min_lambda, lam);
+        if (fr(c) >= 0.25) min_lambda_resolved = std::min(min_lambda_resolved, lam);
         if (dx_max > lam) ++coarse;
       }
     }
@@ -1078,7 +1166,11 @@ DsmcResult DsmcSimulation::result() const {
     d.fraction_cells_below_5 = gas > 0 ? static_cast<double>(below5) / static_cast<double>(gas) : 0.0;
     d.fraction_cells_dx_gt_lambda = gas > 0 ? static_cast<double>(coarse) / static_cast<double>(gas) : 0.0;
     d.min_local_lambda_m = std::isfinite(min_lambda) ? min_lambda : s.set.lambda_inf_m;
+    d.min_local_lambda_resolved_m = std::isfinite(min_lambda_resolved) ? min_lambda_resolved : d.min_local_lambda_m;
   }
+
+  r.profile = s.prof.phases();
+  r.particle_steps = s.total_particle_steps;
 
   // Per-species diagnostics.
   {
@@ -1142,6 +1234,67 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   DsmcResult r = sim.result();
   r.wall_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   return r;
+}
+
+DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geometry& geometry,
+                                         const InflowModel& inflow, const DsmcSettings& settings,
+                                         CellSizePilotReport& report, const CellSizePilotOptions& options) {
+  report = CellSizePilotReport{};
+  report.initial_cell_size_m = settings.cell_size_m;
+  report.cell_size_m = settings.cell_size_m;
+  if (!settings.cell_size_automatic) return settings;
+  const auto t0 = std::chrono::steady_clock::now();
+  const Domain& domain = inflow.domain;
+
+  // smallest cell size the grid allows (GridOptions::max_cells), with margin
+  const Vec3 e = domain.box.extent();
+  const double dx_floor =
+      1.05 * std::cbrt(e.x * e.y * e.z / static_cast<double>(std::max<std::int64_t>(1, settings.grid.max_cells)));
+
+  SimulationConfig pc = cfg;  // pilot: few particles, automatic (then halved) warm-up, short sampling
+  pc.dsmc.particles_per_cell_target = std::min(cfg.dsmc.particles_per_cell_target, options.particles_per_cell);
+  pc.dsmc.warmup_steps.reset();
+  pc.dsmc.sample_steps = options.sample_steps;
+  pc.dsmc.blocks = std::min<std::uint32_t>(cfg.dsmc.blocks, 10);
+  pc.output.save_surface_fields = false;
+
+  double dx = settings.cell_size_m;
+  double lambda_min = settings.lambda_inf_m;
+  for (int k = 0; k < options.max_pilots; ++k) {
+    DsmcSettings ps = resolve_dsmc_settings(pc, domain, dx);
+    ps.grid = settings.grid;
+    ps.warmup_steps = std::max<std::uint64_t>(1, ps.warmup_steps / 2);
+    ps.profile = false;
+    const DsmcResult r = run_dsmc(pc, geometry, inflow, ps);
+    ++report.pilots;
+    report.steps += ps.warmup_steps + ps.sample_steps;
+    lambda_min = std::min(lambda_min, r.diagnostics.min_local_lambda_resolved_m);
+    // the largest edge counts (cells divide the domain exactly)
+    const double edge = std::max({r.diagnostics.cell_dx_m, r.diagnostics.cell_dy_m, r.diagnostics.cell_dz_m});
+    const double target = options.lambda_fraction * lambda_min;
+    if (edge <= target) break;  // already resolved
+    double next = std::min(dx, target);
+    if (next < dx_floor) {
+      next = dx_floor;
+      report.limited_by_max_cells = true;
+    }
+    const bool large_change = next < 0.8 * dx;
+    dx = next;
+    // the pilot underestimates the peak density on a coarse grid: re-measure
+    // once on the refined grid if the cell size changed substantially
+    if (!large_change || report.limited_by_max_cells) break;
+  }
+  report.performed = true;
+  report.min_local_lambda_m = lambda_min;
+  report.cell_size_m = dx;
+  report.wall_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  DsmcSettings out = resolve_dsmc_settings(cfg, domain, dx);
+  out.grid = settings.grid;
+  out.profile = settings.profile;
+  out.initial_fill = settings.initial_fill;
+  out.boundary = settings.boundary;
+  out.max_interactions_per_step = settings.max_interactions_per_step;
+  return out;
 }
 
 }  // namespace vleo

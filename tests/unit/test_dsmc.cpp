@@ -260,6 +260,59 @@ TEST_CASE("Resolution diagnostics and automatic parameters", "[dsmc]") {
   CHECK(warned);
 }
 
+TEST_CASE("Automatic cell size from the local mean free path of pilot runs", "[dsmc]") {
+  // He, lambda_inf ~ 5 cm, cold cube at 7.5 km/s: the compressed gas in front
+  // of the body has a local mean free path well below lambda_inf.
+  const std::string body =
+      "simulation: {name: pilot, mode: dsmc, random_seed: 5}\n"
+      "domain: {margin_m: 0.15}\n"
+      "reference: {area_m2: 1, length_m: 1, moment_center_m: [0,0,0], lift_axis_body: [0,0,1]}\n"
+      "gas: {number_density_m3: 1.0e20, translational_temperature_K: 900, "
+      "bulk_velocity_body_mps: [-7500, 0, 0], species: {He: 1.0}}\n"
+      "surface: {model: maxwell, temperature_K: 300, maxwell: {diffuse_fraction: 1}}\n"
+      "dsmc: {particles_per_cell_target: 30, sample_steps: 100, blocks: 10}\n";
+  Case c = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}), body);
+  const DsmcSettings s0 = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  REQUIRE(s0.cell_size_automatic);
+  REQUIRE(c.cfg.dsmc.cell_size_pilot);  // default
+  REQUIRE(s0.cell_size_m == 0.5 * s0.lambda_inf_m);
+  CellSizePilotOptions o;
+  o.particles_per_cell = 3;
+  o.sample_steps = 20;
+  o.max_pilots = 1;
+
+  CellSizePilotReport rep;
+  const DsmcSettings s1 = refine_cell_size_with_pilot(c.cfg, c.geometry, c.inflow, s0, rep, o);
+  CHECK(rep.performed);
+  CHECK(rep.pilots == 1);
+  CHECK(rep.steps > 20);
+  CHECK(rep.initial_cell_size_m == s0.cell_size_m);
+  CHECK(rep.min_local_lambda_m < 0.8 * s0.lambda_inf_m);  // compressed gas resolved by the pilot
+  CHECK_THAT(rep.cell_size_m, WithinRel(std::min(s0.cell_size_m, o.lambda_fraction * rep.min_local_lambda_m), 1e-12));
+  CHECK(!rep.limited_by_max_cells);
+  CHECK(s1.cell_size_m == rep.cell_size_m);
+  // everything that depends on the cell size is re-resolved
+  CHECK(s1.particle_weight < s0.particle_weight);
+  CHECK(s1.timestep_s <= s0.timestep_s);
+  CHECK(s1.sample_steps == c.cfg.dsmc.sample_steps);
+
+  // the maximum cell count bounds the refinement and is reported
+  DsmcSettings capped = s0;
+  capped.grid.max_cells = 12000;
+  const DsmcSettings s2 = refine_cell_size_with_pilot(c.cfg, c.geometry, c.inflow, capped, rep, o);
+  CHECK(rep.limited_by_max_cells);
+  CHECK(s2.cell_size_m < s0.cell_size_m);
+  CHECK(make_device_grid(c.inflow.domain, s2.cell_size_m).num_cells() <= 12000);
+
+  // fixed cells are never changed
+  Case f = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}),
+                     body.substr(0, body.rfind("dsmc:")) + "dsmc: {cell_size_mode: fixed, cell_size_m: 0.05}\n");
+  const DsmcSettings sf = resolve_dsmc_settings(f.cfg, f.inflow.domain);
+  const DsmcSettings sf1 = refine_cell_size_with_pilot(f.cfg, f.geometry, f.inflow, sf, rep, o);
+  CHECK(!rep.performed);
+  CHECK(sf1.cell_size_m == 0.05);
+}
+
 TEST_CASE("Block averaging of correlated series", "[statistics]") {
   // AR(1): x_t = phi x_{t-1} + e_t has tau_int = (1 + phi) / (2 (1 - phi)).
   std::mt19937_64 gen(3);

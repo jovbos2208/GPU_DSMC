@@ -1,0 +1,9 @@
+# Style target for editors (clang-format 18+). CI enforces the subset in
+# scripts/check_format.py; this file documents the intended layout.
+BasedOnStyle: Google
+ColumnLimit: 120
+IndentWidth: 2
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+IncludeBlocks: Preserve

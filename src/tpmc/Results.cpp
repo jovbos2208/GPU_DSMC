@@ -105,6 +105,17 @@ void write_estimate_blocks(JsonWriter& w, const TpmcEstimates& e) {
   w.end_object();
 }
 
+void write_profile(JsonWriter& w, const std::map<std::string, Profiler::Entry>& profile) {
+  w.begin_object();
+  for (const auto& [name, e] : profile) {
+    w.key(name).begin_object();
+    w.field("seconds", e.seconds);
+    w.field("calls", static_cast<std::int64_t>(e.calls));
+    w.end_object();
+  }
+  w.end_object();
+}
+
 void write_provenance(JsonWriter& w, const std::string& timestamp_utc) {
   const BuildInfo& b = build_info();
   w.key("provenance").begin_object();
@@ -164,6 +175,10 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   w.field("particle_balance_ok", r.counters.balanced());
   w.field("wall_time_s", r.wall_time_s);
   w.field("histories_per_s", r.wall_time_s > 0 ? static_cast<double>(r.histories) / r.wall_time_s : 0.0);
+  if (!r.profile.empty()) {
+    w.key("profile");
+    write_profile(w, r.profile);
+  }
   w.end_object();
 
   write_provenance(w, timestamp_utc);

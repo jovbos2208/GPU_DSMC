@@ -7,6 +7,7 @@ by Kokkos; a configuration file cannot switch it.
 | ------------- | ------- | ---------------- | ---------- | ------- |
 | `cpu-debug`   | cpu     | Serial           | Debug, Kokkos debug + bounds checks, `-Werror` | development, numerical reference |
 | `cpu-release` | cpu     | OpenMP + Serial  | Release    | CPU production / reference runs |
+| `cpu-asan`    | cpu     | Serial           | Debug + AddressSanitizer/UBSan, `-Werror` | memory and UB checks ([development.md](development.md)) |
 | `cuda`        | cuda    | Cuda + Serial    | Release    | NVIDIA GPUs (default `Kokkos_ARCH_AMPERE80`, A100) |
 | `hip`         | hip     | HIP + Serial     | Release    | AMD GPUs (default `Kokkos_ARCH_AMD_GFX942`, MI300X) |
 | `hip-gfx1100` | hip     | HIP + Serial     | Release    | AMD RDNA3 (`Kokkos_ARCH_AMD_GFX1100`): RX 7900, Radeon 7xxM iGPUs with `HSA_OVERRIDE_GFX_VERSION=11.0.0` |
@@ -80,6 +81,10 @@ CPU builds, the GPU on CUDA/HIP builds).
 | 2026-11-12 | `hip-gfx1100` | hipcc (HIP 7.1.52801, Clang 21.1.8), CMake 4.2.3, Radeon 740M iGPU (gfx1103 run as gfx1100 via `HSA_OVERRIDE_GFX_VERSION=11.0.0`) | build without warnings, M0: 20/20, M1: 27/27, M2: 37/37 tests pass; RNG self-test checksum bitwise identical to the CPU builds |
 | 2026-11-13 | `hip-gfx1103` | HIP 7.1.52801, Radeon 740M iGPU (gfx1103, native, no override) | M4 (phases A–C): 51/51 tests pass |
 | 2026-11-13 | `hip-gfx1101` | HIP 6.3.1 (AMD clang 18, Spack modules `llvm-amdgpu/6.3.1`, `hip`, `cmake/3.31.5`), 2× Radeon PRO W7700 (gfx1101), openSUSE 15 server | M3: 48/48 tests pass (52 s); DSMC convergence studies run there |
+| 2026-11-13 | `cpu-release` | GCC 15.2.0, CMake 4.2.3, OpenMP, 12 threads | M5: 52/52 tests pass (incl. `examples_fixed_seeds`, bitwise) |
+| 2026-11-13 | `cpu-debug` | GCC 15.2.0, `-Werror`, Kokkos bounds checks | M5: 51/51 tests pass |
+| 2026-11-13 | `cpu-asan` | GCC 15.2.0, ASan + LSan + UBSan, Kokkos Serial | M5: 51/51 tests pass, no sanitizer report |
+| 2026-11-13 | `hip-gfx1103` | HIP 7.1.52801, Radeon 740M iGPU (native) | M5: 52/52 tests pass; examples statistically equal to the CPU references (DSMC max z = 1.1, TPMC identical) |
 | – | `hip` (GFX942) | not yet available | **open** – compiles the same sources for MI300X; requires that hardware to run |
 
 ### Cross-backend comparison (Gate M2)
@@ -94,8 +99,8 @@ CPU builds, the GPU on CUDA/HIP builds).
 The histories are identical on all backends (counter-based RNG), so the
 results differ only by floating-point rounding in device math and reductions.
 
-Add a row whenever a preset is built on a new toolchain. Gate M0 still
-requires a `cuda` row.
+Add a row whenever a preset is built on a new toolchain. Gates M0 and M5 still
+require a `cuda` row; the `hip-gfx1101` server has not yet run the M5 state.
 
 ## Notes for GPU builds
 

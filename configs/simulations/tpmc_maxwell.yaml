@@ -38,6 +38,8 @@ dsmc:
   collision_model: VHS
   timestep_mode: automatic
   cell_size_mode: automatic
+  cell_size_pilot: false   # quick example: free-stream rule only; true (default) resolves the
+                           # local mean free path (here ~9x finer cells, docs/dsmc.md 3.1)
   particles_per_cell_target: 30
 
 statistics:

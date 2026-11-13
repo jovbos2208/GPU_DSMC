@@ -1,6 +1,7 @@
 #include "vleo/tpmc/Tpmc.hpp"
 
 #include <chrono>
+#include <type_traits>
 #include <cmath>
 #include <sstream>
 
@@ -91,7 +92,8 @@ bool reached(const Estimate& e, const ConvergenceCriterion& c) {
 }  // namespace
 
 TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
-                    std::uint64_t histories_override, const TpmcProgressCallback& progress) {
+                    std::uint64_t histories_override, const TpmcProgressCallback& progress, bool profile) {
+  Profiler prof(profile || profiling_requested_by_environment());
   const auto t0 = std::chrono::steady_clock::now();
   const std::uint64_t target = histories_override > 0 ? histories_override : cfg.tpmc.particle_histories;
   const std::size_t batch = static_cast<std::size_t>(std::min<std::uint64_t>(cfg.tpmc.batch_size, target));
@@ -132,9 +134,42 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
   std::uint64_t done = 0;
   while (done < target) {
     const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(batch, target - done));
-    const TransportCounters c = run_histories(setup, gsi, particles, done, n);
+    using policy = Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>;
+    // Host backends: injection fused into the transport kernel (+9 % on the
+    // CPU). Devices: separate kernels (the fused kernel needs more registers
+    // and ran 2-10 % slower on RDNA3). Both use the same random streams and
+    // give bitwise identical results (benchmarks/README.md).
+    if constexpr (std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::DefaultHostExecutionSpace>) {
+      Profiler::Scope ps(prof, "tpmc.histories");
+      Kokkos::parallel_for("vleo::tpmc_histories", policy(0, n),
+                           detail::FusedHistoryKernel<GsiInteraction>{
+                               particles.status, particles.interactions, setup.inflow, setup.geometry, setup.domain,
+                               gsi, setup.seed, done, setup.max_interactions, setup.species_mass,
+                               setup.species_modes, setup.tally});
+    } else {
+      {
+        Profiler::Scope ps(prof, "tpmc.inject");
+        Kokkos::parallel_for("vleo::inject", policy(0, n),
+                             detail::InjectKernel{particles, setup.inflow, setup.seed, done, setup.weight});
+      }
+      Profiler::Scope ps(prof, "tpmc.transport");
+      Kokkos::parallel_for("vleo::transport", policy(0, n),
+                           detail::TransportKernel<GsiInteraction>{particles, setup.geometry, setup.domain, gsi,
+                                                                   setup.seed, setup.max_interactions,
+                                                                   setup.species_mass, setup.species_modes,
+                                                                   setup.tally});
+    }
+    TransportCounters c;
+    {
+      Profiler::Scope ps(prof, "tpmc.count");
+      c = count_particles(particles, n);
+    }
     r.counters += c;
-    const MomentArray bm = reduce_history_moments(setup.tally.history, n, axes);
+    MomentArray bm;
+    {
+      Profiler::Scope ps(prof, "tpmc.moments");
+      bm = reduce_history_moments(setup.tally.history, n, axes);
+    }
     for (std::size_t k = 0; k < r.moments.size(); ++k) r.moments[k].merge(bm[k]);
     done += n;
     ++r.batches;
@@ -189,6 +224,7 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
     r.warnings.push_back("convergence criterion not reached within tpmc.particle_histories");
 
   r.wall_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  r.profile = prof.phases();
   return r;
 }
 

@@ -39,6 +39,17 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
   w.field("timestep_automatic", s.timestep_automatic);
   w.field("cell_size_m", Vec3(d.cell_dx_m, d.cell_dy_m, d.cell_dz_m));
   w.field("cell_size_automatic", s.cell_size_automatic);
+  if (r.pilot.performed) {
+    w.key("cell_size_pilot").begin_object();
+    w.field("pilots", static_cast<std::uint64_t>(r.pilot.pilots));
+    w.field("initial_cell_size_m", r.pilot.initial_cell_size_m);
+    w.field("min_local_mean_free_path_m", r.pilot.min_local_lambda_m);
+    w.field("cell_size_m", r.pilot.cell_size_m);
+    w.field("limited_by_max_cells", r.pilot.limited_by_max_cells);
+    w.field("steps", r.pilot.steps);
+    w.field("wall_time_s", r.pilot.wall_time_s);
+    w.end_object();
+  }
   w.field("particle_weight", s.particle_weight);
   w.field("mean_free_path_inf_m", d.lambda_inf_m);
   w.field("collision_time_inf_s", d.tau_inf_s);
@@ -46,6 +57,7 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
   w.field("dt_over_tau_inf", d.dt_over_tau_inf);
   w.field("max_cfl", d.max_cfl);
   w.field("min_local_mean_free_path_m", d.min_local_lambda_m);
+  w.field("min_local_mean_free_path_resolved_cells_m", d.min_local_lambda_resolved_m);
   w.field("fraction_cells_dx_gt_local_lambda", d.fraction_cells_dx_gt_lambda);
   w.field("mean_particles_per_gas_cell", d.mean_particles_per_gas_cell);
   w.field("fraction_cells_below_5_particles", d.fraction_cells_below_5);
@@ -95,6 +107,12 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
   }
   w.end_array();
   w.field("wall_time_s", r.wall_time_s);
+  w.field("particle_steps", r.particle_steps);
+  w.field("particle_steps_per_s", r.wall_time_s > 0 ? r.particle_steps / r.wall_time_s : 0.0);
+  if (!r.profile.empty()) {
+    w.key("profile");
+    write_profile(w, r.profile);
+  }
   w.end_object();
 
   write_provenance(w, timestamp_utc);

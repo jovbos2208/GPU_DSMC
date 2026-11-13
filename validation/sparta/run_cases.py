@@ -283,7 +283,7 @@ def main():
             "versions": {"vleo_solver": version([vleo, "--version"]),
                          "sparta": "SPARTA 27Aug2026 (git 95b9abaa8bd548991cc3c3f1c58b34722f7ade74), spa_serial"},
             "sparta_blocks": len(blocks), "rows": rows, "passed": ok}
-        (d / "comparison.json").write_text(json.dumps(report, indent=2))
+        (d / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
         md = [f"# {name}: {case['desc']}", "",
               f"Acceptance (fixed in docs/sparta.md): {report['acceptance']}" + ("  — QUICK RUN, not a decision" if args.quick else ""), "",
               "| quantity | vleo_solver | SPARTA | difference | z | limit | result |",

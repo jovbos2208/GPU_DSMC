@@ -81,20 +81,56 @@ struct BoxRay {
 
 inline constexpr double kBoxSlack = 1.0e-9;
 
-// Conservative slab test: true if the ray segment [0, t_max] may touch the box.
-KOKKOS_INLINE_FUNCTION bool hit_box(const BoxRay& r, const Vec3& lo, const Vec3& hi, double t_max, double& t_entry) {
-  double t0 = 0.0, t1 = t_max * (1.0 + kBoxSlack);
+// Device node with box coordinates of type BvhReal (M5.5, mixed precision).
+// GPU builds use float boxes (32-byte nodes): RDNA3/consumer GPUs execute
+// FP64 at 1/32 of the FP32 rate and the box tests dominate BVH traversal.
+// CPU builds keep double boxes (float conversions cost more than they save
+// there; measured in benchmarks/README.md). In both cases the boxes are
+// rounded outwards and padded (float: 1e-5 times the geometry scale) and the
+// slab interval is widened (float: 1e-5, double: 1e-9 relative); the margins
+// exceed the rounding errors of the box test, so no box containing a
+// candidate hit is culled and the closest hit is bitwise identical to brute
+// force (test_ray). Triangle intersection is always double precision.
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) || defined(KOKKOS_ENABLE_SYCL)
+using BvhReal = float;
+inline constexpr float kBvhBoxSlack = 1.0e-5f;
+inline constexpr double kBvhBoxPad = 1.0e-5;
+#else
+using BvhReal = double;
+inline constexpr double kBvhBoxSlack = kBoxSlack;
+inline constexpr double kBvhBoxPad = 0.0;
+#endif
+
+struct BvhNodeDevice {
+  BvhReal lo[3];
+  BvhReal hi[3];
+  std::int32_t right_or_first;
+  std::int32_t count;
+};
+
+struct BoxRayDevice {
+  BvhReal origin[3];
+  BvhReal inv_dir[3];
+  KOKKOS_INLINE_FUNCTION BoxRayDevice(const Vec3& o, const Vec3& d)
+      : origin{static_cast<BvhReal>(o.x), static_cast<BvhReal>(o.y), static_cast<BvhReal>(o.z)},
+        inv_dir{static_cast<BvhReal>(1.0 / d.x), static_cast<BvhReal>(1.0 / d.y), static_cast<BvhReal>(1.0 / d.z)} {}
+};
+
+// Conservative slab test in BvhReal (see above).
+KOKKOS_INLINE_FUNCTION bool hit_box_device(const BoxRayDevice& r, const BvhNodeDevice& n, double t_max, double& t_entry) {
+  const BvhReal one = 1;
+  BvhReal t0 = 0;
+  BvhReal t1 = t_max < 1.0e38 ? static_cast<BvhReal>(t_max) * (one + kBvhBoxSlack) : Kokkos::infinity_v<BvhReal>;
   for (int k = 0; k < 3; ++k) {
-    double tn = (lo[k] - r.origin[k]) * r.inv_dir[k];
-    double tf = (hi[k] - r.origin[k]) * r.inv_dir[k];
+    BvhReal tn = (n.lo[k] - r.origin[k]) * r.inv_dir[k];
+    BvhReal tf = (n.hi[k] - r.origin[k]) * r.inv_dir[k];
     if (tn > tf) {
-      const double tmp = tn;
+      const BvhReal tmp = tn;
       tn = tf;
       tf = tmp;
     }
-    tn *= tn > 0.0 ? 1.0 - kBoxSlack : 1.0 + kBoxSlack;
-    tf *= tf > 0.0 ? 1.0 + kBoxSlack : 1.0 - kBoxSlack;
-    // fmax/fmin ignore NaN (0 * inf for a ray in the slab plane): conservative.
+    tn *= tn > 0 ? one - kBvhBoxSlack : one + kBvhBoxSlack;
+    tf *= tf > 0 ? one + kBvhBoxSlack : one - kBvhBoxSlack;
     t0 = Kokkos::fmax(t0, tn);
     t1 = Kokkos::fmin(t1, tf);
     if (t0 > t1) return false;
@@ -115,7 +151,7 @@ KOKKOS_INLINE_FUNCTION void consider(RayHit& best, int tri, const TriangleHit& h
 }
 
 struct DeviceBvh {
-  Kokkos::View<const BvhNode*> nodes;
+  Kokkos::View<const BvhNodeDevice*> nodes;
 
   // Number of closed-surface (one-sided) triangles crossed by the ray
   // origin + t dir, t > 0 (open, two-sided surfaces are ignored). Odd parity
@@ -124,16 +160,16 @@ struct DeviceBvh {
   // and a majority vote (CollisionGrid.cpp).
   KOKKOS_INLINE_FUNCTION int count_crossings(const DeviceMesh& mesh, const Vec3& origin, const Vec3& dir) const {
     const WatertightRay wr(origin, dir);
-    const BoxRay br(origin, dir);
+    const BoxRayDevice br(origin, dir);
     constexpr double inf = Kokkos::infinity_v<double>;
     int count = 0;
     double t_entry = 0.0;
-    if (!hit_box(br, nodes(0).lo, nodes(0).hi, inf, t_entry)) return 0;
+    if (!hit_box_device(br, nodes(0), inf, t_entry)) return 0;
     int stack[kMaxBvhDepth];
     int sp = 0;
     int node = 0;
     for (;;) {
-      const BvhNode& n = nodes(node);
+      const BvhNodeDevice& n = nodes(node);
       if (n.count > 0) {
         for (int i = n.right_or_first; i < n.right_or_first + n.count; ++i) {
           if (mesh.two_sided(i) != 0) continue;
@@ -146,8 +182,8 @@ struct DeviceBvh {
       }
       const int left = node + 1, right = n.right_or_first;
       double tl = 0.0, tr = 0.0;
-      const bool hl = hit_box(br, nodes(left).lo, nodes(left).hi, inf, tl);
-      const bool hr = hit_box(br, nodes(right).lo, nodes(right).hi, inf, tr);
+      const bool hl = hit_box_device(br, nodes(left), inf, tl);
+      const bool hr = hit_box_device(br, nodes(right), inf, tr);
       if (hl && hr) {
         stack[sp++] = right;
         node = left;
@@ -168,16 +204,16 @@ struct DeviceBvh {
                                             double t_max, int ignore = -1) const {
     RayHit best;
     const WatertightRay wr(origin, dir);
-    const BoxRay br(origin, dir);
+    const BoxRayDevice br(origin, dir);
     double limit = t_max;
     double t_entry = 0.0;
-    if (!hit_box(br, nodes(0).lo, nodes(0).hi, limit, t_entry)) return best;
+    if (!hit_box_device(br, nodes(0), limit, t_entry)) return best;
 
     int stack[kMaxBvhDepth];
     int sp = 0;
     int node = 0;
     for (;;) {
-      const BvhNode& n = nodes(node);
+      const BvhNodeDevice& n = nodes(node);
       if (n.count > 0) {
         for (int i = n.right_or_first; i < n.right_or_first + n.count; ++i) {
           if (i == ignore) continue;
@@ -194,8 +230,8 @@ struct DeviceBvh {
       const int left = node + 1;
       const int right = n.right_or_first;
       double tl = 0.0, tr = 0.0;
-      const bool hl = hit_box(br, nodes(left).lo, nodes(left).hi, limit, tl);
-      const bool hr = hit_box(br, nodes(right).lo, nodes(right).hi, limit, tr);
+      const bool hl = hit_box_device(br, nodes(left), limit, tl);
+      const bool hr = hit_box_device(br, nodes(right), limit, tr);
       if (hl && hr) {
         // Visit the nearer child first; the farther one is culled later if a
         // closer hit was found meanwhile (the limit check is repeated).

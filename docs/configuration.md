@@ -127,6 +127,7 @@ Material files cannot reference other material files.
 | `timestep_s` | real | – | > 0; required iff `timestep_mode: fixed`, forbidden otherwise |
 | `cell_size_mode` | enum | `automatic` | `automatic` \| `fixed` |
 | `cell_size_m` | real | – | > 0; required iff `cell_size_mode: fixed`, forbidden otherwise |
+| `cell_size_pilot` | bool | `true` | only with `cell_size_mode: automatic`: refine the cell size from the local mean free path of short pilot runs ([dsmc.md](dsmc.md) §3.1); `false` keeps the free-stream rule |
 | `particles_per_cell_target` | uint32 | 30 | ≥ 1; sets the particle weight W = n∞ V_cell / target |
 | `warmup_steps` | uint64 | automatic | steps before sampling starts |
 | `sample_steps` | uint64 | 1000 | ≥ 2; sampled steps |

@@ -58,7 +58,7 @@ domain box with the drifting Maxwellian, those inside the body are discarded.
 
 | Parameter | Fixed | Automatic |
 | --------- | ----- | --------- |
-| cell size | `dsmc.cell_size_m` | min(λ∞ / 2, L_max / 16) |
+| cell size | `dsmc.cell_size_m` | min(λ∞ / 2, L_max / 16), then refined by pilot runs (§3.1; `dsmc.cell_size_pilot`, default on) |
 | time step | `dsmc.timestep_s` | min(τ∞ / 10, Δx_min / (4 (V∞ + 3 c_mp))) |
 | particle weight | – | W = n∞ V_cell / `particles_per_cell_target` |
 | warm-up | `dsmc.warmup_steps` | 3 · (domain diagonal / max(V∞, c_mp)) / Δt |
@@ -69,6 +69,58 @@ domain box with the drifting Maxwellian, those inside the body are discarded.
 ⟨σ_T g⟩ = 2√π d_ref² √(2kT_ref/m_r) (T/T_ref)^{1−ω}. The automatic values are
 starting points, not accuracy guarantees: section 6 shows the separate
 convergence studies, and the run diagnostics report the achieved resolution.
+
+### 3.1 Cell size from the local mean free path (M5)
+
+The free-stream rule ignores the compressed gas at the body, where the local
+mean free path is far below λ∞ (study in §8: Δx = λ∞/2 gives +8 % in C_D).
+With `cell_size_mode: automatic` and `cell_size_pilot: true` (default) the
+solver therefore runs short **pilot runs** before the actual run
+(`refine_cell_size_with_pilot`, `include/vleo/dsmc/Dsmc.hpp`):
+
+1. Pilot on the free-stream grid: 10 particles per cell (or fewer if the
+   target is lower), half the automatic warm-up, 200 sampled steps.
+2. Local mean free path per cell from the sampled density,
+   λ_loc = λ∞ n∞ / n_cell, over cells with gas fraction ≥ 0.25 (smaller cut
+   cells are too noisy); λ_min = min λ_loc.
+3. New cell size Δx = min(Δx₀, 1.5 λ_min). If it shrinks by more than 20 %, a
+   second pilot on the finer grid re-measures λ_min (a coarse grid smears the
+   density peak) and Δx is updated once more.
+4. The lower limit is the maximum cell count (`GridOptions::max_cells`,
+   2²⁴); if it binds, the run warns that the grid does not resolve λ_loc.
+5. Time step, particle weight, warm-up and capacity are then resolved for the
+   new Δx as in the table above.
+
+`results.json → diagnostics.cell_size_pilot` records the pilots, λ_min, the
+initial and the chosen cell size and the pilot cost.
+
+**Calibration of the factor 1.5** (cube case of §8, n∞ = 1e19, λ∞ = 0.50 m):
+λ_min ≈ 0.030 m, located in the thin layer of cold re-emitted gas at the
+front face, nearly independent of Δx (0.0297 m at Δx = 0.1 m, 0.0295 m at
+0.05 m, 0.023 m at 0.025 m). The study gave +3.6 % at Δx = 0.1 m = 3.4 λ_min
+and +0.24 % at 0.05 m = 1.7 λ_min, so Δx ≤ 1.5 λ_min targets an error well
+below 1 %. End-to-end check (20 particles per cell, Δt = 2 µs, 300 + 1000
+steps, 2026-11-13, cpu-release):
+
+| cell size | Δx | C_D | Q̇ [W] | wall time |
+| --------- | -- | --- | ----- | --------- |
+| fixed reference | 0.025 m | 0.71113 ± 0.00016 | 4351.8 | 68 s |
+| automatic with pilot (1 pilot, 1.4 s) | 0.0444 m | 0.71550 ± 0.00041 (+0.6 %) | 4391.5 (+0.9 %) | 8.6 s |
+| automatic without pilot (L_max/16 cap) | 0.05 m | 0.71191 ± 0.00051 (+0.1 %) | 4386.9 (+0.8 %) | 6.8 s |
+
+The pilot cell size is not aligned with the cube faces (cut cells), the
+0.05 m and 0.025 m grids are; this explains why 0.0444 m is not closer to the
+reference than 0.05 m. Both are within 1 %. The pilot matters where the
+free-stream rule is far too coarse: for the example satellite at
+n∞ = 1e19 (`configs/simulations/dsmc_*.yaml`) it refines 0.25 m → 0.028 m
+(λ_min = 1.9 cm at the panels), i.e. ~730× more cells and particles; the
+shipped quick examples therefore set `cell_size_pilot: false`.
+
+Limits: λ_loc uses the free-stream temperature (no local temperature or
+species dependence) and a single calibration case; the rule is a resolution
+heuristic, not an error estimate. Production runs should still check the
+reported `fraction_cells_dx_gt_local_lambda` and, for final numbers, do a
+cell-size study.
 
 ## 4. NTC collisions (M3.4 – M3.8)
 
@@ -267,6 +319,5 @@ dense, slow re-emitted gas near the body):
 - Q̇ shows the same behaviour as C_D (cell size +11 % at 0.4 λ∞, otherwise
   ≤ 0.1 %).
 
-**Open item (for M5):** make the automatic cell size depend on the local mean
-free path (adaptive refinement or a λ-based rule from a short pilot run)
-instead of λ∞.
+**Follow-up (M5, done):** the automatic cell size now depends on the local
+mean free path measured by pilot runs (§3.1).

@@ -827,7 +827,7 @@ Abnahme: Wissenschaftliche Referenztests bestehen auf NVIDIA und AMD; Performanc
 - [x] **M3.14** Binäre Kollisionen auf Impuls- und Energieerhaltung testen.
 - [x] **M3.15** Homogenes Gas und Kollisionsrate gegen Referenzfälle testen. → Kollisionsrate −0,34 % (1,9σ), Maxwell-Gleichgewicht, Relaxation
 - [x] **M3.16** Verdünnungsstudie DSMC gegen TPMC durchführen. → `docs/dsmc.md` §8
-- [x] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren. → `docs/dsmc.md` §8 (gerechnet auf 2× W7700): Zellgröße dominiert (+8 % bei Δx = 0,4 λ∞, +0,24 % bei 0,1 λ∞), Δt ≤ 0,15 %, Partikelzahl im Rauschen; automatische Zellgrößenregel muss lokales λ berücksichtigen (offen für M5)
+- [x] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren. → `docs/dsmc.md` §8 (gerechnet auf 2× W7700): Zellgröße dominiert (+8 % bei Δx = 0,4 λ∞, +0,24 % bei 0,1 λ∞), Δt ≤ 0,15 %, Partikelzahl im Rauschen; automatische Zellgrößenregel berücksichtigt seit M5 das lokale λ (Pilotläufe, `docs/dsmc.md` §3.1)
 
 **Gate M3 – Release v0.2-dsmc**
 
@@ -864,24 +864,24 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 
 #### M5 – Performance, Automatisierung und Release
 
-- [ ] **M5.1** Repräsentative TPMC-/DSMC-Benchmarks und Baseline festlegen.
-- [ ] **M5.2** CUDA- und HIP-Profile archivieren und dominante Kernel identifizieren.
-- [ ] **M5.3** BVH, DSMC-Binning und Tallies einzeln optimieren.
-- [ ] **M5.4** Nach jeder Optimierung Physiktests und Vorher-/Nachher-Messung ausführen.
-- [ ] **M5.5** Gemischte Präzision nur nach Fehler- und Performanceanalyse einführen.
-- [ ] **M5.6** CI für Formatierung, Analyse, CPU-Build sowie Unit- und Physiktests einrichten.
-- [ ] **M5.7** Regelmäßige CUDA- und HIP-Pipelines auf echter Hardware einrichten.
-- [ ] **M5.8** Sanitizer-Läufe für den CPU-Build ergänzen.
-- [ ] **M5.9** Toolchain-Matrix und Benutzer-, Methoden- und Validierungsdokumentation fertigstellen.
-- [ ] **M5.10** Beispiele mit festen Seeds automatisiert prüfen.
-- [ ] **M5.11** Lizenz, Changelog, Versionsschema und Release-Checkliste ergänzen.
+- [x] **M5.1** Repräsentative TPMC-/DSMC-Benchmarks und Baseline festlegen. → `scripts/benchmark.py` (B1–B4: TPMC Satellit/Luft, TPMC 65k-Dreieck-Kugel, DSMC Würfel He, DSMC Satellit N2/O2), Effizienzmaß SE²·t, `benchmarks/README.md`
+- [!] **M5.2** CUDA- und HIP-Profile archivieren und dominante Kernel identifizieren. → Phasen-Profiler (`--profile`); HIP- (gfx1103) und CPU-Profile archiviert in `benchmarks/results/`, dominant: BVH-Transport (TPMC), Kompaktierung (CPU) bzw. Move/Collide (GPU) bei DSMC; CUDA offen (keine Hardware)
+- [x] **M5.3** BVH, DSMC-Binning und Tallies einzeln optimieren. → Lazy Compaction, Sortierung nach Speicherindex, reduzierte Step-Reduktion, fusionierter TPMC-Kernel (nur Host), float-BVH-Boxen (nur GPU); Einzelschritte `opt1`–`opt4` in `benchmarks/results/`
+- [x] **M5.4** Nach jeder Optimierung Physiktests und Vorher-/Nachher-Messung ausführen. → nach jedem Schritt volle Testsuite, Ergebnisse bitweise identisch; A/B gegen M4-Build (Median aus 3): CPU 1,10–1,31×, GPU 1,02–1,44× (`benchmarks/README.md`)
+- [x] **M5.5** Gemischte Präzision nur nach Fehler- und Performanceanalyse einführen. → nur BVH-Knotenboxen in float (konservativ gerundet/gepolstert, Treffer exakt wie double), +24 % (GPU-Messreihe opt4) bzw. 1,44× gegenüber M4 (A/B) bei B2 auf der GPU, auf der CPU −5 % → dort double (`BvhReal`)
+- [x] **M5.6** CI für Formatierung, Analyse, CPU-Build sowie Unit- und Physiktests einrichten. → `.github/workflows/ci.yml` (Format, clang-tidy informativ, cpu-release/cpu-debug mit allen Tests), `scripts/check_format.py`, `docs/development.md`
+- [!] **M5.7** Regelmäßige CUDA- und HIP-Pipelines auf echter Hardware einrichten. → `.github/workflows/gpu.yml` (wöchentlich, self-hosted Runner `gpu-amd`/`gpu-nvidia`), Einrichtung in `docs/development.md` §2; Runner auf dem W7700-Server muss noch registriert werden, CUDA ohne Hardware offen
+- [x] **M5.8** Sanitizer-Läufe für den CPU-Build ergänzen. → Preset `cpu-asan` (ASan + LSan + UBSan), CI-Job `sanitizers`; alle Tests ohne Befund
+- [x] **M5.9** Toolchain-Matrix und Benutzer-, Methoden- und Validierungsdokumentation fertigstellen. → `docs/building.md` (Toolchains), `docs/user_guide.md`, `docs/tpmc.md`, `docs/dsmc.md` (inkl. §3.1 Pilot-Zellgröße), `docs/capabilities.md`, `docs/sparta.md`, Index in `README.md`
+- [x] **M5.10** Beispiele mit festen Seeds automatisiert prüfen. → `scripts/check_examples.py`, Referenzen `tests/golden/`, CTest `examples_fixed_seeds` (bitweise im gleichen Build, sonst z ≤ 5)
+- [x] **M5.11** Lizenz, Changelog, Versionsschema und Release-Checkliste ergänzen. → `LICENSE` (Apache-2.0), `NOTICE`, `CHANGELOG.md`, Version 0.9.0, `docs/development.md` §4–5
 
 **Gate M5 – Release v1.0**
 
-- [ ] CPU-, CUDA- und HIP-Regressionstests bestehen auf dokumentierten Plattformen.
-- [ ] Validierungsberichte und Konvergenzstudien sind versioniert und reproduzierbar.
-- [ ] Keine offene Abweichung betrifft unterstützte Physik oder eine Hauptausgabe.
-- [ ] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar.
+- [!] CPU-, CUDA- und HIP-Regressionstests bestehen auf dokumentierten Plattformen. → CPU und HIP bestanden (`docs/building.md`); CUDA offen (keine NVIDIA-Hardware)
+- [x] Validierungsberichte und Konvergenzstudien sind versioniert und reproduzierbar. → `validation/sparta/` (Skript + Archiv), `scripts/dsmc_studies.py`, Ergebnisse in `docs/dsmc.md` §8, feste Seeds
+- [x] Keine offene Abweichung betrifft unterstützte Physik oder eine Hauptausgabe. → offen ist nur CUDA (Backend, keine Physik); Zellgrößen-Punkt aus M3.17 erledigt (`docs/dsmc.md` §3.1)
+- [ ] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar. → Checkliste in `docs/development.md` §5; Prüfung aus sauberem Checkout erfolgt beim Tag v1.0
 
 ## 12. Physikalische Validierungsstrategie
 

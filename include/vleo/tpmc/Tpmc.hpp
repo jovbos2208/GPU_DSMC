@@ -13,10 +13,12 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "vleo/core/Profiler.hpp"
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/gsi/Scatter.hpp"
 #include "vleo/io/Config.hpp"
@@ -75,6 +77,7 @@ struct TpmcResult {
   bool converged = false;                // convergence criterion reached (false if none configured)
   double wall_time_s = 0.0;
   std::optional<SurfaceFields> surface;
+  std::map<std::string, Profiler::Entry> profile;  // phase timings (only with profiling enabled)
   std::vector<std::string> warnings;
 };
 
@@ -90,7 +93,8 @@ using TpmcProgressCallback = std::function<void(const TpmcProgress&)>;
 // Runs the TPMC simulation. The geometry must be uploaded (Kokkos initialised).
 // `histories_override` (if > 0) replaces tpmc.particle_histories.
 TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
-                    std::uint64_t histories_override = 0, const TpmcProgressCallback& progress = {});
+                    std::uint64_t histories_override = 0, const TpmcProgressCallback& progress = {},
+                    bool profile = false);
 
 // Estimates from merged moments (also used for the convergence check).
 TpmcEstimates make_estimates(const MomentArray& m, double inflow_rate, const SimulationConfig& cfg, double z);

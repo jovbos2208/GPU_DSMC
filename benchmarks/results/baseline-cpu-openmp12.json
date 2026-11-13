@@ -1,0 +1,171 @@
+{
+  "label": "baseline-cpu-openmp12",
+  "host": "jovan-work",
+  "solver_version": "vleo_solver 0.1.0\n  git commit       : 27b499005dcff2677301ca04a202e29040e806d6 (dirty)\n  git describe     : 27b4990-dirty\n  build type       : Release\n  compiler         : GNU 15.2.0 (gcc 15.2.0)\n  C++ standard     : 202002\n  Kokkos version   : 5.2.2\n  backend          : cpu\n  execution space  : OpenMP (host: OpenMP)\n  Kokkos backends  : Serial, OpenMP\n  Kokkos arch      : none\n",
+  "cases": {
+    "B1": {
+      "description": "TPMC, satellite, VLEO air (O, N2, O2, N, He), CLL",
+      "mode": "tpmc",
+      "wall_time_s": 1.651956619,
+      "C_D": 4.954398078234735,
+      "C_D_std_error": 0.002761778825604305,
+      "heat_rate_W": 1.3251491856280213,
+      "efficiency_se2_time": 1.2600170723924999e-05,
+      "profile": {
+        "tpmc.count": {
+          "seconds": 0.019281405,
+          "calls": 20
+        },
+        "tpmc.inject": {
+          "seconds": 0.625264183,
+          "calls": 20
+        },
+        "tpmc.moments": {
+          "seconds": 0.15610461200000003,
+          "calls": 20
+        },
+        "tpmc.transport": {
+          "seconds": 0.8269335659999998,
+          "calls": 20
+        }
+      },
+      "throughput": 12106855.452479651,
+      "throughput_unit": "histories/s"
+    },
+    "B2": {
+      "description": "TPMC, sphere with 65 024 triangles (BVH load), Maxwell",
+      "mode": "tpmc",
+      "wall_time_s": 2.603345274,
+      "C_D": 1.6545022045316113,
+      "C_D_std_error": 0.00047566903000756855,
+      "heat_rate_W": 0.4631981655078907,
+      "efficiency_se2_time": 5.890355730095405e-07,
+      "profile": {
+        "tpmc.count": {
+          "seconds": 0.018136673,
+          "calls": 10
+        },
+        "tpmc.inject": {
+          "seconds": 0.296854562,
+          "calls": 10
+        },
+        "tpmc.moments": {
+          "seconds": 0.06574168100000001,
+          "calls": 10
+        },
+        "tpmc.transport": {
+          "seconds": 2.197152454,
+          "calls": 10
+        }
+      },
+      "throughput": 3841211.5749192014,
+      "throughput_unit": "histories/s"
+    },
+    "B3": {
+      "description": "DSMC, 0.5 m cube, He, Kn ~ 1, dx = 0.05 m, 30 particles/cell",
+      "mode": "dsmc",
+      "wall_time_s": 24.341428806,
+      "C_D": 0.7122802536898113,
+      "C_D_std_error": 0.0005971454618086697,
+      "heat_rate_W": 4389.494840524159,
+      "efficiency_se2_time": 8.679732467783413e-06,
+      "profile": {
+        "dsmc.bin.fill": {
+          "seconds": 1.0108448090000004,
+          "calls": 1201
+        },
+        "dsmc.bin.histogram": {
+          "seconds": 1.425648509,
+          "calls": 1201
+        },
+        "dsmc.bin.scan": {
+          "seconds": 0.5139618510000001,
+          "calls": 1201
+        },
+        "dsmc.bin.sort": {
+          "seconds": 2.9338482139999993,
+          "calls": 1201
+        },
+        "dsmc.collide": {
+          "seconds": 2.752157838,
+          "calls": 1200
+        },
+        "dsmc.compact": {
+          "seconds": 6.364115144999991,
+          "calls": 1200
+        },
+        "dsmc.inject": {
+          "seconds": 0.31951749600000007,
+          "calls": 1200
+        },
+        "dsmc.move": {
+          "seconds": 5.312734067999994,
+          "calls": 1200
+        },
+        "dsmc.sample": {
+          "seconds": 0.2816953089999998,
+          "calls": 1000
+        },
+        "dsmc.step_reduce": {
+          "seconds": 2.7867005410000005,
+          "calls": 1200
+        }
+      },
+      "throughput": 8900837.897674888,
+      "throughput_unit": "particle steps/s"
+    },
+    "B4": {
+      "description": "DSMC, satellite, air with N2/O2 (rotation, vibration), Kn ~ 0.5",
+      "mode": "dsmc",
+      "wall_time_s": 27.458406384,
+      "C_D": 4.612736087513036,
+      "C_D_std_error": 0.010928290279707991,
+      "heat_rate_W": 295971.7273587068,
+      "efficiency_se2_time": 0.003279289609275244,
+      "profile": {
+        "dsmc.bin.fill": {
+          "seconds": 0.9137429130000001,
+          "calls": 801
+        },
+        "dsmc.bin.histogram": {
+          "seconds": 2.009492636999999,
+          "calls": 801
+        },
+        "dsmc.bin.scan": {
+          "seconds": 0.7456077950000001,
+          "calls": 801
+        },
+        "dsmc.bin.sort": {
+          "seconds": 1.6607745979999988,
+          "calls": 801
+        },
+        "dsmc.collide": {
+          "seconds": 3.6248025299999993,
+          "calls": 800
+        },
+        "dsmc.compact": {
+          "seconds": 6.700458550000004,
+          "calls": 800
+        },
+        "dsmc.inject": {
+          "seconds": 0.290157864,
+          "calls": 800
+        },
+        "dsmc.move": {
+          "seconds": 6.009284427999997,
+          "calls": 800
+        },
+        "dsmc.sample": {
+          "seconds": 0.32165797599999996,
+          "calls": 600
+        },
+        "dsmc.step_reduce": {
+          "seconds": 2.353545766000001,
+          "calls": 800
+        }
+      },
+      "throughput": 10451095.157773523,
+      "throughput_unit": "particle steps/s"
+    }
+  }
+}

@@ -128,6 +128,7 @@ struct DSMCSection {
   std::optional<double> timestep_s;  // set iff timestep_mode == Fixed
   ParameterMode cell_size_mode = ParameterMode::Automatic;
   std::optional<double> cell_size_m;  // set iff cell_size_mode == Fixed
+  bool cell_size_pilot = true;        // automatic cells: refine with pilot runs (local lambda)
   std::uint32_t particles_per_cell_target = 30;
   std::optional<std::uint64_t> warmup_steps;  // unset: automatic (docs/dsmc.md)
   std::uint64_t sample_steps = 1000;

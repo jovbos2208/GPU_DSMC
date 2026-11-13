@@ -32,14 +32,15 @@ Status of every supported combination and the test that validates it.
 | Closed triangulated bodies, several components | ✔ | `test_mesh`, `test_ray`, `test_transport` |
 | Open two-sided surfaces (`require_closed: false`) | ✔ | flat plate tests |
 | Cut DSMC cells | ✔ | `test_grid` (exact / shell bound) |
-| Automatic DSMC cell size | ◐ | rule based on λ∞; for blunt bodies use a cell study (dsmc.md §8, open for M5) |
+| Automatic DSMC cell size | ✔ | pilot runs measure the local mean free path (dsmc.md §3.1, `test_dsmc`); calibrated on the §8 cell study, a cell study is still advised for final numbers |
+| Fixed-seed reproducibility | ✔ | bitwise per build (`repro_*` tests); examples against stored references (`examples_fixed_seeds`) |
 
 ## Backends
 
 | Backend | Status |
 | ------- | ------ |
 | CPU Serial / OpenMP | ✔ all tests |
-| HIP gfx1100 (Radeon 740M), gfx1101 (Radeon PRO W7700) | ✔ all tests |
+| HIP gfx1103 (Radeon 740M, native), gfx1101 (2× Radeon PRO W7700) | ✔ all tests (gfx1101: last full run at M4, see building.md) |
 | HIP gfx942/gfx90a (MI300/MI250) | ◐ presets available, not run |
 | CUDA | ◐ preset available, not run (no hardware) |
 

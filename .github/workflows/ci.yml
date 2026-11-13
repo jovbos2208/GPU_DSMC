@@ -1,0 +1,71 @@
+# Continuous integration (M5.6, M5.8): formatting, static analysis, CPU builds
+# with unit, physics and regression tests, sanitizers. GPU pipelines (M5.7) run
+# on self-hosted runners, see .github/workflows/gpu.yml.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_format.py
+
+  cpu:
+    name: cpu-${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [cpu-release, cpu-debug]
+    env:
+      CXX: g++-14
+      CC: gcc-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++-14 ninja-build cmake
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -G Ninja
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j 4
+      - name: Test (unit, physics, smoke/regression, examples with fixed seeds)
+        run: ctest --preset ${{ matrix.preset }} -j 2 --timeout 1800
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: testlog-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/Testing/Temporary/LastTest.log
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-14
+      CC: gcc-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y g++-14 ninja-build cmake
+      - run: cmake --preset cpu-asan -G Ninja
+      - run: cmake --build --preset cpu-asan -j 4
+      - run: ctest --preset cpu-asan -j 2 --timeout 3600
+
+  static-analysis:
+    runs-on: ubuntu-24.04
+    continue-on-error: true  # informational until the check set has been triaged on CI
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang-tidy-18 ninja-build cmake g++-14
+      - run: CXX=g++-14 CC=gcc-14 cmake --preset cpu-release -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: cmake --build --preset cpu-release -j 4 --target vleo_git_info
+      - name: clang-tidy on project sources
+        run: |
+          git ls-files 'src/*.cpp' | xargs -P 4 -n 1 clang-tidy-18 -p build/cpu-release --quiet

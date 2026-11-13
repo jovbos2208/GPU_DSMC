@@ -329,13 +329,19 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   const std::string p = "dsmc";
   if (!n.IsDefined()) return;
   if (!check_map(n, p,
-                 {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m",
+                 {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
   parse_mode_value(n, p, "timestep_mode", "timestep_s", out.timestep_mode, out.timestep_s, is);
   parse_mode_value(n, p, "cell_size_mode", "cell_size_m", out.cell_size_mode, out.cell_size_m, is);
+  if (auto v = get_bool(n, "cell_size_pilot", p, is, Need::Optional)) {
+    if (out.cell_size_mode == ParameterMode::Fixed)
+      is.add(p + ".cell_size_pilot", "only allowed when cell_size_mode is 'automatic'");
+    else
+      out.cell_size_pilot = *v;
+  }
   if (auto v = get_uint64(n, "particles_per_cell_target", p, is, Need::Optional)) {
     if (*v == 0 || *v > std::numeric_limits<std::uint32_t>::max())
       is.add(p + ".particles_per_cell_target", "must be in [1, 4294967295]");

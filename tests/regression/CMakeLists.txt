@@ -25,7 +25,7 @@ add_test(NAME smoke_run
                       --histories 200000 --quiet
                       --output-dir "${_out}")
 set_tests_properties(smoke_run PROPERTIES
-  FIXTURES_REQUIRED smoke_clean FIXTURES_SETUP smoke_output LABELS smoke TIMEOUT 120)
+  FIXTURES_REQUIRED smoke_clean FIXTURES_SETUP smoke_output LABELS smoke TIMEOUT ${_t120})
 
 # 2. The metadata file is complete.
 add_test(NAME smoke_metadata
@@ -92,7 +92,7 @@ foreach(_sim tpmc_maxwell tpmc_cll)
     add_test(NAME repro_${_sim}_${_rep}
       COMMAND vleo_solver --config "${_cfg}/simulations/${_sim}.yaml" --histories 300000 --quiet
                           --output-dir "${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_${_rep}")
-    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT 300)
+    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT ${_t300})
   endforeach()
   add_test(NAME repro_${_sim}_compare
     COMMAND ${CMAKE_COMMAND} -DA=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_a/results.json
@@ -107,7 +107,7 @@ foreach(_sim dsmc_maxwell dsmc_cll)
     add_test(NAME repro_${_sim}_${_rep}
       COMMAND vleo_solver --config "${_cfg}/simulations/${_sim}.yaml" --warmup-steps 30 --sample-steps 40 --quiet
                           --output-dir "${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_${_rep}")
-    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT 300)
+    set_tests_properties(repro_${_sim}_${_rep} PROPERTIES FIXTURES_SETUP repro_${_sim} LABELS smoke TIMEOUT ${_t300})
   endforeach()
   add_test(NAME repro_${_sim}_compare
     COMMAND ${CMAKE_COMMAND} -DA=${CMAKE_CURRENT_BINARY_DIR}/repro_${_sim}_a/results.json
@@ -124,3 +124,12 @@ endforeach()
 add_test(NAME smoke_check_dsmc_mixture
   COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/dsmc_mixture.yaml")
 set_tests_properties(smoke_check_dsmc_mixture PROPERTIES LABELS smoke)
+
+# 10. M5.10: shipped examples with fixed seeds against stored references
+#     (scripts/check_examples.py, tests/golden/); Release builds only.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_FOUND AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_test(NAME examples_fixed_seeds
+    COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/scripts/check_examples.py" $<TARGET_FILE:vleo_solver>)
+  set_tests_properties(examples_fixed_seeds PROPERTIES LABELS "examples;smoke" TIMEOUT 1200)
+endif()

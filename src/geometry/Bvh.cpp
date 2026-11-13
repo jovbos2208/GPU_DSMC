@@ -1,6 +1,7 @@
 #include "vleo/geometry/Bvh.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <numeric>
 
@@ -180,9 +181,27 @@ HostBvh build_bvh(const std::vector<Triangle>& triangles, const BvhBuildOptions&
 }
 
 DeviceBvh upload(const HostBvh& bvh) {
-  Kokkos::View<BvhNode*> d(Kokkos::view_alloc(Kokkos::WithoutInitializing, std::string("bvh_nodes")), bvh.nodes.size());
+  // Padding for the float boxes: kFloatBoxPad times the geometry scale
+  // (largest absolute coordinate or extent of the root box).
+  const BvhNode& root = bvh.nodes.front();
+  const double scale = std::max({max_abs_component(root.lo), max_abs_component(root.hi),
+                                 max_abs_component(root.hi - root.lo), 1e-30});
+  const double pad = kBvhBoxPad * scale;
+  Kokkos::View<BvhNodeDevice*> d(Kokkos::view_alloc(Kokkos::WithoutInitializing, std::string("bvh_nodes")), bvh.nodes.size());
   auto h = Kokkos::create_mirror_view(d);
-  for (std::size_t i = 0; i < bvh.nodes.size(); ++i) h(i) = bvh.nodes[i];
+  for (std::size_t i = 0; i < bvh.nodes.size(); ++i) {
+    const BvhNode& n = bvh.nodes[i];
+    BvhNodeDevice f;
+    for (int k = 0; k < 3; ++k) {
+      // round outwards: nextafter guarantees lo' <= lo - pad and hi' >= hi + pad
+      // (for double boxes this widens by one ulp, which is harmless)
+      f.lo[k] = std::nextafter(static_cast<BvhReal>(n.lo[k] - pad), -std::numeric_limits<BvhReal>::infinity());
+      f.hi[k] = std::nextafter(static_cast<BvhReal>(n.hi[k] + pad), std::numeric_limits<BvhReal>::infinity());
+    }
+    f.right_or_first = n.right_or_first;
+    f.count = n.count;
+    h(i) = f;
+  }
   Kokkos::deep_copy(d, h);
   DeviceBvh out;
   out.nodes = d;

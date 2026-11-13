@@ -2,6 +2,16 @@
 # (equivalently: ctest --test-dir build/<preset> --output-on-failure)
 # Labels: unit, smoke, config, rng, geometry, particles, gate, physics, dsmc.
 
+# Sanitizer builds (cpu-asan) run 3-10x slower: scale all test timeouts.
+if(CMAKE_CXX_FLAGS MATCHES "-fsanitize")
+  set(VLEO_TIMEOUT_SCALE 4)
+else()
+  set(VLEO_TIMEOUT_SCALE 1)
+endif()
+math(EXPR _t300 "300 * ${VLEO_TIMEOUT_SCALE}")
+math(EXPR _t900 "900 * ${VLEO_TIMEOUT_SCALE}")
+math(EXPR _t120 "120 * ${VLEO_TIMEOUT_SCALE}")
+
 add_library(vleo_test_main STATIC unit/test_main.cpp)
 target_link_libraries(vleo_test_main PUBLIC Catch2::Catch2 Kokkos::kokkos vleo_core)
 
@@ -12,7 +22,7 @@ function(vleo_add_unit_test name)
   target_compile_definitions(${name} PRIVATE VLEO_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
                                              VLEO_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
   add_test(NAME ${name} COMMAND ${name} --order lex --reporter console --colour-mode none)
-  set_tests_properties(${name} PROPERTIES LABELS "unit;${T_LABELS}" TIMEOUT 300)
+  set_tests_properties(${name} PROPERTIES LABELS "unit;${T_LABELS}" TIMEOUT ${_t300})
 endfunction()
 
 vleo_add_unit_test(test_vec3      SOURCES unit/test_vec3.cpp)
@@ -34,12 +44,12 @@ vleo_add_unit_test(test_vhs       SOURCES unit/test_vhs.cpp LIBS vleo_dsmc LABEL
 vleo_add_unit_test(test_grid      SOURCES unit/test_grid.cpp LIBS vleo_dsmc LABELS dsmc)
 vleo_add_unit_test(test_dsmc      SOURCES unit/test_dsmc.cpp LIBS vleo_dsmc LABELS "dsmc;physics;gate")
 target_compile_definitions(test_dsmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
-set_tests_properties(test_dsmc PROPERTIES TIMEOUT 900)
+set_tests_properties(test_dsmc PROPERTIES TIMEOUT ${_t900})
 vleo_add_unit_test(test_mixture   SOURCES unit/test_mixture.cpp LIBS vleo_dsmc LABELS "dsmc;physics;mixture")
 target_compile_definitions(test_mixture PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
-set_tests_properties(test_mixture PROPERTIES TIMEOUT 900)
+set_tests_properties(test_mixture PROPERTIES TIMEOUT ${_t900})
 vleo_add_unit_test(test_internal  SOURCES unit/test_internal.cpp LIBS vleo_dsmc LABELS "dsmc;physics;internal")
 target_compile_definitions(test_internal PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
-set_tests_properties(test_internal PROPERTIES TIMEOUT 900)
+set_tests_properties(test_internal PROPERTIES TIMEOUT ${_t900})
 
 add_subdirectory(regression)

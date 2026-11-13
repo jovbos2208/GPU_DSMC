@@ -27,11 +27,13 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "vleo/core/Profiler.hpp"
 #include "vleo/dsmc/CollisionGrid.hpp"
 #include "vleo/dsmc/Vhs.hpp"
 #include "vleo/geometry/Geometry.hpp"
@@ -61,6 +63,7 @@ struct DsmcSettings {
   std::uint32_t max_interactions_per_step = 1000;
   DsmcBoundary boundary = DsmcBoundary::Open;
   bool initial_fill = true;            // start from free-stream gas (else empty domain)
+  bool profile = false;                // phase timings (also VLEO_PROFILE=1)
   GridOptions grid;
 
   // Free-stream reference values used for the automatic choices.
@@ -68,6 +71,30 @@ struct DsmcSettings {
   double tau_inf_s = 0.0;
   double c_mp_inf_mps = 0.0;
   bool timestep_automatic = false, cell_size_automatic = false, warmup_automatic = false;
+};
+
+// Pilot runs for the automatic cell size (docs/dsmc.md section 3.1).
+struct CellSizePilotOptions {
+  // target: max cell edge <= lambda_fraction * min local lambda. Calibrated on
+  // the M3.17 cell-size study (docs/dsmc.md section 3.1): the smallest local
+  // lambda lies in the thin cold layer at the wall; C_D converged to 0.24 % at
+  // dx = 1.7 lambda_min and was +3.6 % at 3.4 lambda_min.
+  double lambda_fraction = 1.5;
+  std::uint32_t particles_per_cell = 10;
+  std::uint64_t sample_steps = 200;
+  int max_pilots = 2;
+  double min_gas_fraction = 0.25;       // cells used for the local lambda (cut cells below are noisy)
+};
+
+struct CellSizePilotReport {
+  bool performed = false;
+  int pilots = 0;
+  double initial_cell_size_m = 0.0;     // free-stream rule min(lambda_inf / 2, L_max / 16)
+  double min_local_lambda_m = 0.0;      // smallest local mean free path seen by the pilots
+  double cell_size_m = 0.0;             // chosen cell size
+  bool limited_by_max_cells = false;
+  std::uint64_t steps = 0;
+  double wall_time_s = 0.0;
 };
 
 // Mixture reference values (M4.2): with x_s the mole fractions and
@@ -78,7 +105,8 @@ struct DsmcSettings {
 //   time step  = min(tau_inf / 10, dx_min / (4 (|V_inf| + 3 c_mp)))
 //   W          = n_inf V_cell / particles_per_cell_target
 //   warm-up    = 3 * (domain diagonal / max(|V_inf|, c_mp)) / dt   steps
-DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& domain);
+DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& domain,
+                                   std::optional<double> cell_size_override_m = std::nullopt);
 
 struct DsmcCounters {
   std::uint64_t steps = 0;
@@ -113,6 +141,7 @@ struct DsmcDiagnostics {
   double dt_over_tau_inf = 0.0;
   double max_cfl = 0.0;                // max |v| dt / min cell edge over sampled steps
   double min_local_lambda_m = 0.0;     // from the sampled density: lambda_inf n_inf / n_cell
+  double min_local_lambda_resolved_m = 0.0;  // same, cells with gas fraction >= 0.25 only
   double fraction_cells_dx_gt_lambda = 0.0;  // gas cells with max edge > local lambda
   double mean_particles_per_gas_cell = 0.0;
   double fraction_cells_below_5 = 0.0; // gas cells with < 5 particles on average
@@ -134,7 +163,10 @@ struct DsmcResult {
   double wall_time_s = 0.0;
   std::optional<SurfaceFields> surface;
   std::vector<DsmcSpeciesDiagnostics> species;
+  std::map<std::string, Profiler::Entry> profile;  // phase timings (profiling enabled only)
+  double particle_steps = 0.0;                     // sum over steps of the particle number
   std::vector<std::string> warnings;
+  CellSizePilotReport pilot;               // set by refine_cell_size_with_pilot
 };
 
 struct DsmcProgress {
@@ -164,7 +196,10 @@ class DsmcSimulation {
   // Advances one time step; `sample` adds the step to the sampling statistics.
   void step(bool sample);
 
-  std::size_t num_particles() const;
+  std::size_t num_particles() const;  // active particles
+  // Removes ended particles now (the time step compacts lazily; tests call
+  // this before inspecting the particle arrays).
+  void compact();
   const DsmcCounters& counters() const;
   const CollisionGrid& grid() const;
   const DsmcSettings& settings() const;
@@ -193,5 +228,15 @@ class DsmcSimulation {
 // Complete run: warm-up, sampling, statistics.
 DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
                     const DsmcSettings& settings, const DsmcProgressCallback& progress = {});
+
+// Automatic cell size from the local mean free path (M5, open item of M3.17):
+// starting from the free-stream rule, short pilot runs with few particles per
+// cell measure the smallest local mean free path lambda_loc = lambda_inf
+// n_inf / n_cell; the cell size is reduced to lambda_fraction * lambda_loc
+// (at most max_pilots pilots, a second pilot re-measures on the finer grid).
+// Returns settings resolved for the chosen cell size; no-op for fixed cells.
+DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geometry& geometry,
+                                         const InflowModel& inflow, const DsmcSettings& settings,
+                                         CellSizePilotReport& report, const CellSizePilotOptions& options = {});
 
 }  // namespace vleo

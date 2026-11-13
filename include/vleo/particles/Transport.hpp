@@ -155,6 +155,106 @@ struct InjectKernel {
   }
 };
 
+// State of one history while it is followed (registers).
+struct HistoryState {
+  Vec3 pos, vel;
+  double e_rot = 0.0, e_vib = 0.0;
+  std::uint64_t id = 0;
+  std::uint32_t species = 0;
+  std::uint32_t k = 0;  // interactions so far
+  ParticleStatus status = ParticleStatus::Active;
+  Vec3 dp_sum, dl_sum;
+  double de_sum = 0.0, de_pos = 0.0, de_neg = 0.0;
+};
+
+// Follows a history to its end (shared by the stored-particle and the fused kernels).
+template <class Interaction>
+KOKKOS_INLINE_FUNCTION void follow_history(HistoryState& h, const DeviceGeometry& geo, const Domain& domain,
+                                           const Interaction& interaction, std::uint64_t seed,
+                                           std::uint32_t max_interactions,
+                                           const Kokkos::View<const double*>& species_mass,
+                                           const Kokkos::View<const SpeciesModes*>& species_modes,
+                                           const TallyTargets& tally) {
+  int ignore = -1;
+  const double mass = species_mass.extent(0) > h.species ? species_mass(h.species) : 1.0;
+  SpeciesModes modes;
+  if (species_modes.extent(0) > h.species) modes = species_modes(h.species);
+  modes.mass = mass;
+  const bool surface_tally = tally.surface.extent(0) > 0;
+
+  while (h.status == ParticleStatus::Active) {
+    if (!is_finite(h.pos) || !is_finite(h.vel) || norm2(h.vel) == 0.0) {
+      h.status = ParticleStatus::Invalid;
+      break;
+    }
+    const double t_exit = domain.exit_distance(h.pos, h.vel);
+    const RayHit hit = geo.closest_hit(h.pos, h.vel, t_exit, ignore);
+    if (!hit.valid()) {
+      h.pos = h.pos + t_exit * h.vel;
+      h.status = ParticleStatus::Exited;
+      break;
+    }
+    h.pos = h.pos + hit.t * h.vel;
+    const Vec3 n = geo.mesh.normal(hit.triangle);
+    const bool front = dot(h.vel, n) < 0.0;
+    if (!front && geo.mesh.two_sided(hit.triangle) == 0) {
+      h.status = ParticleStatus::LostInsideBody;
+      break;
+    }
+    if (h.k >= max_interactions) {
+      h.status = ParticleStatus::Truncated;
+      break;
+    }
+    const Vec3 n_gas = front ? n : -n;
+    SurfaceEvent ev{h.pos, h.vel, n_gas, hit.triangle, h.species, mass, h.id, h.k, h.e_rot, h.e_vib, modes};
+    RandomStream rng(seed, h.id, h.k + 1u, RngStream::SurfaceInteraction);
+    const Vec3 v_in = h.vel;
+    const double e_int_in = h.e_rot + h.e_vib;
+    const InteractionResult res = interaction(ev, rng);
+    h.vel = res.velocity;
+    h.e_rot = res.e_rot;
+    h.e_vib = res.e_vib;
+    ++h.k;
+    if (!(dot(h.vel, n_gas) > 0.0) || !is_finite(h.vel)) {
+      h.status = ParticleStatus::Invalid;
+      break;
+    }
+    // Event balance (accumulated only for valid interactions).
+    const Vec3 vw = interaction.wall_velocity(hit.triangle);
+    const Vec3 dp = mass * (v_in - h.vel);
+    const double de = 0.5 * mass * (norm2(v_in - vw) - norm2(h.vel - vw)) + (e_int_in - h.e_rot - h.e_vib);
+    h.dp_sum += dp;
+    h.dl_sum += cross(h.pos - tally.moment_center, dp);
+    h.de_sum += de;
+    (de >= 0.0 ? h.de_pos : h.de_neg) += de;
+    if (surface_tally) {
+      const int t = hit.triangle;
+      Kokkos::atomic_add(&tally.surface(t, kSurfPx), dp.x);
+      Kokkos::atomic_add(&tally.surface(t, kSurfPy), dp.y);
+      Kokkos::atomic_add(&tally.surface(t, kSurfPz), dp.z);
+      Kokkos::atomic_add(&tally.surface(t, kSurfE), de);
+      Kokkos::atomic_add(&tally.surface(t, de >= 0.0 ? kSurfEPos : kSurfENeg), de);
+      Kokkos::atomic_add(&tally.surface(t, kSurfHits), 1.0);
+    }
+    h.pos = h.pos + geo.surface_offset_m * n_gas;
+    ignore = hit.triangle;
+  }
+}
+
+KOKKOS_INLINE_FUNCTION void write_history_tally(const TallyTargets& tally, std::size_t i, const HistoryState& h) {
+  if (tally.history.extent(0) > i) {
+    tally.history(i, kTallyPx) = h.dp_sum.x;
+    tally.history(i, kTallyPy) = h.dp_sum.y;
+    tally.history(i, kTallyPz) = h.dp_sum.z;
+    tally.history(i, kTallyLx) = h.dl_sum.x;
+    tally.history(i, kTallyLy) = h.dl_sum.y;
+    tally.history(i, kTallyLz) = h.dl_sum.z;
+    tally.history(i, kTallyE) = h.de_sum;
+    tally.history(i, kTallyEPos) = h.de_pos;
+    tally.history(i, kTallyENeg) = h.de_neg;
+  }
+}
+
 template <class Interaction>
 struct TransportKernel {
   ParticleStorage p;
@@ -169,96 +269,60 @@ struct TransportKernel {
 
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) return;
-    Vec3 pos = p.position(i);
-    Vec3 vel = p.velocity(i);
-    const std::uint64_t id = p.particle_id(i);
-    const std::uint32_t species = p.species(i);
-    std::uint32_t k = p.interactions(i);
-    int ignore = -1;
-    ParticleStatus status = ParticleStatus::Active;
-    const double mass = species_mass.extent(0) > species ? species_mass(species) : 1.0;
-    SpeciesModes modes;
-    if (species_modes.extent(0) > species) modes = species_modes(species);
-    modes.mass = mass;
-    double e_rot = p.e_rot(i), e_vib = p.e_vib(i);
-    const bool surface_tally = tally.surface.extent(0) > 0;
-    Vec3 dp_sum, dl_sum;
-    double de_sum = 0.0, de_pos = 0.0, de_neg = 0.0;
+    HistoryState h;
+    h.pos = p.position(i);
+    h.vel = p.velocity(i);
+    h.id = p.particle_id(i);
+    h.species = p.species(i);
+    h.k = p.interactions(i);
+    h.e_rot = p.e_rot(i);
+    h.e_vib = p.e_vib(i);
+    follow_history(h, geo, domain, interaction, seed, max_interactions, species_mass, species_modes, tally);
+    p.set_position(i, h.pos);
+    p.set_velocity(i, h.vel);
+    p.interactions(i) = h.k;
+    p.e_rot(i) = h.e_rot;
+    p.e_vib(i) = h.e_vib;
+    p.status(i) = static_cast<std::uint8_t>(h.status);
+    write_history_tally(tally, i, h);
+  }
+};
 
-    while (status == ParticleStatus::Active) {
-      if (!is_finite(pos) || !is_finite(vel) || norm2(vel) == 0.0) {
-        status = ParticleStatus::Invalid;
-        break;
-      }
-      const double t_exit = domain.exit_distance(pos, vel);
-      const RayHit hit = geo.closest_hit(pos, vel, t_exit, ignore);
-      if (!hit.valid()) {
-        pos = pos + t_exit * vel;
-        status = ParticleStatus::Exited;
-        break;
-      }
-      pos = pos + hit.t * vel;
-      const Vec3 n = geo.mesh.normal(hit.triangle);
-      const bool front = dot(vel, n) < 0.0;
-      if (!front && geo.mesh.two_sided(hit.triangle) == 0) {
-        status = ParticleStatus::LostInsideBody;
-        break;
-      }
-      if (k >= max_interactions) {
-        status = ParticleStatus::Truncated;
-        break;
-      }
-      const Vec3 n_gas = front ? n : -n;
-      SurfaceEvent ev{pos, vel, n_gas, hit.triangle, species, mass, id, k, e_rot, e_vib, modes};
-      RandomStream rng(seed, id, k + 1u, RngStream::SurfaceInteraction);
-      const Vec3 v_in = vel;
-      const double e_int_in = e_rot + e_vib;
-      const InteractionResult res = interaction(ev, rng);
-      vel = res.velocity;
-      e_rot = res.e_rot;
-      e_vib = res.e_vib;
-      ++k;
-      if (!(dot(vel, n_gas) > 0.0) || !is_finite(vel)) {
-        status = ParticleStatus::Invalid;
-        break;
-      }
-      // Event balance (accumulated only for valid interactions).
-      const Vec3 vw = interaction.wall_velocity(hit.triangle);
-      const Vec3 dp = mass * (v_in - vel);
-      const double de = 0.5 * mass * (norm2(v_in - vw) - norm2(vel - vw)) + (e_int_in - e_rot - e_vib);
-      dp_sum += dp;
-      dl_sum += cross(pos - tally.moment_center, dp);
-      de_sum += de;
-      (de >= 0.0 ? de_pos : de_neg) += de;
-      if (surface_tally) {
-        const int t = hit.triangle;
-        Kokkos::atomic_add(&tally.surface(t, kSurfPx), dp.x);
-        Kokkos::atomic_add(&tally.surface(t, kSurfPy), dp.y);
-        Kokkos::atomic_add(&tally.surface(t, kSurfPz), dp.z);
-        Kokkos::atomic_add(&tally.surface(t, kSurfE), de);
-        Kokkos::atomic_add(&tally.surface(t, de >= 0.0 ? kSurfEPos : kSurfENeg), de);
-        Kokkos::atomic_add(&tally.surface(t, kSurfHits), 1.0);
-      }
-      pos = pos + geo.surface_offset_m * n_gas;
-      ignore = hit.triangle;
+// TPMC: injection and transport fused (M5.3). The entering molecule is
+// sampled in registers and followed immediately; only the final status, the
+// interaction count and the history tallies are stored. Same random streams
+// as InjectKernel + TransportKernel, hence bitwise identical results.
+template <class Interaction>
+struct FusedHistoryKernel {
+  Kokkos::View<std::uint8_t*> status;
+  Kokkos::View<std::uint32_t*> interactions;
+  DeviceInflow inflow;
+  DeviceGeometry geo;
+  Domain domain;
+  Interaction interaction;
+  std::uint64_t seed;
+  std::uint64_t first_id;
+  std::uint32_t max_interactions;
+  Kokkos::View<const double*> species_mass;
+  Kokkos::View<const SpeciesModes*> species_modes;
+  TallyTargets tally;
+
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
+    HistoryState h;
+    h.id = first_id + i;
+    {
+      RandomStream rng(seed, h.id, 0u, RngStream::Injection);
+      const InflowSample s = inflow.sample(rng);
+      h.pos = s.position;
+      h.vel = s.velocity;
+      h.species = s.species;
+      h.e_rot = s.e_rot;
+      h.e_vib = s.e_vib;
     }
-    p.set_position(i, pos);
-    p.set_velocity(i, vel);
-    p.interactions(i) = k;
-    p.e_rot(i) = e_rot;
-    p.e_vib(i) = e_vib;
-    p.status(i) = static_cast<std::uint8_t>(status);
-    if (tally.history.extent(0) > i) {
-      tally.history(i, kTallyPx) = dp_sum.x;
-      tally.history(i, kTallyPy) = dp_sum.y;
-      tally.history(i, kTallyPz) = dp_sum.z;
-      tally.history(i, kTallyLx) = dl_sum.x;
-      tally.history(i, kTallyLy) = dl_sum.y;
-      tally.history(i, kTallyLz) = dl_sum.z;
-      tally.history(i, kTallyE) = de_sum;
-      tally.history(i, kTallyEPos) = de_pos;
-      tally.history(i, kTallyENeg) = de_neg;
-    }
+    follow_history(h, geo, domain, interaction, seed, max_interactions, species_mass, species_modes, tally);
+    interactions(i) = h.k;
+    status(i) = static_cast<std::uint8_t>(h.status);
+    write_history_tally(tally, i, h);
   }
 };
 

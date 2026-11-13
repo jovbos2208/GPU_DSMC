@@ -1,6 +1,10 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 27, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 27,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "base",
@@ -30,6 +34,17 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "Kokkos_ENABLE_OPENMP": "ON"
+      }
+    },
+    {
+      "name": "cpu-asan",
+      "displayName": "CPU Debug with AddressSanitizer + UndefinedBehaviorSanitizer (Kokkos Serial)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "VLEO_WARNINGS_AS_ERRORS": "ON"
       }
     },
     {
@@ -84,28 +99,98 @@
     }
   ],
   "buildPresets": [
-    { "name": "cpu-debug", "configurePreset": "cpu-debug" },
-    { "name": "cpu-release", "configurePreset": "cpu-release" },
-    { "name": "cuda", "configurePreset": "cuda" },
-    { "name": "hip", "configurePreset": "hip" },
-    { "name": "hip-gfx1100", "configurePreset": "hip-gfx1100" },
-    { "name": "hip-gfx1101", "configurePreset": "hip-gfx1101" },
-    { "name": "hip-gfx1103", "configurePreset": "hip-gfx1103" }
+    {
+      "name": "cpu-debug",
+      "configurePreset": "cpu-debug"
+    },
+    {
+      "name": "cpu-release",
+      "configurePreset": "cpu-release"
+    },
+    {
+      "name": "cpu-asan",
+      "configurePreset": "cpu-asan"
+    },
+    {
+      "name": "cuda",
+      "configurePreset": "cuda"
+    },
+    {
+      "name": "hip",
+      "configurePreset": "hip"
+    },
+    {
+      "name": "hip-gfx1100",
+      "configurePreset": "hip-gfx1100"
+    },
+    {
+      "name": "hip-gfx1101",
+      "configurePreset": "hip-gfx1101"
+    },
+    {
+      "name": "hip-gfx1103",
+      "configurePreset": "hip-gfx1103"
+    }
   ],
   "testPresets": [
     {
       "name": "base",
       "hidden": true,
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
     },
-    { "name": "cpu-debug", "inherits": "base", "configurePreset": "cpu-debug" },
-    { "name": "cpu-release", "inherits": "base", "configurePreset": "cpu-release",
-      "environment": { "OMP_PROC_BIND": "spread", "OMP_PLACES": "threads" } },
-    { "name": "cuda", "inherits": "base", "configurePreset": "cuda" },
-    { "name": "hip", "inherits": "base", "configurePreset": "hip" },
-    { "name": "hip-gfx1100", "inherits": "base", "configurePreset": "hip-gfx1100" },
-    { "name": "hip-gfx1101", "inherits": "base", "configurePreset": "hip-gfx1101" },
-    { "name": "hip-gfx1103", "inherits": "base", "configurePreset": "hip-gfx1103" }
+    {
+      "name": "cpu-debug",
+      "inherits": "base",
+      "configurePreset": "cpu-debug"
+    },
+    {
+      "name": "cpu-release",
+      "inherits": "base",
+      "configurePreset": "cpu-release",
+      "environment": {
+        "OMP_PROC_BIND": "spread",
+        "OMP_PLACES": "threads"
+      }
+    },
+    {
+      "name": "cpu-asan",
+      "inherits": "base",
+      "configurePreset": "cpu-asan",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1",
+        "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+      }
+    },
+    {
+      "name": "cuda",
+      "inherits": "base",
+      "configurePreset": "cuda"
+    },
+    {
+      "name": "hip",
+      "inherits": "base",
+      "configurePreset": "hip"
+    },
+    {
+      "name": "hip-gfx1100",
+      "inherits": "base",
+      "configurePreset": "hip-gfx1100"
+    },
+    {
+      "name": "hip-gfx1101",
+      "inherits": "base",
+      "configurePreset": "hip-gfx1101"
+    },
+    {
+      "name": "hip-gfx1103",
+      "inherits": "base",
+      "configurePreset": "hip-gfx1103"
+    }
   ]
 }

@@ -138,6 +138,7 @@ TEST_CASE("Binning: every particle exactly once, in its cell, sorted by id", "[g
   for (int k = 0; k < 5; ++k) sim.step(false);
 
   std::vector<int> off, list;
+  sim.compact();  // the time step compacts lazily
   sim.binning(off, list);
   const std::vector<Vec3> pos = sim.positions();
   const std::vector<std::uint64_t> ids = sim.particle_ids();
@@ -159,6 +160,8 @@ TEST_CASE("Binning: every particle exactly once, in its cell, sorted by id", "[g
   // no particle inside the body
   CHECK(sim.counters().removed_inside_at_fill > 0);
   for (const Vec3& p : pos) REQUIRE(!(std::fabs(p.x) < 0.2 && std::fabs(p.y) < 0.2 && std::fabs(p.z) < 0.2));
+  // invariant used by the cell sort: ids increase with the storage index
+  for (std::size_t i = 1; i < ids.size(); ++i) REQUIRE(ids[i - 1] < ids[i]);
   std::set<std::uint64_t> unique(ids.begin(), ids.end());
   CHECK(unique.size() == ids.size());
 }

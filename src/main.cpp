@@ -50,6 +50,7 @@ struct Options {
   std::optional<std::uint64_t> sample_steps, warmup_steps;
   bool check_only = false;
   bool quiet = false;
+  bool profile = false;
   bool print_config = false;
   bool version = false;
   bool help = false;
@@ -66,6 +67,7 @@ void print_usage(std::ostream& os) {
         "      --sample-steps <N>   Override dsmc.sample_steps\n"
         "      --warmup-steps <N>   Override dsmc.warmup_steps\n"
         "  -q, --quiet              No progress output\n"
+        "      --profile            Record phase timings (fenced) in results.json\n"
         "      --check              Validate the configuration(s) and exit (no Kokkos initialisation)\n"
         "      --print-config       Print the resolved configuration (YAML) to stdout\n"
         "      --version            Print build information and exit\n"
@@ -117,6 +119,8 @@ std::optional<Options> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       (a == "--sample-steps" ? o.sample_steps : o.warmup_steps) = n;
+    } else if (a == "--profile") {
+      o.profile = true;
     } else if (a == "-q" || a == "--quiet") {
       o.quiet = true;
     } else if (a == "--check") {
@@ -317,6 +321,22 @@ int run(const Options& opt, int argc, char** argv) {
   vleo::TpmcResult result;
   vleo::DsmcResult dresult;
   if (self_test_ok && dsmc) {
+    vleo::CellSizePilotReport pilot;
+    if (dsmc_settings.cell_size_automatic && cfg.dsmc.cell_size_pilot) {
+      if (!opt.quiet)
+        std::cerr << "  dsmc: pilot runs for the cell size (free-stream rule: " << dsmc_settings.cell_size_m
+                  << " m)\n";
+      try {
+        dsmc_settings = vleo::refine_cell_size_with_pilot(cfg, geometry, inflow, dsmc_settings, pilot);
+      } catch (const std::exception& e) {
+        std::cerr << "error: DSMC pilot run failed: " << e.what() << "\n";
+        return kExitRuntimeError;
+      }
+      if (!opt.quiet)
+        std::cerr << "  dsmc: " << pilot.pilots << " pilot run(s), " << pilot.wall_time_s
+                  << " s: min local lambda " << pilot.min_local_lambda_m << " m -> cell size " << pilot.cell_size_m
+                  << " m" << (pilot.limited_by_max_cells ? " (limited by the maximum cell count)" : "") << "\n";
+    }
     vleo::DsmcProgressCallback progress;
     if (!opt.quiet) {
       progress = [](const vleo::DsmcProgress& p) {
@@ -329,7 +349,12 @@ int run(const Options& opt, int argc, char** argv) {
                 << " steps\n";
     }
     try {
+      dsmc_settings.profile = opt.profile;
       dresult = vleo::run_dsmc(cfg, geometry, inflow, dsmc_settings, progress);
+      dresult.pilot = pilot;
+      if (pilot.limited_by_max_cells)
+        dresult.warnings.push_back("automatic cell size limited by the maximum cell count; the grid does not resolve "
+                                   "the local mean free path");
     } catch (const std::exception& e) {
       std::cerr << "error: DSMC run failed: " << e.what() << "\n";
       return kExitRuntimeError;
@@ -348,7 +373,7 @@ int run(const Options& opt, int argc, char** argv) {
       };
     }
     try {
-      result = vleo::run_tpmc(cfg, geometry, inflow, 0, progress);
+      result = vleo::run_tpmc(cfg, geometry, inflow, 0, progress, opt.profile);
     } catch (const std::exception& e) {
       std::cerr << "error: TPMC run failed: " << e.what() << "\n";
       return kExitRuntimeError;

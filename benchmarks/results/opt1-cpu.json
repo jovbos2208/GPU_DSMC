@@ -1,0 +1,57 @@
+{
+  "label": "opt1-cpu",
+  "host": "jovan-work",
+  "solver_version": "vleo_solver 0.1.0\n  git commit       : 27b499005dcff2677301ca04a202e29040e806d6 (dirty)\n  git describe     : 27b4990-dirty\n  build type       : Release\n  compiler         : GNU 15.2.0 (gcc 15.2.0)\n  C++ standard     : 202002\n  Kokkos version   : 5.2.2\n  backend          : cpu\n  execution space  : OpenMP (host: OpenMP)\n  Kokkos backends  : Serial, OpenMP\n  Kokkos arch      : none\n",
+  "cases": {
+    "B1": {
+      "description": "TPMC, satellite, VLEO air (O, N2, O2, N, He), CLL",
+      "mode": "tpmc",
+      "wall_time_s": 1.519375749,
+      "C_D": 4.954398078234735,
+      "C_D_std_error": 0.002761778825604305,
+      "heat_rate_W": 1.3251491856280213,
+      "efficiency_se2_time": 1.1588920441978881e-05,
+      "profile": {
+        "tpmc.count": {
+          "seconds": 0.033088049,
+          "calls": 20
+        },
+        "tpmc.histories": {
+          "seconds": 1.2991085590000002,
+          "calls": 20
+        },
+        "tpmc.moments": {
+          "seconds": 0.164765516,
+          "calls": 20
+        }
+      },
+      "throughput": 13163300.791896475,
+      "throughput_unit": "histories/s"
+    },
+    "B2": {
+      "description": "TPMC, sphere with 65 024 triangles (BVH load), Maxwell",
+      "mode": "tpmc",
+      "wall_time_s": 2.601464996,
+      "C_D": 1.6545022045316113,
+      "C_D_std_error": 0.00047566903000756855,
+      "heat_rate_W": 0.4631981655078907,
+      "efficiency_se2_time": 5.886101393798916e-07,
+      "profile": {
+        "tpmc.count": {
+          "seconds": 0.017935839000000002,
+          "calls": 10
+        },
+        "tpmc.histories": {
+          "seconds": 2.4723948270000005,
+          "calls": 10
+        },
+        "tpmc.moments": {
+          "seconds": 0.060954194999999996,
+          "calls": 10
+        }
+      },
+      "throughput": 3843987.912724543,
+      "throughput_unit": "histories/s"
+    }
+  }
+}

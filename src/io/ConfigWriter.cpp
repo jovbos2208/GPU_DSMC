@@ -86,6 +86,7 @@ void walk(const SimulationConfig& c, Sink& s) {
   if (c.dsmc.timestep_s) s.dbl("timestep_s", *c.dsmc.timestep_s);
   s.str("cell_size_mode", to_string(c.dsmc.cell_size_mode));
   if (c.dsmc.cell_size_m) s.dbl("cell_size_m", *c.dsmc.cell_size_m);
+  if (c.dsmc.cell_size_mode == ParameterMode::Automatic) s.boolean("cell_size_pilot", c.dsmc.cell_size_pilot);
   s.u64("particles_per_cell_target", c.dsmc.particles_per_cell_target);
   if (c.dsmc.warmup_steps) s.u64("warmup_steps", *c.dsmc.warmup_steps);
   s.u64("sample_steps", c.dsmc.sample_steps);

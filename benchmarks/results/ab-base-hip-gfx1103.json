@@ -1,0 +1,75 @@
+{
+  "label": "ab-base-hip-gfx1103",
+  "host": "jovan-work",
+  "solver_version": "vleo_solver 0.1.0\n  git commit       : 27b499005dcff2677301ca04a202e29040e806d6 (dirty)\n  git describe     : 27b4990-dirty\n  build type       : Release\n  compiler         : Clang 21.1.8 (clang 21.1.8 (6ubuntu1); hip 7.1.52801)\n  C++ standard     : 202002\n  Kokkos version   : 5.2.2\n  backend          : hip\n  execution space  : HIP (host: Serial)\n  Kokkos backends  : Serial, HIP\n  Kokkos arch      : AMD_GFX1103\n",
+  "cases": {
+    "B1": {
+      "description": "TPMC, satellite, VLEO air (O, N2, O2, N, He), CLL",
+      "mode": "tpmc",
+      "wall_time_s": 3.955095456,
+      "wall_times_s": [
+        3.915864131,
+        3.955095456,
+        3.986405413
+      ],
+      "C_D": 4.954398078234734,
+      "C_D_std_error": 0.0027617788256051093,
+      "heat_rate_W": 1.325149185628021,
+      "efficiency_se2_time": 3.0167183206794026e-05,
+      "profile": {},
+      "throughput": 5056767.964894347,
+      "throughput_unit": "histories/s"
+    },
+    "B2": {
+      "description": "TPMC, sphere with 65 024 triangles (BVH load), Maxwell",
+      "mode": "tpmc",
+      "wall_time_s": 5.540099006,
+      "wall_times_s": [
+        5.512245952,
+        5.540099006,
+        5.560772858
+      ],
+      "C_D": 1.6545022045316107,
+      "C_D_std_error": 0.0004756690300075554,
+      "heat_rate_W": 0.46319816550789067,
+      "efficiency_se2_time": 1.2535084858392914e-06,
+      "profile": {},
+      "throughput": 1805021.8938632447,
+      "throughput_unit": "histories/s"
+    },
+    "B3": {
+      "description": "DSMC, 0.5 m cube, He, Kn ~ 1, dx = 0.05 m, 30 particles/cell",
+      "mode": "dsmc",
+      "wall_time_s": 17.408336826,
+      "wall_times_s": [
+        17.378762048,
+        17.408336826,
+        17.515848396
+      ],
+      "C_D": 0.7124582251878674,
+      "C_D_std_error": 0.0006476694834127303,
+      "heat_rate_W": 4392.178428530385,
+      "efficiency_se2_time": 7.30237531596777e-06,
+      "profile": {},
+      "throughput": null,
+      "throughput_unit": "particle steps/s"
+    },
+    "B4": {
+      "description": "DSMC, satellite, air with N2/O2 (rotation, vibration), Kn ~ 0.5",
+      "mode": "dsmc",
+      "wall_time_s": 30.30440461,
+      "wall_times_s": [
+        30.253259021,
+        30.30440461,
+        30.321155336
+      ],
+      "C_D": 4.614859106104165,
+      "C_D_std_error": 0.010905277409606444,
+      "heat_rate_W": 296133.8003840195,
+      "efficiency_se2_time": 0.003603953602604592,
+      "profile": {},
+      "throughput": null,
+      "throughput_unit": "particle steps/s"
+    }
+  }
+}

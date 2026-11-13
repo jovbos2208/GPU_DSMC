@@ -1,0 +1,12 @@
+# Static analysis used by CI (informational job, see docs/development.md).
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  clang-analyzer-*,
+  performance-*,
+  -performance-enum-size
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/(include|src)/vleo/.*'

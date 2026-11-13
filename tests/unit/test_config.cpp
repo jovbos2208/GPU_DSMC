@@ -112,6 +112,7 @@ TEST_CASE("Minimal configuration gets all documented defaults", "[config]") {
   CHECK(c.dsmc.timestep_mode == ParameterMode::Automatic);
   CHECK(!c.dsmc.timestep_s);
   CHECK(c.dsmc.cell_size_mode == ParameterMode::Automatic);
+  CHECK(c.dsmc.cell_size_pilot);
   CHECK(!c.dsmc.cell_size_m);
   CHECK(c.dsmc.particles_per_cell_target == 30);
   CHECK(c.statistics.confidence_level == 0.95);
@@ -413,6 +414,8 @@ TEST_CASE("Rejected: invalid optional sections", "[config][negative]") {
       {"dsmc:\n  timestep_s: 1e-6\n", "dsmc.timestep_s: only allowed when timestep_mode is 'fixed'"},
       {"dsmc:\n  cell_size_mode: fixed\n", "dsmc.cell_size_m: required key is missing"},
       {"dsmc:\n  cell_size_m: 0.1\n", "dsmc.cell_size_m: only allowed when cell_size_mode is 'fixed'"},
+      {"dsmc:\n  cell_size_mode: fixed\n  cell_size_m: 0.1\n  cell_size_pilot: false\n",
+       "dsmc.cell_size_pilot: only allowed when cell_size_mode is 'automatic'"},
       {"dsmc:\n  timestep_mode: sometimes\n", "dsmc.timestep_mode: invalid value 'sometimes'"},
       {"dsmc:\n  particles_per_cell_target: 0\n", "dsmc.particles_per_cell_target: must be in"},
       {"statistics:\n  confidence_level: 1.0\n", "statistics.confidence_level: value 1 is outside the allowed range (0, 1)"},
@@ -563,7 +566,8 @@ TEST_CASE("DSMC options and scope", "[config]") {
       std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    O: 0.7\n    N: 0.2\n    He: 0.1"), kData);
   CHECK(mix.gas.species.size() == 3);  // DSMC mixtures since M4.2
   const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
-  const SimulationConfig c = parse_simulation_config(he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n", kData);
+  const SimulationConfig c = parse_simulation_config(
+      he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n", kData);
   CHECK(*c.dsmc.warmup_steps == 50);
   CHECK(c.dsmc.sample_steps == 400);
   CHECK(c.dsmc.blocks == 10);

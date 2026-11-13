@@ -1,0 +1,47 @@
+# GPU regression pipelines on real hardware (M5.7). Requires self-hosted runners
+# registered with the labels below (see docs/development.md, "GPU runners").
+#   amd:    labels [self-hosted, gpu-amd]   - ROCm/HIP, e.g. Radeon PRO W7700 (gfx1101)
+#   nvidia: labels [self-hosted, gpu-nvidia] - CUDA (not yet available)
+name: gpu
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"   # weekly, Monday 02:00 UTC
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "amd, nvidia or both"
+        default: amd
+
+jobs:
+  amd:
+    if: github.event_name == 'schedule' || inputs.backend == 'amd' || inputs.backend == 'both'
+    runs-on: [self-hosted, gpu-amd]
+    env:
+      VLEO_HIP_PRESET: ${{ vars.VLEO_HIP_PRESET || 'hip-gfx1101' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: |
+          [ -f "$HOME/.vleo-gpu-env" ] && . "$HOME/.vleo-gpu-env"   # e.g. module load rocm
+          cmake --preset "$VLEO_HIP_PRESET"
+          cmake --build --preset "$VLEO_HIP_PRESET" -j 16
+          ctest --preset "$VLEO_HIP_PRESET" --timeout 1800
+          python3 scripts/benchmark.py run "build/$VLEO_HIP_PRESET/vleo_solver" "ci-$VLEO_HIP_PRESET" --repeat 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: amd-results
+          path: |
+            build/${{ env.VLEO_HIP_PRESET }}/Testing/Temporary/LastTest.log
+            benchmarks/results/ci-*.json
+
+  nvidia:
+    if: inputs.backend == 'nvidia' || inputs.backend == 'both'
+    runs-on: [self-hosted, gpu-nvidia]
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          cmake --preset cuda
+          cmake --build --preset cuda -j 16
+          ctest --preset cuda --timeout 1800

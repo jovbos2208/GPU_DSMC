@@ -28,6 +28,7 @@ void write_simulation_and_reference(JsonWriter& w, const SimulationConfig& cfg);
 void write_estimate_blocks(JsonWriter& w, const TpmcEstimates& e);  // results, std_error, confidence_interval
 void write_provenance(JsonWriter& w, const std::string& timestamp_utc);
 std::string estimates_csv(const TpmcEstimates& e);
+void write_profile(JsonWriter& w, const std::map<std::string, Profiler::Entry>& profile);
 std::string surface_fields_csv(const SurfaceFields& f, const Geometry& g);
 
 }  // namespace vleo
