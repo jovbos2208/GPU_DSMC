@@ -5,6 +5,7 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 #include "vleo/core/PhysicalConstants.hpp"
 
@@ -414,6 +415,29 @@ struct SortCells {
   }
 };
 
+// GPU variant (M5, profiled on Radeon PRO W7700, where the serial insertion
+// chains of one thread per cell dominated the step): one thread per list
+// entry computes its rank within its cell = number of smaller entries (entries
+// are unique storage indices) and writes it to its final position. Same sorted
+// list as SortCells; all reads of one cell hit the cache.
+struct RankSortEntries {
+  Kokkos::View<const int*> offset;
+  Kokkos::View<const int*> cell_of_particle;
+  Kokkos::View<const int*> in;
+  Kokkos::View<int*> out;
+  KOKKOS_INLINE_FUNCTION void operator()(const int k) const {
+    const int v = in(k);
+    const int c = cell_of_particle(v);
+    const int b = offset(c), e = offset(c + 1);
+    int r = 0;
+    for (int j = b; j < e; ++j) r += in(j) < v ? 1 : 0;
+    out(b + r) = v;
+  }
+};
+
+inline constexpr bool kHostExecution =
+    std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::DefaultHostExecutionSpace>;
+
 struct CollideKernel {
   ParticleStorage p;
   Kokkos::View<const int*> offset;
@@ -621,7 +645,8 @@ struct DsmcSimulation::Impl {
   Kokkos::View<double*> dt_cur, dt_alt;
   Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<std::size_t*> compact_index;
-  Kokkos::View<int*> cell_of_particle, list;
+  Kokkos::View<int*> cell_of_particle, list, list_unsorted;  // list_unsorted: GPU backends only
+  int offset_total = 0;
 
   Kokkos::View<int*> count, offset, cursor;
   Kokkos::View<double*> sg_max, remainder, count_sum;
@@ -675,6 +700,7 @@ struct DsmcSimulation::Impl {
     compact_index = Kokkos::View<std::size_t*>("dsmc_compact_index", cap);
     cell_of_particle = Kokkos::View<int*>("dsmc_cell", cap);
     list = Kokkos::View<int*>("dsmc_cell_list", cap);
+    if constexpr (!kHostExecution) list_unsorted = Kokkos::View<int*>("dsmc_cell_list_unsorted", cap);
     capacity = cap;
   }
 
@@ -731,16 +757,22 @@ struct DsmcSimulation::Impl {
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.scan");
-      int total = 0;
-      Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(0, nc), OffsetScan{count, offset, nc}, total);
+      offset_total = 0;  // number of binned (active) particles
+      Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(0, nc), OffsetScan{count, offset, nc}, offset_total);
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.fill");
-      Kokkos::parallel_for("vleo::dsmc_fill_cells", policy(0, n), FillCells{cell_of_particle, offset, cursor, list});
+      Kokkos::parallel_for("vleo::dsmc_fill_cells", policy(0, n),
+                           FillCells{cell_of_particle, offset, cursor, kHostExecution ? list : list_unsorted});
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.sort");
-      Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(0, nc), SortCells{offset, list});
+      if constexpr (kHostExecution) {
+        Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(0, nc), SortCells{offset, list});
+      } else {
+        Kokkos::parallel_for("vleo::dsmc_rank_sort", IntPolicy(0, offset_total),
+                             RankSortEntries{offset, cell_of_particle, list_unsorted, list});
+      }
     }
   }
 

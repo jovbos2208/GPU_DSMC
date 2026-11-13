@@ -46,9 +46,10 @@ After every optimisation step the complete test suite was run and
 | `cpu` | AMD Ryzen 5 PRO 8540U (6 cores, 12 threads) (OpenMP, `OMP_PROC_BIND=spread`) | `cpu-release`, GCC 15.2 |
 | `hip-gfx1103` | Radeon 740M iGPU (gfx1103, shared memory) | `hip-gfx1103`, HIP 7.1 |
 
-The Radeon PRO W7700 server (`hip-gfx1101`) and NVIDIA GPUs are not yet
-benchmarked; run the script there and add the JSON files (M5.7 workflow does
-this weekly on a self-hosted runner).
+| `hip-gfx1101` | Radeon PRO W7700 (gfx1101, 48 CUs, 16 GB GDDR6), one of two GPUs | `hip-gfx1101`, HIP 6.3.1 |
+
+NVIDIA GPUs are not yet benchmarked (M5.7 workflow runs the script weekly on
+a self-hosted runner).
 
 ## Baseline profiles (M5.2, before optimisation)
 
@@ -119,3 +120,35 @@ move/collide kernels, and a shared-memory traversal stack for the BVH.
 
 The intermediate files `opt1-cpu` … `opt4-*` are the sequential
 measurements of the individual steps (noisy, see above).
+
+## Dedicated GPU: Radeon PRO W7700 (2026-11-13, M5 state `69eb66c`)
+
+Median of 3 (`m5-hip-gfx1101`, run on the server):
+
+| Case | Wall [s] | Throughput | vs. 740M iGPU | vs. 12-thread CPU | C_D |
+| ---- | -------- | ---------- | ------------- | ----------------- | --- |
+| B1 | 0.32 | 6.34·10⁷ histories/s | 12× | 5.1× | 4.95440 |
+| B2 | 0.26 | 3.92·10⁷ histories/s | 15× | 11× | 1.65450 |
+| B3 | 6.10 | 3.56·10⁷ particle steps/s | 2.7× | 1.9× | 0.71246 |
+| B4 | 6.73 | 4.26·10⁷ particle steps/s | 3.9× | 2.5× | 4.61486 |
+
+C_D is bitwise identical to the Radeon 740M (gfx1103) build – same code, same
+seeds, different GPU generation and HIP version (6.3 vs. 7.1).
+
+Profiles: TPMC transport 59–73 %, injection 22–35 %. DSMC was dominated by
+the **cell sort** (B3 59 %, B4 28 %), followed by collisions (18 %, 51 %) and
+move (9 %, 11 %). Cause: the sort was an insertion sort with one thread per
+cell. On the iGPU the atomic fill delivers particles almost in index order
+(few compute units), so the insertion sort is nearly O(n); on the W7700
+with 48 CUs the order is close to random, the sort becomes O(n²) per cell and
+serial, with only 4096 threads (B3 has 16³ cells).
+
+**Follow-up optimisation (rank sort, GPU backends only):** the binning fills
+an unsorted list, then one thread per particle counts the smaller entries of
+its cell and writes itself to its final position (`RankSortEntries` in
+`src/dsmc/Dsmc.cpp`). The result is the same sorted list (results bitwise
+unchanged, all tests pass); the work no longer depends on the fill order and
+uses one thread per particle. On the 740M it is neutral (`ranksort-hip-gfx1103`:
+B3 15.5 s, B4 25.1 s vs. 16.6/26.2 s; the sort itself 0.9 s vs. 0.7 s
+because the input was already nearly sorted there). The W7700 measurement of
+this version is still to be done (`m5-ranksort-hip-gfx1101`).

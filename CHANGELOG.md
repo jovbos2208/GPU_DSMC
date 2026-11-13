@@ -6,6 +6,12 @@ scheme in [docs/development.md](docs/development.md#versioning).
 
 ## [Unreleased]
 
+### Changed
+- DSMC cell sort on GPU backends: parallel rank sort (one thread per particle)
+  instead of a serial insertion sort per cell, which dominated the time step
+  on the Radeon PRO W7700 (59 % in B3). Results bitwise unchanged.
+- Scripts are Python 3.6 compatible (server toolchain).
+
 ## [0.9.0] – M5: performance, automation, release preparation
 
 Release candidate for v1.0. Gate M5 is open only for CUDA (no NVIDIA hardware
