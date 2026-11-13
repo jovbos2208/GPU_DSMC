@@ -185,6 +185,17 @@ docs/dsmc.md §4. Results versus the previous version: statistically equal
 | | B4 | 25.09 | 26.74 | 9.01 s → 8.65 s |
 
 On the 740M the collision kernel itself got faster; the slower totals come
-from the unchanged move kernel (+16 %, desktop load during the run). The
-target is the W7700, where collisions were 42 %/69 % of the step
-(measurement: `m5-waves-hip-gfx1101`, to be added).
+from the unchanged move kernel (+16 %, desktop load during the run). On the W7700 (`m5-waves-hip-gfx1101`, server run, median of 3, all 52 tests
+pass there):
+
+| Case | M5 first run [s] | + rank sort [s] | + wave collisions [s] | total speed-up | collide share |
+| ---- | ---------------- | --------------- | --------------------- | -------------- | ------------- |
+| B3 | 6.10 | 2.75 | **2.21** | 2.8× | 42 % → 25 % |
+| B4 | 6.73 | 5.12 | **3.52** | 1.9× | 69 % → 52 % |
+
+B3: 9.8·10⁷ particle steps/s (6.0× the 12-thread CPU), B4: 8.2·10⁷
+(5.2× CPU). C_D (0.71215, 4.61631) is bitwise identical to the 740M build of
+the same version. Remaining profile on the W7700: B3 move 27 %, collide 25 %,
+step reduce 16 %; B4 collide 52 %, move 23 %. Further candidates: team size
+and chunk size of the wave kernel, the Larsen–Borgnakke branch divergence in
+mixed N2/O2 cells, and fusing the step reduction into the move kernel.
