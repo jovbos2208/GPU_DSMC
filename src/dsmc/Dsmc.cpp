@@ -438,87 +438,224 @@ struct RankSortEntries {
 inline constexpr bool kHostExecution =
     std::is_same_v<Kokkos::DefaultExecutionSpace, Kokkos::DefaultHostExecutionSpace>;
 
-struct CollideKernel {
+// NTC collisions (docs/dsmc.md section 4). Every candidate pair k of cell c
+// has its own random stream (seed, c + k 2^32, step), and all candidates of a
+// step use the bound (sigma g)_max from the start of the step, so the outcome
+// of a candidate depends only on the velocities of its two particles. The
+// result of processing the candidates in index order is therefore reproduced
+// exactly by any order that respects "a candidate runs after all earlier
+// candidates sharing one of its particles" - the serial host kernel and the
+// wave-parallel GPU kernel below give bitwise identical results.
+struct CollisionPairOp {
   ParticleStorage p;
-  Kokkos::View<const int*> offset;
-  Kokkos::View<const int*> list;
-  Kokkos::View<const double*> volume;
-  Kokkos::View<double*> sg_max;
-  Kokkos::View<double*> remainder;
   Kokkos::View<const VhsPair*> pairs;
   Kokkos::View<const SpeciesModes*> modes;
-  Kokkos::View<std::uint64_t*> cand, acc, upd;
   Kokkos::View<std::uint64_t*> pair_acc;  // nsp * nsp, accepted collisions per (min, max) species pair
   int nsp;
-  double weight_dt;  // W dt
   std::uint64_t seed;
   std::uint32_t step;
 
-  KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
-    const int b = offset(c);
-    const int n = offset(c + 1) - b;
-    std::uint64_t n_cand = 0, n_acc = 0, n_upd = 0;
-    if (n >= 2) {
-      double max_sg = sg_max(c);
-      const double expected = 0.5 * n * (n - 1.0) * weight_dt * max_sg / volume(c) + remainder(c);
-      n_cand = static_cast<std::uint64_t>(Kokkos::floor(expected));
-      remainder(c) = expected - static_cast<double>(n_cand);
-      RandomStream rng(seed, static_cast<std::uint64_t>(c), step, RngStream::GasCollision);
-      for (std::uint64_t k = 0; k < n_cand; ++k) {
-        int a = static_cast<int>(rng.uniform() * n);
-        if (a >= n) a = n - 1;
-        int q = static_cast<int>(rng.uniform() * (n - 1));
-        if (q >= n - 1) q = n - 2;
-        if (q >= a) ++q;  // never the same particle
-        const int i = list(b + a), j = list(b + q);
-        Vec3 vi = p.velocity(i), vj = p.velocity(j);
-        const VhsPair& pr = pairs(static_cast<int>(p.species(i)) * nsp + static_cast<int>(p.species(j)));
-        const double sg = pr.sigma_g(norm(vi - vj));
-        if (sg > max_sg) {  // safe update of the bound (M3.7)
-          max_sg = sg;
-          ++n_upd;
-        }
-        if (rng.uniform() * max_sg < sg) {
-          const int si = static_cast<int>(p.species(i)), sj = static_cast<int>(p.species(j));
-          const SpeciesModes& mi = modes(si);
-          const SpeciesModes& mj = modes(sj);
-          if (mi.rot_dof > 0 || mi.vib || mj.rot_dof > 0 || mj.vib) {
-            // Larsen-Borgnakke (particle selection, serial): vibration, then
-            // rotation of each molecule with probability 1 / Z.
-            const double mr = pr.m_p * pr.m_q / (pr.m_p + pr.m_q);
-            const double omega = 0.5 * (mi.omega + mj.omega);
-            double Et = 0.5 * mr * norm2(vi - vj);
-            double er_i = p.e_rot(i), ev_i = p.e_vib(i), er_j = p.e_rot(j), ev_j = p.e_vib(j);
-            if (mi.vib && rng.uniform() < mi.vib_relax_prob) lb_vibration(Et, ev_i, mi.theta_v, omega, rng);
-            if (mj.vib && rng.uniform() < mj.vib_relax_prob) lb_vibration(Et, ev_j, mj.theta_v, omega, rng);
-            if (mi.rot_dof == 2 && rng.uniform() < mi.rot_relax_prob) lb_rotation(Et, er_i, omega, rng);
-            if (mj.rot_dof == 2 && rng.uniform() < mj.rot_relax_prob) lb_rotation(Et, er_j, omega, rng);
-            p.e_rot(i) = er_i;
-            p.e_vib(i) = ev_i;
-            p.e_rot(j) = er_j;
-            p.e_vib(j) = ev_j;
-            const double g_new = Kokkos::sqrt(2.0 * Et / mr);
-            if (pr.alpha == 1.0)
-              vhs_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, rng);
-            else
-              vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, pr.alpha, rng);
-          } else if (pr.alpha == 1.0) {
-            vhs_collide(vi, vj, pr.m_p, pr.m_q, rng);
-          } else {
-            vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, norm(vi - vj), pr.alpha, rng);
-          }
-          p.set_velocity(i, vi);
-          p.set_velocity(j, vj);
-          ++n_acc;
-          const int a1 = static_cast<int>(p.species(i)), a2 = static_cast<int>(p.species(j));
-          Kokkos::atomic_inc(&pair_acc(a1 < a2 ? a1 * nsp + a2 : a2 * nsp + a1));
-        }
-      }
-      sg_max(c) = max_sg;
+  KOKKOS_INLINE_FUNCTION RandomStream stream(const int c, const std::uint64_t k) const {
+    return RandomStream(seed, static_cast<std::uint64_t>(static_cast<std::uint32_t>(c)) | (k << 32), step,
+                        RngStream::GasCollision);
+  }
+  // Pair positions (a, q) within the cell list of n >= 2 particles.
+  KOKKOS_INLINE_FUNCTION static void select(RandomStream& rng, const int n, int& a, int& q) {
+    a = static_cast<int>(rng.uniform() * n);
+    if (a >= n) a = n - 1;
+    q = static_cast<int>(rng.uniform() * (n - 1));
+    if (q >= n - 1) q = n - 2;
+    if (q >= a) ++q;  // never the same particle
+  }
+  // Candidate (i, j) after selection; returns sigma g, `accepted` set if the
+  // collision was performed.
+  KOKKOS_INLINE_FUNCTION double candidate(const int i, const int j, const double max_sg, RandomStream& rng,
+                                          bool& accepted) const {
+    Vec3 vi = p.velocity(i), vj = p.velocity(j);
+    const VhsPair& pr = pairs(static_cast<int>(p.species(i)) * nsp + static_cast<int>(p.species(j)));
+    const double sg = pr.sigma_g(norm(vi - vj));
+    accepted = rng.uniform() * max_sg < sg;  // always accepted if sg exceeds the bound
+    if (!accepted) return sg;
+    const int si = static_cast<int>(p.species(i)), sj = static_cast<int>(p.species(j));
+    const SpeciesModes& mi = modes(si);
+    const SpeciesModes& mj = modes(sj);
+    if (mi.rot_dof > 0 || mi.vib || mj.rot_dof > 0 || mj.vib) {
+      // Larsen-Borgnakke (particle selection, serial): vibration, then
+      // rotation of each molecule with probability 1 / Z.
+      const double mr = pr.m_p * pr.m_q / (pr.m_p + pr.m_q);
+      const double omega = 0.5 * (mi.omega + mj.omega);
+      double Et = 0.5 * mr * norm2(vi - vj);
+      double er_i = p.e_rot(i), ev_i = p.e_vib(i), er_j = p.e_rot(j), ev_j = p.e_vib(j);
+      if (mi.vib && rng.uniform() < mi.vib_relax_prob) lb_vibration(Et, ev_i, mi.theta_v, omega, rng);
+      if (mj.vib && rng.uniform() < mj.vib_relax_prob) lb_vibration(Et, ev_j, mj.theta_v, omega, rng);
+      if (mi.rot_dof == 2 && rng.uniform() < mi.rot_relax_prob) lb_rotation(Et, er_i, omega, rng);
+      if (mj.rot_dof == 2 && rng.uniform() < mj.rot_relax_prob) lb_rotation(Et, er_j, omega, rng);
+      p.e_rot(i) = er_i;
+      p.e_vib(i) = ev_i;
+      p.e_rot(j) = er_j;
+      p.e_vib(j) = ev_j;
+      const double g_new = Kokkos::sqrt(2.0 * Et / mr);
+      if (pr.alpha == 1.0)
+        vhs_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, rng);
+      else
+        vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, pr.alpha, rng);
+    } else if (pr.alpha == 1.0) {
+      vhs_collide(vi, vj, pr.m_p, pr.m_q, rng);
+    } else {
+      vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, norm(vi - vj), pr.alpha, rng);
     }
-    cand(c) = n_cand;
+    p.set_velocity(i, vi);
+    p.set_velocity(j, vj);
+    Kokkos::atomic_inc(&pair_acc(si < sj ? si * nsp + sj : sj * nsp + si));
+    return sg;
+  }
+};
+
+// Candidate number of a cell (integer part; the fraction is carried over).
+struct CellCandidates {
+  Kokkos::View<const int*> offset;
+  Kokkos::View<const double*> volume;
+  Kokkos::View<const double*> sg_max;
+  Kokkos::View<double*> remainder;
+  Kokkos::View<std::uint64_t*> cand;
+  double weight_dt;  // W dt
+  KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
+    const int n = offset(c + 1) - offset(c);
+    std::uint64_t k = 0;
+    if (n >= 2) {
+      const double expected = 0.5 * n * (n - 1.0) * weight_dt * sg_max(c) / volume(c) + remainder(c);
+      k = static_cast<std::uint64_t>(Kokkos::floor(expected));
+      remainder(c) = expected - static_cast<double>(k);
+    }
+    cand(c) = k;
+  }
+};
+
+// Host backends: one thread per cell, candidates in index order.
+struct CollideCellsSerial {
+  CollisionPairOp m;
+  Kokkos::View<const int*> offset;
+  Kokkos::View<const int*> list;
+  Kokkos::View<double*> sg_max;
+  Kokkos::View<const std::uint64_t*> cand;
+  Kokkos::View<std::uint64_t*> acc, upd;
+  KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
+    const int b = offset(c), n = offset(c + 1) - b;
+    const std::uint64_t n_cand = cand(c);
+    std::uint64_t n_acc = 0, n_upd = 0;
+    const double max0 = sg_max(c);
+    double max_new = max0;
+    for (std::uint64_t k = 0; k < n_cand; ++k) {
+      RandomStream rng = m.stream(c, k);
+      int a, q;
+      CollisionPairOp::select(rng, n, a, q);
+      bool accepted;
+      const double sg = m.candidate(list(b + a), list(b + q), max0, rng, accepted);
+      if (sg > max0) ++n_upd;  // safe update of the bound for the next step (M3.7)
+      if (sg > max_new) max_new = sg;
+      if (accepted) ++n_acc;
+    }
+    if (n_cand > 0) sg_max(c) = max_new;
     acc(c) = n_acc;
     upd(c) = n_upd;
+  }
+};
+
+// GPU backends: one team per cell. The candidates are taken in chunks of
+// kCollideChunk; within a chunk they run in waves - a candidate runs once all
+// earlier candidates of the chunk that share one of its particles have run.
+// Chunks run one after the other. This is the same dependency order as the
+// serial kernel, hence the same result.
+inline constexpr int kCollideChunk = 256;
+struct CollideCellsWaves {
+  using Member = Kokkos::TeamPolicy<>::member_type;
+  CollisionPairOp m;
+  Kokkos::View<const int*> offset;
+  Kokkos::View<const int*> list;
+  Kokkos::View<double*> sg_max;
+  Kokkos::View<const std::uint64_t*> cand;
+  Kokkos::View<std::uint64_t*> acc, upd;
+
+  static std::size_t scratch_bytes() {
+    return kCollideChunk * (sizeof(double) + 2 * sizeof(int) + 2 * sizeof(char)) + 64;
+  }
+
+  KOKKOS_INLINE_FUNCTION void operator()(const Member& t) const {
+    const int c = t.league_rank();
+    const std::uint64_t n_cand = cand(c);
+    if (n_cand == 0) {
+      Kokkos::single(Kokkos::PerTeam(t), [&]() {
+        acc(c) = 0;
+        upd(c) = 0;
+      });
+      return;
+    }
+    const int b = offset(c), n = offset(c + 1) - b;
+    const double max0 = sg_max(c);
+    auto& sm = t.team_scratch(0);
+    double* sgv = static_cast<double*>(sm.get_shmem(kCollideChunk * sizeof(double)));
+    int* pi = static_cast<int*>(sm.get_shmem(kCollideChunk * sizeof(int)));
+    int* pj = static_cast<int*>(sm.get_shmem(kCollideChunk * sizeof(int)));
+    char* state = static_cast<char*>(sm.get_shmem(kCollideChunk));  // 0 pending, 1 accepted, 2 rejected
+    char* ready = static_cast<char*>(sm.get_shmem(kCollideChunk));
+    std::uint64_t n_acc = 0, n_upd = 0;
+    double max_new = max0;
+    for (std::uint64_t c0 = 0; c0 < n_cand; c0 += kCollideChunk) {
+      const int nk = static_cast<int>(n_cand - c0 < static_cast<std::uint64_t>(kCollideChunk) ? n_cand - c0
+                                                                                              : kCollideChunk);
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nk), [&](const int k) {
+        RandomStream rng = m.stream(c, c0 + static_cast<std::uint64_t>(k));
+        int a, q;
+        CollisionPairOp::select(rng, n, a, q);
+        pi[k] = list(b + a);
+        pj[k] = list(b + q);
+        state[k] = 0;
+      });
+      t.team_barrier();
+      int pending = nk;
+      while (pending > 0) {
+        // a pending candidate is ready if no earlier pending one shares a particle
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nk), [&](const int k) {
+          bool r = state[k] == 0;
+          for (int l = 0; r && l < k; ++l)
+            if (state[l] == 0 && (pi[l] == pi[k] || pi[l] == pj[k] || pj[l] == pi[k] || pj[l] == pj[k])) r = false;
+          ready[k] = r ? 1 : 0;
+        });
+        t.team_barrier();
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nk), [&](const int k) {
+          if (!ready[k]) return;
+          RandomStream rng = m.stream(c, c0 + static_cast<std::uint64_t>(k));
+          int a, q;
+          CollisionPairOp::select(rng, n, a, q);  // advances the stream as in the serial kernel
+          bool accepted;
+          sgv[k] = m.candidate(pi[k], pj[k], max0, rng, accepted);
+          state[k] = accepted ? 1 : 2;
+        });
+        t.team_barrier();
+        int still = 0;
+        Kokkos::parallel_reduce(
+            Kokkos::TeamThreadRange(t, nk), [&](const int k, int& st) { st += state[k] == 0 ? 1 : 0; }, still);
+        pending = still;
+      }
+      std::uint64_t ca = 0, cu = 0;
+      double cm = max0;
+      Kokkos::parallel_reduce(
+          Kokkos::TeamThreadRange(t, nk), [&](const int k, std::uint64_t& x) { x += state[k] == 1 ? 1 : 0; }, ca);
+      Kokkos::parallel_reduce(
+          Kokkos::TeamThreadRange(t, nk), [&](const int k, std::uint64_t& x) { x += sgv[k] > max0 ? 1 : 0; }, cu);
+      Kokkos::parallel_reduce(
+          Kokkos::TeamThreadRange(t, nk), [&](const int k, double& x) { x = sgv[k] > x ? sgv[k] : x; },
+          Kokkos::Max<double>(cm));
+      n_acc += ca;
+      n_upd += cu;
+      max_new = cm > max_new ? cm : max_new;
+      t.team_barrier();  // scratch is reused by the next chunk
+    }
+    Kokkos::single(Kokkos::PerTeam(t), [&]() {
+      sg_max(c) = max_new;
+      acc(c) = n_acc;
+      upd(c) = n_upd;
+    });
   }
 };
 
@@ -778,10 +915,23 @@ struct DsmcSimulation::Impl {
 
   void collide() {
     const int nc = grid.grid.num_cells();
-    Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(0, nc),
-                         CollideKernel{cur, offset, list, grid.collision_volume, sg_max, remainder, pairs, modes, cand, acc, upd,
-                                       pair_acc, nsp, set.particle_weight * set.timestep_s, cfg.simulation.random_seed,
-                                       static_cast<std::uint32_t>(step_index)});
+    Kokkos::parallel_for("vleo::dsmc_candidates", IntPolicy(0, nc),
+                         CellCandidates{offset, grid.collision_volume, sg_max, remainder, cand,
+                                        set.particle_weight * set.timestep_s});
+    const CollisionPairOp model{cur, pairs, modes, pair_acc, nsp, cfg.simulation.random_seed,
+                               static_cast<std::uint32_t>(step_index)};
+    const bool per_cell = set.collision_kernel == CollisionKernel::PerCell ||
+                          (set.collision_kernel == CollisionKernel::Automatic && kHostExecution);
+    if (per_cell) {
+      Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(0, nc),
+                           CollideCellsSerial{model, offset, list, sg_max, cand, acc, upd});
+    } else {
+      // 32 threads per cell on GPUs (wave32 / warp); host backends (tests) choose themselves
+      Kokkos::TeamPolicy<> tp = kHostExecution ? Kokkos::TeamPolicy<>(nc, Kokkos::AUTO) : Kokkos::TeamPolicy<>(nc, 32);
+      tp.set_scratch_size(0, Kokkos::PerTeam(static_cast<int>(CollideCellsWaves::scratch_bytes())));
+      Kokkos::parallel_for("vleo::dsmc_collide_waves", tp,
+                           CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd});
+    }
     std::uint64_t s[3] = {0, 0, 0};
     Kokkos::parallel_reduce("vleo::dsmc_collision_counts", IntPolicy(0, nc), SumU64x3{3, cand, acc, upd}, s);
     counters.collision_candidates += s[0];
@@ -1323,6 +1473,7 @@ DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geom
   DsmcSettings out = resolve_dsmc_settings(cfg, domain, dx);
   out.grid = settings.grid;
   out.profile = settings.profile;
+  out.collision_kernel = settings.collision_kernel;
   out.initial_fill = settings.initial_fill;
   out.boundary = settings.boundary;
   out.max_interactions_per_step = settings.max_interactions_per_step;

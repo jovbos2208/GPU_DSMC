@@ -52,6 +52,11 @@ enum class DsmcBoundary {
 };
 
 // Resolved numerical parameters of a DSMC run.
+// Collision kernel (results are identical, docs/dsmc.md section 4):
+// PerCell = one thread per cell (default on host backends), Waves = one team
+// per cell with conflict-free waves of candidates (default on GPUs).
+enum class CollisionKernel { Automatic, PerCell, Waves };
+
 struct DsmcSettings {
   double timestep_s = 0.0;
   double cell_size_m = 0.0;            // requested edge length (actual cells divide the box exactly)
@@ -64,6 +69,7 @@ struct DsmcSettings {
   DsmcBoundary boundary = DsmcBoundary::Open;
   bool initial_fill = true;            // start from free-stream gas (else empty domain)
   bool profile = false;                // phase timings (also VLEO_PROFILE=1)
+  CollisionKernel collision_kernel = CollisionKernel::Automatic;
   GridOptions grid;
 
   // Free-stream reference values used for the automatic choices.

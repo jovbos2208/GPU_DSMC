@@ -1,0 +1,123 @@
+{
+  "label": "waves-cpu",
+  "host": "jovan-work",
+  "solver_version": "vleo_solver 0.9.0\n  git commit       : 061e5528c002d3a3e0b7329a246ca0d06d678442 (dirty)\n  git describe     : 061e552-dirty\n  build type       : Release\n  compiler         : GNU 15.2.0 (gcc 15.2.0)\n  C++ standard     : 202002\n  Kokkos version   : 5.2.2\n  backend          : cpu\n  execution space  : OpenMP (host: OpenMP)\n  Kokkos backends  : Serial, OpenMP\n  Kokkos arch      : none\n",
+  "cases": {
+    "B3": {
+      "description": "DSMC, 0.5 m cube, He, Kn ~ 1, dx = 0.05 m, 30 particles/cell",
+      "mode": "dsmc",
+      "wall_time_s": 13.340265916,
+      "wall_times_s": [
+        13.333359796,
+        13.340265916,
+        13.346703609
+      ],
+      "C_D": 0.7119068392913869,
+      "C_D_std_error": 0.0006472751922477774,
+      "heat_rate_W": 4387.909760388397,
+      "efficiency_se2_time": 5.5891068373653e-06,
+      "profile": {
+        "dsmc.bin.fill": {
+          "seconds": 1.071602241999999,
+          "calls": 1201
+        },
+        "dsmc.bin.histogram": {
+          "seconds": 0.9934805279999992,
+          "calls": 1201
+        },
+        "dsmc.bin.scan": {
+          "seconds": 0.1268281660000001,
+          "calls": 1201
+        },
+        "dsmc.bin.sort": {
+          "seconds": 1.8732005790000013,
+          "calls": 1201
+        },
+        "dsmc.collide": {
+          "seconds": 1.3482608150000004,
+          "calls": 1200
+        },
+        "dsmc.compact": {
+          "seconds": 0.8331741820000005,
+          "calls": 303
+        },
+        "dsmc.inject": {
+          "seconds": 0.203012348,
+          "calls": 1200
+        },
+        "dsmc.move": {
+          "seconds": 4.917494504000005,
+          "calls": 1200
+        },
+        "dsmc.sample": {
+          "seconds": 0.194511514,
+          "calls": 1000
+        },
+        "dsmc.step_reduce": {
+          "seconds": 1.0767644069999993,
+          "calls": 1200
+        }
+      },
+      "throughput": 16238223.612933265,
+      "throughput_unit": "particle steps/s"
+    },
+    "B4": {
+      "description": "DSMC, satellite, air with N2/O2 (rotation, vibration), Kn ~ 0.5",
+      "mode": "dsmc",
+      "wall_time_s": 18.43987355,
+      "wall_times_s": [
+        18.367033001,
+        18.43987355,
+        18.54241019
+      ],
+      "C_D": 4.617909456287632,
+      "C_D_std_error": 0.011551577475374523,
+      "heat_rate_W": 296435.8474254398,
+      "efficiency_se2_time": 0.0024605972202528187,
+      "profile": {
+        "dsmc.bin.fill": {
+          "seconds": 0.908967589,
+          "calls": 801
+        },
+        "dsmc.bin.histogram": {
+          "seconds": 1.339879405,
+          "calls": 801
+        },
+        "dsmc.bin.scan": {
+          "seconds": 0.1902180250000002,
+          "calls": 801
+        },
+        "dsmc.bin.sort": {
+          "seconds": 1.1105465280000006,
+          "calls": 801
+        },
+        "dsmc.collide": {
+          "seconds": 2.552466499999999,
+          "calls": 800
+        },
+        "dsmc.compact": {
+          "seconds": 0.8400191360000002,
+          "calls": 158
+        },
+        "dsmc.inject": {
+          "seconds": 0.2573955429999996,
+          "calls": 800
+        },
+        "dsmc.move": {
+          "seconds": 6.815377256000001,
+          "calls": 800
+        },
+        "dsmc.sample": {
+          "seconds": 0.24703196599999985,
+          "calls": 600
+        },
+        "dsmc.step_reduce": {
+          "seconds": 1.5168304250000002,
+          "calls": 800
+        }
+      },
+      "throughput": 15567070.90326007,
+      "throughput_unit": "particle steps/s"
+    }
+  }
+}

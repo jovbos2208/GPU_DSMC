@@ -132,11 +132,23 @@ Per cell with N particles and collision volume V_eff:
   so a particle never collides with itself;
 - acceptance: σ_T(g) g / (σ_T g)_max with the VHS cross-section
   σ_T(g) = π d² (2kT_ref/(m_r g²))^{ω−1/2} / Γ(5/2 − ω);
-- the bound (σ_T g)_max is per cell, initialised with σ_T g at 3 c_mp and
-  raised when a candidate exceeds it. Each cell is processed by one thread, so
-  the update is race-free. The candidate number of the current step uses the
-  bound from its start (Bird's practice); the counted updates show that the
-  bounds settle during the warm-up;
+- the bound (σ_T g)_max is per cell, initialised with σ_T g at 3 c_mp. All
+  candidates of a step use the bound from the start of the step (the same
+  one that determined the candidate number); a candidate with σ_T g above it
+  is always accepted, and the bound is raised to the largest σ_T g of the step
+  for the next step. The counted updates (candidates above the bound) show
+  that the bounds settle during the warm-up;
+- **parallel processing (M5):** every candidate k of cell c has its own
+  random stream (seed, c + k·2³², step), so its outcome depends only on the
+  current velocities of its two particles. Processing the candidates in index
+  order, or in any order in which a candidate runs after all earlier
+  candidates sharing one of its particles, gives identical results. Host
+  backends use one thread per cell in index order; GPU backends use one team
+  (32 threads) per cell, which processes the candidates in chunks of 256 and,
+  within a chunk, in waves of mutually independent candidates. Both are
+  tested to be bitwise identical (`test_dsmc`). Before M5 the candidates of a
+  cell shared one random stream and the bound was raised immediately; the
+  results of the two versions agree statistically, not bitwise;
 - post-collision velocities: v_cm is kept, g' = |g| · (isotropic unit vector),
   v_p' = v_cm + m_q/(m_p+m_q) g', v_q' = v_cm − m_p/(m_p+m_q) g'.
 - diagnostics: candidates, accepted, rejected, bound updates, acceptance ratio
@@ -229,7 +241,7 @@ when comparing with SPARTA (M4.10).
 | He (1200 K) / Ar (300 K) relaxation | common T within 5 σ |
 | injection shares O/N/He vs. flux shares | within 0.1 σ |
 | N2 equilibrium at 3000 K, time-averaged | T_rot/T_tr = 1.0018 ± 0.0021, T_vib/T_tr = 0.998 ± 0.003 |
-| rotational relaxation rate vs. mean-field rate of the scheme | −2.5 % (tolerance 5 %) |
+| rotational relaxation rate vs. mean-field rate of the scheme | −3.5 % ± 1.4 % over 10 seeds (old and new collision kernel alike; tolerance 7 % since M5, 600 particles per cell) |
 | vibrational relaxation from the ground state | T_vib, T_rot → T_tr within 5 %, levels exactly quantised |
 | VSS deflection angle distribution, α ∈ {1, 1.36, 1.6} | KS √n D < 1.95 |
 

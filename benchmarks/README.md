@@ -164,6 +164,27 @@ New profile on the W7700: collisions 42 % (B3) and **69 % (B4)**, move
 21 %/15 %, step reduce 12 %/6 %. The collision kernel has the same structure
 as the old sort – one thread per cell, the NTC pairs of a cell are processed
 sequentially – which is the next bottleneck on large GPUs. Parallelising
-within a cell changes the order of the random numbers, so results would stay
-deterministic and statistically equivalent but no longer bitwise equal to
-the current version (open, not done).
+within a cell changes the order of the random numbers, so results stay
+deterministic and statistically equivalent but are no longer bitwise equal to
+the previous version.
+
+**Wave-parallel collisions (GPU backends):** every candidate pair has its own
+random stream and all candidates of a step use the bound from its start, so
+the result no longer depends on a single serial random sequence. One team of
+32 threads per cell processes the candidates in waves of independent pairs
+(a candidate waits for all earlier ones sharing a particle) – bitwise
+identical to the per-cell kernel used on host backends (`test_dsmc`), see
+docs/dsmc.md §4. Results versus the previous version: statistically equal
+(B3 z = 0.4, B4 z = 0.3; fixed-seed example references regenerated).
+
+| Build | Case | before [s] | after [s] | collide before → after |
+| ----- | ---- | ---------- | --------- | ---------------------- |
+| cpu-release (interleaved, `headbase-cpu` → `waves-cpu`) | B3 | 13.95 | 13.34 (1.05×) | unchanged kernel structure |
+| | B4 | 18.36 | 18.44 (1.00×) | |
+| hip-gfx1103 (`ranksort-` → `waves-hip-gfx1103`) | B3 | 15.49 | 16.62 | 2.89 s → 2.13 s |
+| | B4 | 25.09 | 26.74 | 9.01 s → 8.65 s |
+
+On the 740M the collision kernel itself got faster; the slower totals come
+from the unchanged move kernel (+16 %, desktop load during the run). The
+target is the W7700, where collisions were 42 %/69 % of the step
+(measurement: `m5-waves-hip-gfx1101`, to be added).

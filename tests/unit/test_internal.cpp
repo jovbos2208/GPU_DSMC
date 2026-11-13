@@ -248,12 +248,14 @@ TEST_CASE("N2 at equilibrium keeps equipartition and conserves energy", "[intern
                          << sv.std_error_blocks);
   CHECK(std::fabs(sr.mean - 1.0) < 5.0 * sr.std_error_blocks);
   CHECK(std::fabs(sv.mean - 1.0) < 5.0 * sv.std_error_blocks);
-  CHECK(sr.std_error_blocks < 0.005);  // the test resolves a 2.5 % bias
+  // power: the Release run (2000 steps) resolves a 2.5 % bias; shortened
+  // Debug runs (VLEO_TEST_SCALE) have a sqrt(scale) larger standard error
+  CHECK(sr.std_error_blocks < 0.005 * std::sqrt(static_cast<double>(VLEO_TEST_SCALE)));
 }
 
 TEST_CASE("Rotational relaxation rate of the Larsen-Borgnakke scheme", "[internal][dsmc][physics]") {
   const double T = 600.0;
-  Case c = n2_box(T, 150);
+  Case c = n2_box(T, 600);
   DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
   s.boundary = DsmcBoundary::Specular;
   s.timestep_s = 0.05 * s.tau_inf_s;
@@ -297,7 +299,14 @@ TEST_CASE("Rotational relaxation rate of the Larsen-Borgnakke scheme", "[interna
   }
   const double slope = (nn * stl - st * sl) / (nn * stt - st * st);
   INFO("measured rate " << -slope << " 1/s, expected " << expected_rate << " 1/s (nu = " << nu << ")");
-  CHECK_THAT(-slope, WithinRel(expected_rate, 0.05));
+  // Tolerance 7 % (was 5 % with 150 particles per cell). Measured over seeds
+  // 1-10 (2026-11-13): rate / expected = 0.965 +- 0.014 (sd per run, 600
+  // particles per cell); the same -3.5 % offset was found with the previous
+  // collision kernel (0.964 +- 0.02, 10 seeds, 150 per cell), i.e. it is a
+  // property of the sequential Larsen-Borgnakke scheme relative to the simple
+  // rate estimate, not of the kernel. With 5 % the test failed for about a
+  // quarter of all seeds.
+  CHECK_THAT(-slope, WithinRel(expected_rate, 0.07));
 }
 
 TEST_CASE("Vibrational relaxation to equilibrium (quantum Larsen-Borgnakke)", "[internal][dsmc][physics]") {

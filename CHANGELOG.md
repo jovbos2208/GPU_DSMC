@@ -11,6 +11,15 @@ scheme in [docs/development.md](docs/development.md#versioning).
   instead of a serial insertion sort per cell, which dominated the time step
   on the Radeon PRO W7700 (59 % in B3). Results bitwise unchanged.
 - Scripts are Python 3.6 compatible (server toolchain).
+- DSMC collisions: one random stream per candidate pair and a fixed
+  (σg)_max per step; GPU backends process the candidates of a cell in
+  parallel waves of independent pairs (bitwise identical to the per-cell
+  kernel on host backends). **DSMC results change bitwise** versus 0.9.0
+  (statistically equal); fixed-seed example references regenerated.
+- Test of the rotational relaxation rate: 600 particles per cell and 7 %
+  tolerance (offset of −3.5 % ± 1.4 % found for the old and new kernel alike).
+- Equipartition test: the standard-error (power) check scales with
+  √VLEO_TEST_SCALE for the shortened Debug runs.
 
 ## [0.9.0] – M5: performance, automation, release preparation
 

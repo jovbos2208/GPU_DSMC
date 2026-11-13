@@ -235,6 +235,54 @@ TEST_CASE("A monatomic DSMC run is bitwise reproducible", "[dsmc][gate]") {
                      0.0, 1e-9));
 }
 
+TEST_CASE("Per-cell and wave-parallel collision kernels give identical results", "[dsmc][gate]") {
+  // Dense N2/O mixture with VSS and Larsen-Borgnakke, large cells: many
+  // candidates per cell (more than one chunk of the wave kernel) sharing
+  // particles, so the dependency order is exercised.
+  const std::string body =
+      "simulation: {name: waves, mode: dsmc, random_seed: 9}\n"
+      "domain: {margin_m: 0.3}\n"
+      "reference: {area_m2: 1, length_m: 1, moment_center_m: [0,0,0], lift_axis_body: [0,0,1]}\n"
+      "gas: {number_density_m3: 3.0e21, translational_temperature_K: 600, "
+      "bulk_velocity_body_mps: [-3000, 200, 0], species: {N2: 0.6, O: 0.4}}\n"
+      "surface: {model: cll, temperature_K: 300, cll: {alpha_n: 0.8, sigma_t: 0.7}}\n"
+      "dsmc: {collision_model: VSS, cell_size_mode: fixed, cell_size_m: 0.3, timestep_mode: fixed, "
+      "timestep_s: 2.0e-6, particles_per_cell_target: 600, warmup_steps: 3, sample_steps: 6, blocks: 2}\n";
+  Case c = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}), body);
+  DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  s.collision_kernel = CollisionKernel::PerCell;
+  DsmcSimulation a(c.cfg, c.geometry, c.inflow, s);
+  s.collision_kernel = CollisionKernel::Waves;
+  DsmcSimulation b(c.cfg, c.geometry, c.inflow, s);
+  a.fill_freestream();
+  b.fill_freestream();
+  std::uint64_t max_cand_per_cell = 0;
+  for (int k = 0; k < 9; ++k) {
+    a.step(k >= 3);
+    b.step(k >= 3);
+  }
+  const DsmcResult ra = a.result(), rb = b.result();
+  max_cand_per_cell = ra.counters.collision_candidates / static_cast<std::uint64_t>(9 * ra.grid.gas_cells);
+  INFO("candidates per gas cell and step (mean) " << max_cand_per_cell);
+  CHECK(max_cand_per_cell > 300);  // > kCollideChunk = 256: several chunks per cell
+  CHECK(ra.counters.collisions > 100000);
+  CHECK(ra.counters.collisions == rb.counters.collisions);
+  CHECK(ra.counters.collision_candidates == rb.counters.collision_candidates);
+  CHECK(ra.counters.sigma_g_max_updates == rb.counters.sigma_g_max_updates);
+  CHECK(ra.estimates.C_D.value == rb.estimates.C_D.value);
+  CHECK(ra.estimates.heat_rate_W.value == rb.estimates.heat_rate_W.value);
+  a.compact();
+  b.compact();
+  const auto va = a.velocities(), vb = b.velocities();
+  const auto ea = a.rotational_energies(), eb = b.rotational_energies();
+  const auto wa = a.vibrational_energies(), wb = b.vibrational_energies();
+  REQUIRE(va.size() == vb.size());
+  std::size_t diff = 0;
+  for (std::size_t i = 0; i < va.size(); ++i)
+    if (!(va[i].x == vb[i].x && va[i].y == vb[i].y && va[i].z == vb[i].z && ea[i] == eb[i] && wa[i] == wb[i])) ++diff;
+  CHECK(diff == 0);
+}
+
 TEST_CASE("Resolution diagnostics and automatic parameters", "[dsmc]") {
   const std::string body =
       "simulation: {name: res, mode: dsmc, random_seed: 1}\n"
