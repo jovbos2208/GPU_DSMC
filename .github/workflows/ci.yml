@@ -64,8 +64,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y clang-tidy-18 ninja-build cmake g++-14
-      - run: CXX=g++-14 CC=gcc-14 cmake --preset cpu-release -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - run: cmake --build --preset cpu-release -j 4 --target vleo_git_info
+      # Serial-only configuration: clang-tidy cannot use GCC's OpenMP header
+      - run: CXX=g++-14 CC=gcc-14 cmake --preset cpu-debug -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: cmake --build --preset cpu-debug -j 4 --target vleo_git_info
       - name: clang-tidy on project sources
         run: |
-          git ls-files 'src/*.cpp' | xargs -P 4 -n 1 clang-tidy-18 -p build/cpu-release --quiet
+          git ls-files 'src/*.cpp' | xargs -P 4 -n 1 clang-tidy-18 -p build/cpu-debug --quiet
