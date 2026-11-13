@@ -77,6 +77,7 @@ CPU builds, the GPU on CUDA/HIP builds).
 | 2026-11-12 | `cpu-release` | GCC 15.2.0, CMake 4.2.3, OpenMP, 12 threads | M0: 20/20, M1: 27/27, M2: 37/37 tests pass |
 | – | `cuda` | not yet available | **open** – requires a machine with CUDA ≥ 12.2 |
 | 2026-11-12 | `hip-gfx1100` | hipcc (HIP 7.1.52801, Clang 21.1.8), CMake 4.2.3, Radeon 740M iGPU (gfx1103 run as gfx1100 via `HSA_OVERRIDE_GFX_VERSION=11.0.0`) | build without warnings, M0: 20/20, M1: 27/27, M2: 37/37 tests pass; RNG self-test checksum bitwise identical to the CPU builds |
+| 2026-11-13 | `hip-gfx1101` | HIP 6.3.1 (AMD clang 18, Spack modules `llvm-amdgpu/6.3.1`, `hip`, `cmake/3.31.5`), 2× Radeon PRO W7700 (gfx1101), openSUSE 15 server | M3: 48/48 tests pass (52 s); DSMC convergence studies run there |
 | – | `hip` (GFX942) | not yet available | **open** – compiles the same sources for MI300X; requires that hardware to run |
 
 ### Cross-backend comparison (Gate M2)
