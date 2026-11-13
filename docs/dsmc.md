@@ -165,8 +165,59 @@ regime.
 
 ### Cell size, time step, particles per cell (M3.17)
 
-**Open.** The separate convergence studies at n∞ = 1e19 (Δx ∈ {0.2, 0.1,
-0.05, 0.025} m, Δt ∈ {8, 4, 2, 1} µs, 5 … 135 particles per cell) are defined
-in `scripts/dsmc_studies.py` but were stopped before completion; run
-`scripts/dsmc_studies.py <solver> <dir> cells timestep particles` (best on a
-GPU server) and record the tables here.
+Run on the `hip-gfx1101` build (2× Radeon PRO W7700, HIP 6.3.1), 2026-11-13;
+same cube case at n∞ = 1e19 (λ∞ = 0.50 m, τ∞ = 2.3e-4 s, Kn ≈ 1 based on the
+cube edge). Each parameter is varied with the other two fixed; ΔC_D is relative
+to the most refined case of the study.
+
+**Cell size** (Δt = 2 µs, 30 particles per cell target):
+
+| Δx | Δx / λ∞ | C_D | Q̇ [W] | ΔC_D | particles / gas cell | collisions / particle / step |
+| -- | ------- | --- | ----- | ---- | -------------------- | ---------------------------- |
+| 0.2 m | 0.40 | 3.0752 ± 0.0071 | 4888 ± 11 | +8.06 % | 53.3 | 0.0459 |
+| 0.1 m | 0.20 | 2.9471 ± 0.0020 | 4566 ± 3.9 | +3.56 % | 51.9 | 0.0516 |
+| 0.05 m | 0.10 | 2.8528 ± 0.0011 | 4393 ± 1.8 | +0.24 % | 59.2 | 0.0532 |
+| 0.025 m | 0.05 | 2.8458 ± 0.0004 | 4355 ± 0.61 | 0 | 58.7 | 0.0542 |
+
+**Time step** (Δx = 0.05 m, 30 particles per cell target):
+
+| Δt | Δt / τ∞ | C_D | Q̇ [W] | ΔC_D | collisions / particle / step |
+| -- | ------- | --- | ----- | ---- | ---------------------------- |
+| 8 µs | 0.035 | 2.8551 ± 0.0004 | 4396 ± 0.65 | +0.15 % | 0.213 |
+| 4 µs | 0.017 | 2.8537 ± 0.0008 | 4394 ± 1.1 | +0.10 % | 0.107 |
+| 2 µs | 0.0087 | 2.8528 ± 0.0011 | 4393 ± 1.8 | +0.07 % | 0.053 |
+| 1 µs | 0.0043 | 2.8508 ± 0.0016 | 4393 ± 2.5 | 0 | 0.027 |
+
+**Particles per cell** (Δx = 0.05 m, Δt = 2 µs; "target" refers to the
+free-stream density, the actual mean is about twice as high because of the
+dense, slow re-emitted gas near the body):
+
+| target | particles / gas cell | C_D | Q̇ [W] | ΔC_D |
+| ------ | -------------------- | --- | ----- | ---- |
+| 5 | 9.9 | 2.8524 ± 0.0023 | 4394 ± 3.7 | +0.02 % |
+| 15 | 29.6 | 2.8529 ± 0.0011 | 4394 ± 1.6 | +0.03 % |
+| 45 | 88.8 | 2.8532 ± 0.0008 | 4394 ± 1.3 | +0.05 % |
+| 135 | 266.2 | 2.8519 ± 0.0005 | 4392 ± 0.73 | 0 |
+
+**Conclusions**
+
+- **Cell size is the dominant numerical parameter.** C_D and Q̇ converge from
+  above; the error is +8 % at Δx = 0.4 λ∞ and +0.24 % at 0.1 λ∞. The reason is
+  the compressed gas in front of the body, where the local mean free path is
+  far below λ∞ (the run diagnostics report it). A cell size of λ∞/2 is
+  therefore **not** sufficient for blunt bodies at Kn ≈ 1; the automatic rule
+  min(λ∞/2, L_max/16) happened to give the converged 0.05 m here only through
+  the L_max/16 cap. Use the reported `fraction_cells_dx_gt_local_lambda` and a
+  cell-size study for production runs (see the open item below).
+- **Time step:** weak, monotonic dependence, ≤ 0.15 % up to Δt = 0.035 τ∞
+  (CFL ≈ 2 for the fastest particles at 8 µs). The automatic τ∞/10 rule is
+  limited by the cell-crossing criterion in such cases.
+- **Particles per cell:** no dependence above the statistical noise
+  (≤ 0.05 %) from 10 to 266 particles per gas cell; more particles only reduce
+  the statistical error.
+- Q̇ shows the same behaviour as C_D (cell size +11 % at 0.4 λ∞, otherwise
+  ≤ 0.1 %).
+
+**Open item (for M5):** make the automatic cell size depend on the local mean
+free path (adaptive refinement or a λ-based rule from a short pilot run)
+instead of λ∞.

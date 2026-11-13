@@ -827,7 +827,7 @@ Abnahme: Wissenschaftliche Referenztests bestehen auf NVIDIA und AMD; Performanc
 - [x] **M3.14** Binäre Kollisionen auf Impuls- und Energieerhaltung testen.
 - [x] **M3.15** Homogenes Gas und Kollisionsrate gegen Referenzfälle testen. → Kollisionsrate −0,34 % (1,9σ), Maxwell-Gleichgewicht, Relaxation
 - [x] **M3.16** Verdünnungsstudie DSMC gegen TPMC durchführen. → `docs/dsmc.md` §8
-- [-] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren. → Skript `scripts/dsmc_studies.py` vorhanden, Läufe vor Abschluss abgebrochen
+- [x] **M3.17** Zellgrößen-, Zeitschritt- und Partikelzahl-Konvergenz getrennt dokumentieren. → `docs/dsmc.md` §8 (gerechnet auf 2× W7700): Zellgröße dominiert (+8 % bei Δx = 0,4 λ∞, +0,24 % bei 0,1 λ∞), Δt ≤ 0,15 %, Partikelzahl im Rauschen; automatische Zellgrößenregel muss lokales λ berücksichtigen (offen für M5)
 
 **Gate M3 – Release v0.2-dsmc**
 
