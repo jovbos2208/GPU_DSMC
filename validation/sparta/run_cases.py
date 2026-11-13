@@ -225,7 +225,7 @@ def run(cmd, cwd, log):
 
 def version(cmd):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
+        return subprocess.run(cmd, stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
     except Exception as e:  # noqa: BLE001
         return f"unavailable ({e})"
 

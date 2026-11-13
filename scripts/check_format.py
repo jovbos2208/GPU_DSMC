@@ -21,7 +21,7 @@ MAX_CPP = 150
 
 
 def tracked():
-    out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(["git", "ls-files"], cwd=ROOT, stdout=subprocess.PIPE, universal_newlines=True, check=True).stdout
     for name in out.splitlines():
         p = pathlib.Path(name)
         if p.parts and p.parts[0] in ("third_party", "IMPLEMENTATION_PLAN.md"):

@@ -109,7 +109,7 @@ def run_cmd(args):
     cube_stl(tmp / "cube.stl")
     all_cases = cases(tmp)
     selected = args.cases or list(all_cases)
-    version = subprocess.run([args.solver, "--version"], capture_output=True, text=True).stdout
+    version = subprocess.run([args.solver, "--version"], stdout=subprocess.PIPE, universal_newlines=True).stdout
     out = {"label": args.label, "host": platform.node(), "solver_version": version, "cases": {}}
     for name in selected:
         desc, text = all_cases[name]
@@ -169,7 +169,7 @@ def compare_cmd(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")  # Python 3.6 compatible (no required=)
     r = sub.add_parser("run")
     r.add_argument("solver")
     r.add_argument("label")
@@ -180,6 +180,8 @@ def main():
     c.add_argument("before")
     c.add_argument("after")
     args = ap.parse_args()
+    if args.cmd is None:
+        ap.error("a command is required: run or compare")
     return run_cmd(args) if args.cmd == "run" else compare_cmd(args)
 
 
