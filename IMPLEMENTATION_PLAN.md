@@ -881,7 +881,7 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 - [!] CPU-, CUDA- und HIP-Regressionstests bestehen auf dokumentierten Plattformen. → CPU und HIP bestanden (`docs/building.md`); CUDA offen (keine NVIDIA-Hardware)
 - [x] Validierungsberichte und Konvergenzstudien sind versioniert und reproduzierbar. → `validation/sparta/` (Skript + Archiv), `scripts/dsmc_studies.py`, Ergebnisse in `docs/dsmc.md` §8, feste Seeds
 - [x] Keine offene Abweichung betrifft unterstützte Physik oder eine Hauptausgabe. → offen ist nur CUDA (Backend, keine Physik); Zellgrößen-Punkt aus M3.17 erledigt (`docs/dsmc.md` §3.1)
-- [ ] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar. → Checkliste in `docs/development.md` §5; Prüfung aus sauberem Checkout erfolgt beim Tag v1.0
+- [x] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar. → frischer Klon von `2777184`: `cpu-release` 52/52 inkl. bitweiser Beispielprüfung (2026-11-13); Checkliste `docs/development.md` §5 (beim Tag v1.0 inkl. GPU wiederholen)
 
 ## 12. Physikalische Validierungsstrategie
 
