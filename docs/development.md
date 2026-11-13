@@ -58,8 +58,8 @@ toolchain:
    e.g. for the W7700 server:
 
    ```bash
-   module use /software/stack/gpu/amd/modules   # site specific
-   module load rocm/6.3.1
+   module use /software/stack/gpu/amd/2025_07/share/spack/lmod/linux-opensuse15-x86_64/Core
+   module load llvm-amdgpu/6.3.1 hip rocminfo cmake/3.31.5
    ```
 
 3. Set the repository variable `VLEO_HIP_PRESET` (*Settings → Secrets and
