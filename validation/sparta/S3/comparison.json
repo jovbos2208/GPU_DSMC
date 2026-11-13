@@ -1,0 +1,74 @@
+{
+  "case": "S3",
+  "description": "transitional cube (Kn ~ 1), Ar, VHS, Maxwell diffuse",
+  "date": "2026-11-13",
+  "quick": false,
+  "numerics": {
+    "cells": 13,
+    "dx": 0.06153846153846154,
+    "dt": 1.6374746393007024e-06,
+    "fnum": 34956759217114.25,
+    "ppc": 20,
+    "block": 500,
+    "warmup": 4000,
+    "sample": 20000,
+    "blocks": 40
+  },
+  "acceptance": "|diff| <= 3 sigma_comb + 2.0%",
+  "versions": {
+    "vleo_solver": "vleo_solver 0.1.0\n  git commit       : 81356dfa028d4983c65400ae89bb91c80b75d81b (dirty)\n  git describe     : 81356df-dirty\n  build type       : Release\n  compiler         : GNU 15.2.0 (gcc 15.2.0)\n  C++ standard     : 202002\n  Kokkos version   : 5.2.2\n  backend          : cpu\n  execution space  : OpenMP (host: OpenMP)\n  Kokkos backends  : Serial, OpenMP\n  Kokkos arch      : none",
+    "sparta": "SPARTA 27Aug2026 (git 95b9abaa8bd548991cc3c3f1c58b34722f7ade74), spa_serial"
+  },
+  "sparta_blocks": 40,
+  "rows": [
+    {
+      "quantity": "F_x",
+      "vleo": -3.570390301954858,
+      "vleo_se": 0.0011024341501884164,
+      "sparta": -3.5665566650000002,
+      "sparta_se": 0.0007000831831761343,
+      "diff": -0.003833636954857944,
+      "rel": 0.0010748846338203193,
+      "z": -2.935539870341284,
+      "limit": 0.07532562401212872,
+      "passed": true
+    },
+    {
+      "quantity": "F_y",
+      "vleo": 0.22737812238704377,
+      "vleo_se": 0.00030930846154156614,
+      "sparta": 0.22711416975,
+      "sparta_se": 0.00026600605479938676,
+      "diff": 0.0002639526370437628,
+      "rel": 0.0011622024171116818,
+      "z": 0.6470069784927113,
+      "limit": 0.005771440918072102,
+      "passed": true
+    },
+    {
+      "quantity": "F_z",
+      "vleo": -0.3641422127505853,
+      "vleo_se": 0.0002278272901687327,
+      "sparta": -0.3637637675,
+      "sparta_se": 0.00023512609201609857,
+      "diff": -0.0003784452505852798,
+      "rel": 0.0010403599379514338,
+      "z": -1.1559174733977895,
+      "limit": 0.008265038726402945,
+      "passed": true
+    },
+    {
+      "quantity": "Q",
+      "vleo": 12290.108903706667,
+      "vleo_se": 3.756353465603666,
+      "sparta": 12281.321249999999,
+      "sparta_se": 2.709733734139924,
+      "diff": 8.787653706667697,
+      "rel": 0.0007155299928879963,
+      "z": 1.89727574151318,
+      "limit": 259.69734393915263,
+      "passed": true
+    }
+  ],
+  "passed": true
+}

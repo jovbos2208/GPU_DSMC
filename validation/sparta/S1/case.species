@@ -1,0 +1,3 @@
+# species data written by run_cases.py from this solver's database
+# ID molwt mass rotdof rotrel vibdof vibrel vibtemp specwt charge
+O 15.999 2.656696456365108e-26 0 0.0 0 0.0 0.0 1.0 0.0

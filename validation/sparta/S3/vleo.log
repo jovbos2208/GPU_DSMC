@@ -1,0 +1,3 @@
+warning: dsmc: cell size exceeds the local mean free path in 8.30636 % of the gas cells (min local lambda 0.0123602 m)
+warning: dsmc: more than 10 % of the gas cells hold fewer than 5 particles
+vleo_solver: backend cpu (OpenMP), 24000 steps in 131.285696 s, wrote /run/media/jovan/SSD_Jovan/DSMC_GPU/validation/sparta/S3/vleo_out

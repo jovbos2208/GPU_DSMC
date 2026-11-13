@@ -43,7 +43,26 @@ DSMC at Kn ≈ 1, where each code uses its own converged cell size and time
 step (Δx ≤ λ∞/10, Δt ≤ τ∞/10). A case fails if any of the four quantities
 violates its limit; failures are reported, not tuned away.
 
-## Status
+## Results (M4.12, M4.14)
 
-The cases are defined; running them requires a SPARTA build (`make serial`
-in SPARTA's `src/`), see `validation/sparta/README.md`.
+Run 2026-11-13 with `validation/sparta/run_cases.py` (cpu-release, SPARTA
+27Aug2026 `spa_serial`); inputs, logs, results and per-case reports are
+archived in `validation/sparta/S1` … `S4`. All four cases **pass**:
+
+| Case | F_x | F_y | F_z | Q̇ | Result |
+| ---- | --- | --- | --- | -- | ------ |
+| S1 free-molecular, O, Maxwell diffuse | +0.01 % (−0.2 σ) | +0.12 % (1.5 σ) | −0.03 % (0.5 σ) | −0.00 % | pass |
+| S2 free-molecular, O, CLL (acc_t = 0.8775) | +0.01 % | +0.12 % (1.3 σ) | −0.02 % | −0.00 % | pass |
+| S3 transitional, Ar, VHS | +0.11 % (−2.9 σ) | +0.12 % | +0.10 % | +0.07 % (1.9 σ) | pass |
+| S4 transitional, N2 + rotation | +0.14 % (−4.2 σ) | −0.21 % | +0.27 % (−2.5 σ) | +0.09 % (2.6 σ) | pass |
+
+(Differences vleo_solver − SPARTA relative to SPARTA; σ = combined standard error.)
+
+Interpretation: in the free-molecular cases both codes agree within their
+statistics (≤ 0.12 %). In the DSMC cases the differences are 0.1–0.3 %,
+i.e. well inside the 2 % / 3 % allowance but statistically resolved
+(up to 4 σ): the two codes differ in implementation details (initial
+(σg)_max and its updates, cell-based vs. trajectory-based handling of the
+moving particles, Larsen-Borgnakke variant for rotation), which produce
+systematic differences of this size at Kn ≈ 1. They are an order of magnitude
+below the discretisation error found in the cell-size study (dsmc.md §8).

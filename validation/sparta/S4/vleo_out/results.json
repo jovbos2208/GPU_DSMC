@@ -1,0 +1,166 @@
+{
+  "schema": "vleo-results/1",
+  "simulation": {
+    "name": "S4",
+    "mode": "dsmc",
+    "backend": "cpu",
+    "gsi_model": "maxwell",
+    "random_seed": 2026
+  },
+  "reference": {
+    "area_m2": 0.25,
+    "length_m": 0.5,
+    "moment_center_m": [0.0, 0.0, 0.0],
+    "dynamic_pressure_Pa": 3.9870870479700886,
+    "mass_density_kg_m3": 1.3955502443017462e-07,
+    "freestream_speed_mps": 7559.100475585703,
+    "drag_axis_e_D": [-0.9921815464979484, 0.06614543643319656, -0.1058326982931145],
+    "lift_axis_e_L": [-0.10559829557278612, 0.0070398863715190755, 0.9943839499770692],
+    "side_axis_e_Y": [-0.06651901052377393, -0.9977851578566089, 0.0]
+  },
+  "results": {
+    "force_N": [-2.5431940671222626, 0.15645675436176537, -0.2513179613946065],
+    "moment_Nm": [-5.99365251446249e-05, 0.005648823321896588, 0.0038276890065640913],
+    "C_D": 2.5685486672776054,
+    "C_L": 0.019815819601929355,
+    "C_Y": 0.013102824602704694,
+    "C_M": [-0.000120261282331701, 0.011334236256060724, 0.0076801714344568416],
+    "heat_rate_W": 8601.927814193263,
+    "heat_rate_positive_W": 8606.233730670276,
+    "heat_rate_negative_W": -4.305916477037558,
+    "drag_force_N": 2.5602567808458434,
+    "lift_force_N": 0.019751849419941084,
+    "side_force_N": 0.013060525566316929
+  },
+  "std_error": {
+    "force_N": [0.0006753010608612822, 0.00023520241691277725, 0.0001996226893754621],
+    "moment_Nm": [4.9789390238922564e-05, 0.00013662248775730615, 0.00016393365350484128],
+    "C_D": 0.0006735133488259576,
+    "C_L": 0.0002150808926635546,
+    "C_Y": 0.0002343011298251657,
+    "C_M": [9.990128560503118e-05, 0.00027412993218066525, 0.0003289291686536985],
+    "heat_rate_W": 2.1543216416425497,
+    "heat_rate_positive_W": 2.155068751854567,
+    "heat_rate_negative_W": 0.006179537861676074,
+    "drag_force_N": 0.000671339087434734,
+    "lift_force_N": 0.00021438656035117586,
+    "side_force_N": 0.0002335447500126691
+  },
+  "confidence_interval": {
+    "low": {
+      "force_N": [-2.5445176328802726, 0.15599576609553956, -0.25170921467627944],
+      "moment_Nm": [-0.00015752193682512324, 0.0053810481664140035, 0.003506384949840534],
+      "C_D": 2.5672286053707998,
+      "C_L": 0.019394268798546062,
+      "C_Y": 0.012643602826710326,
+      "C_M": [-0.0003160642041268118, 0.010796951461902213, 0.007035482110430891],
+      "heat_rate_W": 8597.705421364528,
+      "heat_rate_positive_W": 8602.009873532434,
+      "heat_rate_negative_W": -4.318028148687545,
+      "drag_force_N": 2.558940980413057,
+      "lift_force_N": 0.019331659482883356,
+      "side_force_N": 0.012602786267513688
+    },
+    "high": {
+      "force_N": [-2.5418705013642526, 0.15691774262799119, -0.25092670811293355],
+      "moment_Nm": [3.7648886535873435e-05, 0.005916598477379173, 0.004148993063287649],
+      "C_D": 2.569868729184411,
+      "C_L": 0.02023737040531265,
+      "C_Y": 0.013562046378699063,
+      "C_M": [7.554163946340982e-05, 0.011871521050219234, 0.008324860758482792],
+      "heat_rate_W": 8606.150207021998,
+      "heat_rate_positive_W": 8610.457587808118,
+      "heat_rate_negative_W": -4.293804805387571,
+      "drag_force_N": 2.5615725812786296,
+      "lift_force_N": 0.02017203935699881,
+      "side_force_N": 0.01351826486512017
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "critical_value": 1.9599639845400538,
+    "method": "block averaging over the sampling phase: std_error = sd(block means) / sqrt(blocks)",
+    "warmup_steps": 4000,
+    "sample_steps": 20000,
+    "blocks": 40,
+    "block_length_steps": 500,
+    "tau_int_steps_drag": 0.5,
+    "tau_int_steps_heat": 0.5,
+    "std_error_naive_C_D": 0.0008519797953083679,
+    "blocks_long_enough": true,
+    "converged": false
+  },
+  "diagnostics": {
+    "timestep_s": 1.5776115527044361e-06,
+    "timestep_automatic": false,
+    "cell_size_m": [0.06153846153846154, 0.06153846153846154, 0.06153846153846154],
+    "cell_size_automatic": false,
+    "particle_weight": 34956759217114.25,
+    "mean_free_path_inf_m": 0.5744879606835197,
+    "collision_time_inf_s": 0.000696562499370229,
+    "cell_over_lambda_inf": 0.10711880100192828,
+    "dt_over_tau_inf": 0.0022648528367960876,
+    "max_cfl": 0.3106663638099486,
+    "min_local_mean_free_path_m": 0.01178430902790655,
+    "fraction_cells_dx_gt_local_lambda": 0.07928802588996764,
+    "mean_particles_per_gas_cell": 54.036690695792934,
+    "fraction_cells_below_5_particles": 0.10194174757281553,
+    "particles_mean": 100184.02455,
+    "particles_min": 99559.0,
+    "particles_max": 100801.0,
+    "grid": {
+      "cells": 2197,
+      "gas_cells": 1854,
+      "solid_cells": 343,
+      "cut_cells": 386,
+      "small_cut_cells": 0,
+      "min_positive_gas_fraction": 0.4375,
+      "gas_volume_m3": 0.38700000000000695,
+      "domain_volume_m3": 0.512
+    },
+    "collisions": {
+      "candidates": 124319699,
+      "accepted": 46478477,
+      "rejected": 77841222,
+      "sigma_g_max_updates": 14515,
+      "acceptance_ratio_sampling": 0.3719519519307556,
+      "collisions_per_particle_per_step": 0.038923723792447705,
+      "free_stream_collisions_per_particle_per_step": 0.0022648528367960876
+    },
+    "steps": 24000,
+    "injected": 18547474,
+    "exited": 18480236,
+    "truncated": 0,
+    "lost_inside_body": 0,
+    "invalid": 0,
+    "removed_inside_at_fill": 10795,
+    "surface_interactions": 15895312,
+    "particle_balance_ok": true,
+    "species": [
+      {
+        "name": "N2",
+        "mean_particles": 100956.819,
+        "injected": 18547474,
+        "force_N": [-2.5431940671222626, 0.15645675436176537, -0.2513179613946065],
+        "heat_rate_W": 8601.927814193263,
+        "collisions_with": {
+          "N2": 46478477
+        }
+      }
+    ],
+    "wall_time_s": 114.676560337
+  },
+  "provenance": {
+    "solver_version": "0.1.0",
+    "git_commit": "81356dfa028d4983c65400ae89bb91c80b75d81b",
+    "git_dirty": true,
+    "build_type": "Release",
+    "kokkos_version": "5.2.2",
+    "execution_space": "OpenMP",
+    "timestamp_utc": "2026-11-13T10:01:48Z"
+  },
+  "warnings": [
+    "cell size exceeds the local mean free path in 7.9288 % of the gas cells (min local lambda 0.0117843 m)",
+    "more than 10 % of the gas cells hold fewer than 5 particles"
+  ]
+}

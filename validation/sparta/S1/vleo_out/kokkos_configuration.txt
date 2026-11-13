@@ -1,0 +1,32 @@
+  Kokkos Version: 5.2.2
+Compiler:
+  KOKKOS_COMPILER_GNU: 1520
+Architecture:
+  CPU architecture: none
+  Default Device: OpenMP
+  GPU architecture: none
+  platform: 64bit
+Atomics:
+  desul atomics version: 83d26f34db50b4fefe30ed4db38b10e04c7a9384
+View:
+  mdspan: enabled
+  mdspan version: 5d4eb209c77f4744980c0b0c2af44636cc81b08b
+Vectorization:
+  KOKKOS_ENABLE_PRAGMA_IVDEP: no
+  KOKKOS_ENABLE_PRAGMA_LOOPCOUNT: no
+  KOKKOS_ENABLE_PRAGMA_UNROLL: no
+  KOKKOS_ENABLE_PRAGMA_VECTOR: no
+Memory:
+Options:
+  KOKKOS_ENABLE_ASM: yes
+  KOKKOS_ENABLE_CXX20: yes
+  KOKKOS_ENABLE_CXX23: no
+  KOKKOS_ENABLE_CXX26: no
+  KOKKOS_ENABLE_DEBUG_BOUNDS_CHECK: no
+  KOKKOS_ENABLE_HWLOC: no
+  KOKKOS_ENABLE_LIBDL: yes
+Host Parallel Execution Space:
+  KOKKOS_ENABLE_OPENMP: yes
+
+OpenMP Runtime Configuration:
+Kokkos::OpenMP thread_pool_topology[ 1 x 12 x 1 ]

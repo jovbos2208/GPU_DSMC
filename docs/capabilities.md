@@ -13,7 +13,7 @@ Status of every supported combination and the test that validates it.
 | Molecules N2, O2: rotation | ✔ | ✔ | `test_internal` (equipartition, relaxation rate, wall accommodation, heat balance) |
 | Molecules N2, O2: vibration (SHO, quantised) | ✔ | ✔ | `test_internal` (equilibrium levels, relaxation) |
 | VHS collisions | – | ✔ | `test_vhs`, `test_dsmc` (collision rate, relaxation) |
-| VSS collisions | – | ✔ | `test_internal` (deflection distribution); transport properties pending (SPARTA, M4.10) |
+| VSS collisions | – | ✔ | `test_internal` (deflection distribution); not part of the SPARTA cases (VHS used there) |
 | Chemistry, ionisation, radiation | – | – | not in scope |
 
 ## Gas-surface interaction
@@ -45,4 +45,6 @@ Status of every supported combination and the test that validates it.
 
 ## Comparison with SPARTA
 
-◐ Pending (M4.10–M4.14): reference cases and automated comparison.
+✔ Cases S1–S4 (free-molecular Maxwell and CLL, transitional Ar and N2 with
+rotation) pass the pre-defined limits; differences ≤ 0.12 % (FM) and
+≤ 0.27 % (DSMC), see [sparta.md](sparta.md).

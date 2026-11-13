@@ -849,17 +849,17 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 - [x] **M4.7** N2 und O2 erst nach bestandenen Rotationstests freischalten.
 - [x] **M4.8** Wärmebilanz um innere Energie erweitern. → TPMC und DSMC; Wand: Maxwell, CLL mit alpha_rot/alpha_vib; N2-Platte analytisch
 - [x] **M4.9** Vibrationsmodell und VSS als getrennte Erweiterungen validieren. → quantisiertes LB; VSS-Streuwinkel (KS)
-- [ ] **M4.10** Maxwell-, CLL- und DSMC-Referenzfälle in SPARTA definieren.
-- [ ] **M4.11** sigma-t-/alpha-t-Übersetzung dokumentieren.
-- [ ] **M4.12** Ergebnisse automatisiert gegen SPARTA vergleichen.
-- [ ] **M4.13** Akzeptanzgrenzen vor der Auswertung festlegen.
-- [ ] **M4.14** Eingaben, Versionen und Berichte unter validation archivieren.
+- [x] **M4.10** Maxwell-, CLL- und DSMC-Referenzfälle in SPARTA definieren. → S1–S4, `docs/sparta.md`
+- [x] **M4.11** sigma-t-/alpha-t-Übersetzung dokumentieren. → aus SPARTA-Quellcode abgeleitet: `acc_t = σ_t(2−σ_t)`
+- [x] **M4.12** Ergebnisse automatisiert gegen SPARTA vergleichen. → `validation/sparta/run_cases.py`
+- [x] **M4.13** Akzeptanzgrenzen vor der Auswertung festlegen. → 3σ + 0,5 % (FM) / 2 % / 3 % (DSMC)
+- [x] **M4.14** Eingaben, Versionen und Berichte unter validation archivieren. → `validation/sparta/S1…S4`
 
 **Gate M4**
 
 - [x] Gemischkollisionen erhalten Gesamtimpuls und Gesamtenergie.
 - [x] Die Wärmebilanz schließt alle aktivierten Freiheitsgrade ein.
-- [ ] SPARTA-Fälle bestehen innerhalb der definierten Toleranzen.
+- [x] SPARTA-Fälle bestehen innerhalb der definierten Toleranzen. → alle 4; Abweichungen ≤ 0,12 % (FM), ≤ 0,27 % (DSMC)
 - [x] Unterstützte Kombinationen sind in einer Capability-Matrix dokumentiert. → `docs/capabilities.md`
 
 #### M5 – Performance, Automatisierung und Release

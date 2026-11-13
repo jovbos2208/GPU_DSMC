@@ -1,0 +1,238 @@
+{
+  "schema": "vleo-run-metadata/1",
+  "status": "completed",
+  "simulation": {
+    "name": "S4",
+    "mode": "dsmc",
+    "backend": "cpu",
+    "gsi_model": "maxwell",
+    "random_seed": 2026
+  },
+  "build": {
+    "solver_version": "0.1.0",
+    "git": {
+      "available": true,
+      "commit": "81356dfa028d4983c65400ae89bb91c80b75d81b",
+      "describe": "81356df-dirty",
+      "dirty": true
+    },
+    "build_type": "Release",
+    "compiler": {
+      "id": "GNU",
+      "version": "15.2.0",
+      "detail": "gcc 15.2.0",
+      "path": "/usr/bin/c++",
+      "flags": "-O3 -DNDEBUG",
+      "cxx_standard": 202002
+    },
+    "kokkos": {
+      "version": "5.2.2",
+      "enabled_backends": [
+        "Serial",
+        "OpenMP"
+      ],
+      "default_execution_space": "OpenMP",
+      "default_host_execution_space": "OpenMP",
+      "arch": "none"
+    },
+    "backend": "cpu",
+    "cmake_version": "4.2.3",
+    "system": "Linux x86_64"
+  },
+  "runtime": {
+    "timestamp_utc": "2026-11-13T10:01:48Z",
+    "command_line": [
+      "/run/media/jovan/SSD_Jovan/DSMC_GPU/build/cpu-release/vleo_solver",
+      "-q",
+      "-c",
+      "vleo.yaml",
+      "-o",
+      "vleo_out"
+    ],
+    "working_directory": "/run/media/jovan/SSD_Jovan/DSMC_GPU/validation/sparta/S4",
+    "execution_space": "OpenMP",
+    "concurrency": 12,
+    "device_id": -1
+  },
+  "platform": null,
+  "input": {
+    "config_file": "/run/media/jovan/SSD_Jovan/DSMC_GPU/validation/sparta/S4/vleo.yaml"
+  },
+  "resolved_config": {
+    "simulation": {
+      "name": "S4",
+      "mode": "dsmc",
+      "random_seed": 2026
+    },
+    "geometry": {
+      "file": "/run/media/jovan/SSD_Jovan/DSMC_GPU/validation/sparta/S4/cube.stl",
+      "units": "m",
+      "require_closed": true
+    },
+    "domain": {
+      "box_min_m": [-0.4, -0.4, -0.4],
+      "box_max_m": [0.4, 0.4, 0.4]
+    },
+    "reference": {
+      "area_m2": 0.25,
+      "length_m": 0.5,
+      "moment_center_m": [0.0, 0.0, 0.0],
+      "lift_axis_body": [0.0, 0.0, 1.0]
+    },
+    "gas": {
+      "number_density_m3": 3e+18,
+      "translational_temperature_K": 900.0,
+      "bulk_velocity_body_mps": [-7500.0, 500.0, -800.0],
+      "species": {
+        "N2": 1.0
+      }
+    },
+    "surface": {
+      "model": "maxwell",
+      "temperature_K": 300.0,
+      "maxwell": {
+        "diffuse_fraction": 1.0
+      }
+    },
+    "tpmc": {
+      "particle_histories": 20000000,
+      "max_reflections": 100,
+      "batch_size": 1048576
+    },
+    "dsmc": {
+      "collision_model": "VHS",
+      "timestep_mode": "fixed",
+      "timestep_s": 1.5776115527044361e-06,
+      "cell_size_mode": "fixed",
+      "cell_size_m": 0.06153846153846154,
+      "particles_per_cell_target": 20,
+      "warmup_steps": 4000,
+      "sample_steps": 20000,
+      "blocks": 40
+    },
+    "statistics": {
+      "confidence_level": 0.95,
+      "report_uncertainty": true
+    },
+    "output": {
+      "directory": "results/",
+      "format": "json",
+      "save_surface_fields": false
+    }
+  },
+  "derived": {
+    "mole_fraction_sum": 1.0,
+    "mean_molecular_mass_kg": 4.6518341476724875e-26,
+    "mass_density_kg_m3": 1.3955502443017462e-07,
+    "freestream_speed_mps": 7559.100475585703,
+    "dynamic_pressure_Pa": 3.9870870479700886,
+    "geometry_scale_to_m": 1.0,
+    "aero_axes_body": {
+      "drag_e_D": [-0.9921815464979484, 0.06614543643319656, -0.1058326982931145],
+      "side_e_Y": [-0.06651901052377393, -0.9977851578566089, 0.0],
+      "lift_e_L": [-0.10559829557278612, 0.0070398863715190755, 0.9943839499770692]
+    },
+    "lift_axis_was_projected": true,
+    "species": [
+      {
+        "name": "N2",
+        "mole_fraction": 1.0,
+        "normalised_mole_fraction": 1.0,
+        "mass_kg": 4.6518341476724875e-26
+      }
+    ]
+  },
+  "geometry": {
+    "file": "/run/media/jovan/SSD_Jovan/DSMC_GPU/validation/sparta/S4/cube.stl",
+    "input_triangles": 12,
+    "degenerate_removed": 0,
+    "triangles": 12,
+    "vertices": 8,
+    "edges": 18,
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "inconsistent_edges": 0,
+    "stored_normal_disagreements": 0,
+    "closed": true,
+    "total_area_m2": 1.5,
+    "bbox_min_m": [-0.25, -0.25, -0.25],
+    "bbox_max_m": [0.25, 0.25, 0.25],
+    "surface_offset_m": 5e-10,
+    "materials": [
+      "cube"
+    ],
+    "components": [
+      {
+        "triangles": 12,
+        "closed": true,
+        "flipped": false,
+        "area_m2": 1.5,
+        "volume_m3": 0.125
+      }
+    ],
+    "bvh": {
+      "nodes": 9,
+      "leaves": 5,
+      "max_depth": 4,
+      "max_leaf_triangles": 4,
+      "sah_cost": 10.666666666666664
+    },
+    "warnings": []
+  },
+  "inflow": {
+    "domain_min_m": [-0.4, -0.4, -0.4],
+    "domain_max_m": [0.4, 0.4, 0.4],
+    "total_rate_per_s": 1.712396645240629e+22,
+    "tpmc_event_rate_factor_per_s": 856198322620314.5,
+    "channels": [
+      {
+        "face": "-x",
+        "species": "N2",
+        "speed_ratio": -10.26113687309725,
+        "rate_per_s": 3.4736331619785883e-28
+      },
+      {
+        "face": "+x",
+        "species": "N2",
+        "speed_ratio": 10.26113687309725,
+        "rate_per_s": 1.4400000000000002e+22
+      },
+      {
+        "face": "-y",
+        "species": "N2",
+        "speed_ratio": 0.6840757915398167,
+        "rate_per_s": 1047932238972408430592.0
+      },
+      {
+        "face": "+y",
+        "species": "N2",
+        "speed_ratio": -0.6840757915398167,
+        "rate_per_s": 87932238972408168448.0
+      },
+      {
+        "face": "-z",
+        "species": "N2",
+        "speed_ratio": -1.0945212664637067,
+        "rate_per_s": 26050987230736035840.0
+      },
+      {
+        "face": "+z",
+        "species": "N2",
+        "speed_ratio": 1.0945212664637067,
+        "rate_per_s": 1562050987230736416768.0
+      }
+    ]
+  },
+  "output_files": [
+    "run_metadata.json",
+    "resolved_config.yaml",
+    "input_config.yaml",
+    "kokkos_configuration.txt",
+    "results.json"
+  ],
+  "notes": [
+    "backend self-test on OpenMP: 4096x16 Philox words, host checksum 141149291671522, device checksum 141149291671522 (passed)",
+    "dsmc: cell size exceeds the local mean free path in 7.9288 % of the gas cells (min local lambda 0.0117843 m)",
+    "dsmc: more than 10 % of the gas cells hold fewer than 5 particles"
+  ]
+}
