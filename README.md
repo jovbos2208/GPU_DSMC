@@ -11,8 +11,10 @@ The roadmap and checklist are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md
 gas-surface interaction: forces, moments, C_D, C_L, C_Y, C_M and heat transfer
 with standard errors and confidence intervals, JSON/CSV output and
 per-triangle surface fields. Verified against analytic free-molecular theory,
-equilibrium collision theory and TPMC. DSMC currently supports one monatomic
-species (He, Ar); mixtures and internal energy follow in M4.
+equilibrium collision theory and TPMC. Since M4: gas mixtures (O, N, He, Ar,
+N2, O2), rotational and vibrational energy (Larsen-Borgnakke) in collisions,
+at the wall and in the heat balance, VHS and VSS collisions. Supported
+combinations: [docs/capabilities.md](docs/capabilities.md).
 
 ## Quick start (CPU)
 
@@ -36,7 +38,9 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/conventions.md](docs/conventions.md) | SI units, axes, normals, sign conventions, RNG |
 | [docs/geometry.md](docs/geometry.md) | STL import, mesh checks, epsilon strategy, BVH, inflow, transport |
 | [docs/tpmc.md](docs/tpmc.md) | Maxwell/CLL kernels, event weight, tallies, statistics, output, physics verification |
-| [docs/dsmc.md](docs/dsmc.md) | DSMC time loop, grid and cut cells, NTC/VHS, block averaging, diagnostics, convergence studies |
+| [docs/dsmc.md](docs/dsmc.md) | DSMC time loop, grid and cut cells, NTC/VHS, block averaging, diagnostics, convergence studies, mixtures and internal energy |
+| [docs/species.md](docs/species.md) | species data with sources |
+| [docs/capabilities.md](docs/capabilities.md) | capability matrix: supported combinations and their validation |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
 
 ## Layout

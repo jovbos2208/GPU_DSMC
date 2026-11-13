@@ -27,7 +27,8 @@ constexpr std::array<EnumEntry<SolverMode>, 2> kModes{{{"tpmc", SolverMode::TPMC
 constexpr std::array<EnumEntry<LengthUnit>, 3> kUnits{
     {{"m", LengthUnit::Metre}, {"cm", LengthUnit::Centimetre}, {"mm", LengthUnit::Millimetre}}};
 constexpr std::array<EnumEntry<GSIModel>, 2> kGsi{{{"maxwell", GSIModel::Maxwell}, {"cll", GSIModel::CLL}}};
-constexpr std::array<EnumEntry<CollisionModel>, 1> kCollision{{{"VHS", CollisionModel::VHS}}};
+constexpr std::array<EnumEntry<CollisionModel>, 2> kCollision{
+    {{"VHS", CollisionModel::VHS}, {"VSS", CollisionModel::VSS}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
     {{"automatic", ParameterMode::Automatic}, {"fixed", ParameterMode::Fixed}}};
 constexpr std::array<EnumEntry<ConvergenceQuantity>, 7> kConvQuantities{{{"C_D", ConvergenceQuantity::CD},
@@ -171,7 +172,7 @@ void parse_species(const YAML::Node& n, const std::string& p, std::vector<Specie
       ok = false;
       continue;
     }
-    list.push_back({name, *x, info->mass_kg, info->vhs});
+    list.push_back({name, *x, info->mass_kg, info->vhs, info->modes});
   }
   if (!ok) return;
 
@@ -219,10 +220,12 @@ void parse_surface_block(const YAML::Node& n, const std::string& p, SurfaceSecti
 
   if (auto c = child(n, "cll", p, is, Need::Optional)) {
     const std::string cp = p + ".cll";
-    if (check_map(*c, cp, {"alpha_n", "sigma_t"}, is)) {
+    if (check_map(*c, cp, {"alpha_n", "sigma_t", "alpha_rot", "alpha_vib"}, is)) {
       const auto an = get_double_in(*c, "alpha_n", cp, is, Need::Required, kUnitInterval);
       const auto st = get_double_in(*c, "sigma_t", cp, is, Need::Required, Range{0.0, 2.0});
-      if (an && st) out.cll = CLLParameters{*an, *st};
+      const auto ar = get_double_in(*c, "alpha_rot", cp, is, Need::Optional, kUnitInterval);
+      const auto av = get_double_in(*c, "alpha_vib", cp, is, Need::Optional, kUnitInterval);
+      if (an && st) out.cll = CLLParameters{*an, *st, ar.value_or(*an), av.value_or(*an)};
     }
   } else if (model == GSIModel::CLL) {
     is.add(p + ".cll", "required when model is 'cll'", &n);
@@ -330,9 +333,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles"},
                  is))
     return;
-  if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision,
-                        {{"VSS", "planned after VHS (see implementation plan M3/M4)"}}))
-    out.collision_model = *v;
+  if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
   parse_mode_value(n, p, "timestep_mode", "timestep_s", out.timestep_mode, out.timestep_s, is);
   parse_mode_value(n, p, "cell_size_mode", "cell_size_m", out.cell_size_mode, out.cell_size_m, is);
   if (auto v = get_uint64(n, "particles_per_cell_target", p, is, Need::Optional)) {
@@ -435,16 +436,11 @@ SimulationConfig parse_root(const YAML::Node& root, const fs::path& base_dir) {
   parse_statistics(section(root, "statistics", is, Need::Optional), cfg.statistics, is);
   parse_output(section(root, "output", is, Need::Optional), cfg.output, is);
 
-  // DSMC scope of the current release (milestone M3): one monatomic species
-  // with VHS collision data. Gas mixtures (pair collisions) follow in M4.
+  // DSMC: every species needs collision data; at most 8 species.
   if (cfg.simulation.mode == SolverMode::DSMC && !cfg.gas.species.empty()) {
-    if (cfg.gas.species.size() > 1)
-      is.add("gas.species", "DSMC currently supports a single species; gas mixtures (species-pair collisions) "
-                            "follow in milestone M4 - use mode: tpmc for mixtures");
+    if (cfg.gas.species.size() > 8) is.add("gas.species", "DSMC supports at most 8 species");
     for (const auto& sp : cfg.gas.species)
-      if (!sp.vhs.available)
-        is.add("gas.species." + sp.name, "no validated VHS collision data for DSMC yet (milestone M4.1); "
-                                         "DSMC species available now: He, Ar");
+      if (!sp.vhs.available) is.add("gas.species." + sp.name, "no VHS collision data for DSMC");
   }
 
   // Cross-field checks need valid individual fields.

@@ -81,7 +81,7 @@ R = required, O = optional (default in the last column).
 | `number_density_m3` | real | R | > 0 |
 | `translational_temperature_K` | real | R | > 0 |
 | `bulk_velocity_body_mps` | [x, y, z] | R | non-zero; gas velocity relative to the body |
-| `species` | map name → fraction | R | non-empty; fractions ∈ [0, 1], sum = 1 ± 1e-6; species `O`, `N`, `He`, `Ar`. `N2`/`O2` are recognised but rejected until M4 (internal energy). DSMC: one species with VHS data (`He`, `Ar`) |
+| `species` | map name → fraction | R | non-empty; fractions ∈ [0, 1], sum = 1 ± 1e-6; species `O`, `N`, `He`, `Ar`, `N2`, `O2` ([species.md](species.md)); DSMC: up to 8 species |
 
 ### `surface` (R)
 
@@ -94,6 +94,7 @@ Either inline:
 | `maxwell.diffuse_fraction` | real | R if model = maxwell | [0, 1] |
 | `cll.alpha_n` | real | R if model = cll | [0, 1], normal energy accommodation |
 | `cll.sigma_t` | real | R if model = cll | [0, 2], tangential momentum accommodation |
+| `cll.alpha_rot`, `cll.alpha_vib` | real | O | [0, 1], rotational / vibrational energy accommodation of molecules; default `alpha_n` |
 
 The block of the non-selected model may be present; it is validated too.
 
@@ -121,7 +122,7 @@ Material files cannot reference other material files.
 
 | Key | Type | Default | Constraint |
 | --- | ---- | ------- | ---------- |
-| `collision_model` | enum | `VHS` | `VHS` (`VSS` planned) |
+| `collision_model` | enum | `VHS` | `VHS` or `VSS` (VSS diameters and scattering exponents, [species.md](species.md)) |
 | `timestep_mode` | enum | `automatic` | `automatic` \| `fixed` |
 | `timestep_s` | real | – | > 0; required iff `timestep_mode: fixed`, forbidden otherwise |
 | `cell_size_mode` | enum | `automatic` | `automatic` \| `fixed` |
@@ -132,9 +133,8 @@ Material files cannot reference other material files.
 | `blocks` | uint32 | 20 | 2 … 100000, ≤ `sample_steps`; blocks for the block-averaged SE |
 | `max_particles` | uint64 | automatic | hard limit of the particle arrays |
 
-The automatic rules are in [dsmc.md](dsmc.md) §3. `mode: dsmc` currently
-requires exactly one species with VHS data (`He` or `Ar`); mixtures and atomic
-O/N follow in M4.
+The automatic rules are in [dsmc.md](dsmc.md) §3; mixtures and internal
+energy in §9.
 
 ### `statistics` (O)
 

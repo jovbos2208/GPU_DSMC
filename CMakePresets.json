@@ -65,6 +65,15 @@
       }
     },
     {
+      "name": "hip-gfx1103",
+      "displayName": "AMD HIP Release for RDNA3 APUs (Kokkos_ARCH_AMD_GFX1103, e.g. Radeon 740M/760M/780M), run without HSA_OVERRIDE_GFX_VERSION",
+      "inherits": "hip",
+      "cacheVariables": {
+        "Kokkos_ARCH_AMD_GFX942": "OFF",
+        "Kokkos_ARCH_AMD_GFX1103": "ON"
+      }
+    },
+    {
       "name": "hip-gfx1101",
       "displayName": "AMD HIP Release for RDNA3 Navi 32 (Kokkos_ARCH_AMD_GFX1101, e.g. Radeon PRO W7700/W7800, RX 7700/7800)",
       "inherits": "hip",
@@ -80,7 +89,8 @@
     { "name": "cuda", "configurePreset": "cuda" },
     { "name": "hip", "configurePreset": "hip" },
     { "name": "hip-gfx1100", "configurePreset": "hip-gfx1100" },
-    { "name": "hip-gfx1101", "configurePreset": "hip-gfx1101" }
+    { "name": "hip-gfx1101", "configurePreset": "hip-gfx1101" },
+    { "name": "hip-gfx1103", "configurePreset": "hip-gfx1103" }
   ],
   "testPresets": [
     {
@@ -95,6 +105,7 @@
     { "name": "cuda", "inherits": "base", "configurePreset": "cuda" },
     { "name": "hip", "inherits": "base", "configurePreset": "hip" },
     { "name": "hip-gfx1100", "inherits": "base", "configurePreset": "hip-gfx1100" },
-    { "name": "hip-gfx1101", "inherits": "base", "configurePreset": "hip-gfx1101" }
+    { "name": "hip-gfx1101", "inherits": "base", "configurePreset": "hip-gfx1101" },
+    { "name": "hip-gfx1103", "inherits": "base", "configurePreset": "hip-gfx1103" }
   ]
 }

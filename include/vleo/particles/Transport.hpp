@@ -15,7 +15,7 @@
 //       next search, interactions += 1
 //
 // The interaction model is a template parameter with
-//   KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent&, RandomStream&) const;
+//   KOKKOS_INLINE_FUNCTION InteractionResult operator()(const SurfaceEvent&, RandomStream&) const;
 //   KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int triangle) const;
 // It must return a velocity pointing into the gas (v . n_gas > 0); anything
 // else ends the history with status Invalid. Random numbers of the k-th
@@ -26,7 +26,8 @@
 // interaction e of a particle with mass m:
 //     dp_e = m (v_i - v_r)                       momentum transferred to the body
 //     dl_e = (r_e - r_0) x dp_e                  angular momentum about r_0
-//     dE_e = m/2 (|v_i - v_w|^2 - |v_r - v_w|^2)  translational energy to the wall
+//     dE_e = m/2 (|v_i - v_w|^2 - |v_r - v_w|^2) + (e_int,i - e_int,r)
+//            translational plus internal (rotational + vibrational) energy to the wall
 // Per history the sums are accumulated in registers and written once to the
 // history tally array (no atomics, deterministic). Optionally the same event
 // values are added atomically to per-triangle surface tallies.
@@ -35,6 +36,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include "vleo/core/InternalEnergy.hpp"
 #include "vleo/core/Random.hpp"
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/particles/Domain.hpp"
@@ -52,13 +54,22 @@ struct SurfaceEvent {
   double mass_kg;
   std::uint64_t particle_id;
   std::uint32_t interaction_index;  // 0 for the first interaction of the history
+  double e_rot_in;                  // internal energies of the incident particle [J]
+  double e_vib_in;
+  SpeciesModes modes;               // mass and internal modes of the species
+};
+
+struct InteractionResult {
+  Vec3 velocity;
+  double e_rot;
+  double e_vib;
 };
 
 // Specular reflection at a wall at rest: reference model for transport tests
 // (identical to Maxwell with diffuse_fraction = 0).
 struct SpecularInteraction {
-  KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent& e, RandomStream&) const {
-    return reflect(e.velocity_in, e.normal_gas);
+  KOKKOS_INLINE_FUNCTION InteractionResult operator()(const SurfaceEvent& e, RandomStream&) const {
+    return {reflect(e.velocity_in, e.normal_gas), e.e_rot_in, e.e_vib_in};
   }
   KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int) const { return Vec3(); }
 };
@@ -138,6 +149,8 @@ struct InjectKernel {
     p.particle_id(i) = id;
     p.weight(i) = weight;
     p.interactions(i) = 0u;
+    p.e_rot(i) = s.e_rot;
+    p.e_vib(i) = s.e_vib;
     p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Active);
   }
 };
@@ -151,6 +164,7 @@ struct TransportKernel {
   std::uint64_t seed;
   std::uint32_t max_interactions;
   Kokkos::View<const double*> species_mass;
+  Kokkos::View<const SpeciesModes*> species_modes;
   TallyTargets tally;
 
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
@@ -163,6 +177,10 @@ struct TransportKernel {
     int ignore = -1;
     ParticleStatus status = ParticleStatus::Active;
     const double mass = species_mass.extent(0) > species ? species_mass(species) : 1.0;
+    SpeciesModes modes;
+    if (species_modes.extent(0) > species) modes = species_modes(species);
+    modes.mass = mass;
+    double e_rot = p.e_rot(i), e_vib = p.e_vib(i);
     const bool surface_tally = tally.surface.extent(0) > 0;
     Vec3 dp_sum, dl_sum;
     double de_sum = 0.0, de_pos = 0.0, de_neg = 0.0;
@@ -191,10 +209,14 @@ struct TransportKernel {
         break;
       }
       const Vec3 n_gas = front ? n : -n;
-      SurfaceEvent ev{pos, vel, n_gas, hit.triangle, species, mass, id, k};
+      SurfaceEvent ev{pos, vel, n_gas, hit.triangle, species, mass, id, k, e_rot, e_vib, modes};
       RandomStream rng(seed, id, k + 1u, RngStream::SurfaceInteraction);
       const Vec3 v_in = vel;
-      vel = interaction(ev, rng);
+      const double e_int_in = e_rot + e_vib;
+      const InteractionResult res = interaction(ev, rng);
+      vel = res.velocity;
+      e_rot = res.e_rot;
+      e_vib = res.e_vib;
       ++k;
       if (!(dot(vel, n_gas) > 0.0) || !is_finite(vel)) {
         status = ParticleStatus::Invalid;
@@ -203,7 +225,7 @@ struct TransportKernel {
       // Event balance (accumulated only for valid interactions).
       const Vec3 vw = interaction.wall_velocity(hit.triangle);
       const Vec3 dp = mass * (v_in - vel);
-      const double de = 0.5 * mass * (norm2(v_in - vw) - norm2(vel - vw));
+      const double de = 0.5 * mass * (norm2(v_in - vw) - norm2(vel - vw)) + (e_int_in - e_rot - e_vib);
       dp_sum += dp;
       dl_sum += cross(pos - tally.moment_center, dp);
       de_sum += de;
@@ -223,6 +245,8 @@ struct TransportKernel {
     p.set_position(i, pos);
     p.set_velocity(i, vel);
     p.interactions(i) = k;
+    p.e_rot(i) = e_rot;
+    p.e_vib(i) = e_vib;
     p.status(i) = static_cast<std::uint8_t>(status);
     if (tally.history.extent(0) > i) {
       tally.history(i, kTallyPx) = dp_sum.x;
@@ -278,6 +302,7 @@ struct TransportSetup {
   std::uint32_t max_interactions = 100;
   double weight = 1.0;  // stored per particle
   Kokkos::View<const double*> species_mass;  // per species index; empty: mass 1 (no physical tallies)
+  Kokkos::View<const SpeciesModes*> species_modes;  // per species; empty: no internal energy
   TallyTargets tally;
 };
 
@@ -289,7 +314,8 @@ TransportCounters transport_particles(const TransportSetup& s, const Interaction
   using policy = Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>;
   Kokkos::parallel_for("vleo::transport", policy(0, n),
                        detail::TransportKernel<Interaction>{p, s.geometry, s.domain, interaction, s.seed,
-                                                            s.max_interactions, s.species_mass, s.tally});
+                                                            s.max_interactions, s.species_mass, s.species_modes,
+                                                            s.tally});
   return count_particles(p, n);
 }
 

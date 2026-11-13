@@ -56,7 +56,7 @@ TEST_CASE("VHS cross-section: formula, hard-sphere limit, temperature dependence
   }
   CHECK(p.sigma_g(0.0) == 0.0);
   // omega = 1/2 is the hard sphere: sigma = pi d^2 for all g
-  VhsParameters hs{true, 3e-10, 0.5, 273.0, "test"};
+  VhsParameters hs{true, 3e-10, 0.5, 273.0, 3e-10, 1.0, "test"};
   const VhsPair h = make_vhs_pair(1e-26, hs, 1e-26, hs);
   CHECK_THAT(h.sigma(10.0), WithinRel(constants::pi * 9e-20, 1e-14));
   CHECK_THAT(h.sigma(1e4), WithinRel(constants::pi * 9e-20, 1e-14));

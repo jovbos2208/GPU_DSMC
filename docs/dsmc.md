@@ -5,11 +5,10 @@ collisions. Geometry, inflow, the Maxwell/CLL kernels, the event balance and
 the result schema are shared with TPMC ([geometry.md](geometry.md),
 [tpmc.md](tpmc.md)).
 
-**Scope of this release:** one monatomic species with VHS data (He, Ar from
-Bird 1994, Table A1). Gas mixtures (species-pair collisions), atomic O/N
-collision data and internal energy follow in M4; the configuration rejects
-them for `mode: dsmc` with an explicit message. The collision kernel itself is
-already written for pairs of different masses.
+**Scope:** up to 8 species from the database ([species.md](species.md)),
+monatomic and diatomic (N2, O2 with rotation and vibration), VHS or VSS
+collisions (`dsmc.collision_model`). Mixtures and internal energy were added
+in M4 (section 9).
 
 ## 1. Time step (M3.1)
 
@@ -131,6 +130,56 @@ The studies M3.16/M3.17 are produced by `scripts/dsmc_studies.py`
 (0.5 m cube, helium, 900 K, 7.5 km/s, diffuse wall at 300 K; A_ref = 0.25 m²).
 Each parameter is varied with the other two fixed; the recorded tables are in
 section 8.
+
+## 9. Gas mixtures and internal energy (M4)
+
+**Species-pair collisions (M4.2).** NTC uses one bound (σg)_max per cell over
+all pairs; a candidate pair (i, j) is accepted with σ_pq(g) g / (σg)_max using
+the pair parameters of species.md (reduced mass, averaged d, ω, T_ref, α). This
+reproduces the pair collision rates n_p n_q ⟨σg⟩_pq for any mixture. Reference
+values λ∞ and τ∞ are mixture averages (Dsmc.hpp).
+
+**Mixture injection and species diagnostics (M4.3).** Each (face, species)
+channel injects ⌊R_c Δt/W + U⌋ particles. `results.json → diagnostics.species`
+lists per species: mean particle number, injected particles, its share of the
+force and heat rate (the shares add up to the totals), and the accepted
+collisions with every species.
+
+**Internal energy (M4.5).** Particles carry e_rot (continuous, 2 DOF) and
+e_vib = i k θ_v (quantised harmonic oscillator). Free-stream molecules enter in
+equilibrium at T∞ (e_rot ~ Exp(kT), P(i) ∝ e^{−iθ_v/T}).
+
+**Larsen-Borgnakke (M4.6, M4.9).** In every accepted collision each molecule
+relaxes its vibration with probability 1/Z_vib and then its rotation with
+probability 1/Z_rot (serial, particle selection), exchanging energy with the
+relative translational energy E_t = ½ m_r g²:
+
+- rotation: e_rot' = x (E_t + e_rot), x ~ Beta(1, 5/2 − ω) sampled exactly as
+  x = 1 − U^{1/(5/2−ω)};
+- vibration (quantum LB): level i uniform in [0, ⌊E_c/(kθ_v)⌋], accepted with
+  (1 − i kθ_v/E_c)^{3/2−ω};
+- the post-collision relative speed is √(2E_t'/m_r); scattering is isotropic
+  (VHS) or VSS (cos χ = 2R^{1/α} − 1 about g).
+
+Collision numbers are constant ([species.md](species.md)). With this scheme the
+difference T_tr − T_rot of a single gas decays at the rate
+(5/3) ν (1/Z_rot) b/(1+b), b = 5/2 − ω (mean-field derivation, docs and
+`test_internal`); note that this effective relaxation time differs from the
+"continuum" Z_rot of other codes by the factor (1+b)/b · 3/5, which matters
+when comparing with SPARTA (M4.10).
+
+**Verification (M4.4, M4.6, M4.9).**
+
+| Test | Result |
+| ---- | ------ |
+| O/N/He mixture, 6 pair collision rates vs. n_p n_q ⟨σg⟩_pq | all within 1.5 σ (5 √K + 1 %) |
+| mixture energy conservation, common temperature | 1e-10, all species within 5 σ |
+| He (1200 K) / Ar (300 K) relaxation | common T within 5 σ |
+| injection shares O/N/He vs. flux shares | within 0.1 σ |
+| N2 equilibrium at 3000 K, time-averaged | T_rot/T_tr = 1.0018 ± 0.0021, T_vib/T_tr = 0.998 ± 0.003 |
+| rotational relaxation rate vs. mean-field rate of the scheme | −2.5 % (tolerance 5 %) |
+| vibrational relaxation from the ground state | T_vib, T_rot → T_tr within 5 %, levels exactly quantised |
+| VSS deflection angle distribution, α ∈ {1, 1.36, 1.6} | KS √n D < 1.95 |
 
 ## 7. Output
 

@@ -1,10 +1,11 @@
-# DSMC with a gas mixture: rejected until milestone M4 (smoke test).
+# DSMC with a gas mixture (accepted since M4.2; smoke test).
 simulation:
   name: dsmc_mixture
   mode: dsmc
   random_seed: 1
 geometry:
-  file: body.stl
+  file: open_plate.stl
+  require_closed: false
 reference:
   area_m2: 1.0
   length_m: 1.0

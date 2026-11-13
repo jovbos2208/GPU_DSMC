@@ -57,7 +57,7 @@ GasSection make_gas(const Vec3& u, std::vector<std::pair<std::string, double>> s
   g.number_density_m3 = 1e14;
   g.translational_temperature_K = 900.0;
   g.bulk_velocity_body_mps = u;
-  for (const auto& [name, x] : species) g.species.push_back({name, x, find_species(name)->mass_kg, find_species(name)->vhs});
+  for (const auto& [name, x] : species) g.species.push_back({name, x, find_species(name)->mass_kg, find_species(name)->vhs, find_species(name)->modes});
   return g;
 }
 

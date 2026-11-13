@@ -194,15 +194,16 @@ TEST_CASE("Free-molecular limit: DSMC agrees statistically with TPMC", "[dsmc][p
   SimulationConfig tcfg = c.cfg;
   tcfg.simulation.mode = SolverMode::TPMC;
   const TpmcResult t = run_tpmc(tcfg, c.geometry, c.inflow, 4000000 / VLEO_TEST_SCALE);
-  auto same = [](const Estimate& a, const Estimate& b, const char* what) {
+  auto same = [](const Estimate& a, const Estimate& b, const char* what, bool sharp) {
     INFO(what << ": DSMC " << a.value << " +- " << a.std_error << ", TPMC " << b.value << " +- " << b.std_error);
     CHECK(std::fabs(a.value - b.value) < 5.0 * std::hypot(a.std_error, b.std_error));
-    CHECK(a.std_error < 0.05 * std::fabs(b.value) + 1e-30);
+    // the comparison must be sharp for the large quantities
+    if (sharp) CHECK(a.std_error < 0.01 * std::fabs(b.value));
   };
-  same(d.estimates.C_D, t.estimates.C_D, "C_D");
-  same(d.estimates.C_L, t.estimates.C_L, "C_L");
-  same(d.estimates.C_Y, t.estimates.C_Y, "C_Y");
-  same(d.estimates.heat_rate_W, t.estimates.heat_rate_W, "Q");
+  same(d.estimates.C_D, t.estimates.C_D, "C_D", true);
+  same(d.estimates.C_L, t.estimates.C_L, "C_L", false);
+  same(d.estimates.C_Y, t.estimates.C_Y, "C_Y", false);
+  same(d.estimates.heat_rate_W, t.estimates.heat_rate_W, "Q", true);
 }
 
 TEST_CASE("A monatomic DSMC run is bitwise reproducible", "[dsmc][gate]") {

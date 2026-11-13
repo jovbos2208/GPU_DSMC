@@ -23,7 +23,10 @@ namespace {
 // Stresses self-hit avoidance: re-emission close to edges and corners in all
 // directions, including grazing ones.
 struct RandomCosineInteraction {
-  KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent& e, RandomStream& rng) const {
+  KOKKOS_INLINE_FUNCTION InteractionResult operator()(const SurfaceEvent& e, RandomStream& rng) const {
+    return {direction(e, rng), e.e_rot_in, e.e_vib_in};
+  }
+  KOKKOS_INLINE_FUNCTION Vec3 direction(const SurfaceEvent& e, RandomStream& rng) const {
     const OrthonormalBasis b = make_basis_from_normal(e.normal_gas);
     const double r2 = rng.uniform();
     const double phi = constants::two_pi * rng.uniform();
@@ -37,7 +40,9 @@ struct RandomCosineInteraction {
 
 // Deliberately broken model: re-emits into the surface.
 struct IntoTheWallInteraction {
-  KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent& e, RandomStream&) const { return -e.normal_gas; }
+  KOKKOS_INLINE_FUNCTION InteractionResult operator()(const SurfaceEvent& e, RandomStream&) const {
+    return {-e.normal_gas, 0.0, 0.0};
+  }
   KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int) const { return Vec3(); }
 };
 
@@ -46,8 +51,8 @@ GasSection make_gas(const Vec3& u) {
   g.number_density_m3 = 1e14;
   g.translational_temperature_K = 900.0;
   g.bulk_velocity_body_mps = u;
-  g.species.push_back({"O", 0.8, find_species("O")->mass_kg, find_species("O")->vhs});
-  g.species.push_back({"He", 0.2, find_species("He")->mass_kg, find_species("He")->vhs});
+  g.species.push_back({"O", 0.8, find_species("O")->mass_kg, find_species("O")->vhs, find_species("O")->modes});
+  g.species.push_back({"He", 0.2, find_species("He")->mass_kg, find_species("He")->vhs, find_species("He")->modes});
   return g;
 }
 

@@ -20,6 +20,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include "vleo/core/InternalEnergy.hpp"
 #include "vleo/core/Random.hpp"
 #include "vleo/io/Config.hpp"
 #include "vleo/particles/Domain.hpp"
@@ -81,6 +82,11 @@ struct InflowChannel {
   double s = 0.0;             // speed ratio along the inward normal
   double p_a = 0.0;           // sampler parameter (s >= 0)
   double exp_s2 = 0.0;
+  // internal energy of entering molecules (equilibrium at the free-stream temperature)
+  int rot_dof = 0;
+  int vib = 0;
+  double theta_v = 0.0;
+  double temperature = 0.0;
 };
 
 struct InflowModel {
@@ -96,6 +102,8 @@ struct InflowSample {
   Vec3 position;
   Vec3 velocity;
   std::uint32_t species;
+  double e_rot = 0.0;
+  double e_vib = 0.0;
 };
 
 struct DeviceInflow {
@@ -141,6 +149,8 @@ struct DeviceInflow {
         out.position[k] = box.lo[k] + (box.hi[k] - box.lo[k]) * rng.uniform();
       }
     }
+    out.e_rot = sample_rotational_energy(c.rot_dof, c.temperature, rng);
+    out.e_vib = sample_vibrational_energy(c.vib, c.theta_v, c.temperature, rng);
     return out;
   }
 };

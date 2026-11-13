@@ -75,6 +75,10 @@ InflowModel InflowModel::create(const Domain& domain, const GasSection& gas) {
       ch.face = face;
       ch.species = static_cast<std::uint32_t>(i);
       ch.thermal_speed = std::sqrt(2.0 * constants::k_B * gas.translational_temperature_K / sp.mass_kg);
+      ch.rot_dof = sp.modes.rot_dof;
+      ch.vib = sp.modes.vib_dof > 0 ? 1 : 0;
+      ch.theta_v = sp.modes.vib_temperature_K;
+      ch.temperature = gas.translational_temperature_K;
       ch.s = sign * gas.bulk_velocity_body_mps[axis] / ch.thermal_speed;
       ch.exp_s2 = std::exp(-ch.s * ch.s);
       if (ch.s >= 0.0) {

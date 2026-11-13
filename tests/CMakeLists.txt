@@ -35,5 +35,11 @@ vleo_add_unit_test(test_grid      SOURCES unit/test_grid.cpp LIBS vleo_dsmc LABE
 vleo_add_unit_test(test_dsmc      SOURCES unit/test_dsmc.cpp LIBS vleo_dsmc LABELS "dsmc;physics;gate")
 target_compile_definitions(test_dsmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
 set_tests_properties(test_dsmc PROPERTIES TIMEOUT 900)
+vleo_add_unit_test(test_mixture   SOURCES unit/test_mixture.cpp LIBS vleo_dsmc LABELS "dsmc;physics;mixture")
+target_compile_definitions(test_mixture PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
+set_tests_properties(test_mixture PROPERTIES TIMEOUT 900)
+vleo_add_unit_test(test_internal  SOURCES unit/test_internal.cpp LIBS vleo_dsmc LABELS "dsmc;physics;internal")
+target_compile_definitions(test_internal PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
+set_tests_properties(test_internal PROPERTIES TIMEOUT 900)
 
 add_subdirectory(regression)

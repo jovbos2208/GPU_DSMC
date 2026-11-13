@@ -22,7 +22,7 @@ namespace vleo {
 enum class SolverMode { TPMC, DSMC };
 enum class LengthUnit { Metre, Centimetre, Millimetre };
 enum class OutputFormat { JSON, CSV, HDF5 };
-enum class CollisionModel { VHS };
+enum class CollisionModel { VHS, VSS };
 enum class ParameterMode { Automatic, Fixed };
 enum class ConvergenceQuantity { CD, CL, CY, CMx, CMy, CMz, HeatRate };
 
@@ -75,6 +75,7 @@ struct SpeciesFraction {
   double mole_fraction = 0.0;  // number fraction as given; all fractions sum to 1 within 1e-6
   double mass_kg = 0.0;
   VhsParameters vhs;
+  InternalModes modes;
 };
 
 struct GasSection {
@@ -91,6 +92,8 @@ struct MaxwellParameters {
 struct CLLParameters {
   double alpha_n = 0.0;
   double sigma_t = 0.0;
+  double alpha_rot = 0.0;  // rotational energy accommodation (default: alpha_n)
+  double alpha_vib = 0.0;  // vibrational energy accommodation (default: alpha_n)
 };
 
 struct SurfaceSection {

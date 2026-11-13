@@ -14,9 +14,27 @@ SurfaceProperties make_surface_properties(const SurfaceSection& s) {
   if (s.cll) {
     p.alpha_n = s.cll->alpha_n;
     p.sigma_t = s.cll->sigma_t;
+    p.alpha_rot = s.cll->alpha_rot;
+    p.alpha_vib = s.cll->alpha_vib;
   }
   p.wall_velocity = Vec3();
   return p;
+}
+
+std::vector<SpeciesModes> make_species_modes(const GasSection& gas) {
+  std::vector<SpeciesModes> v;
+  for (const auto& sp : gas.species) {
+    SpeciesModes m;
+    m.mass = sp.mass_kg;
+    m.rot_dof = sp.modes.rot_dof;
+    m.rot_relax_prob = sp.modes.rot_collision_number > 0 ? 1.0 / sp.modes.rot_collision_number : 0.0;
+    m.vib = sp.modes.vib_dof > 0 ? 1 : 0;
+    m.theta_v = sp.modes.vib_temperature_K;
+    m.vib_relax_prob = sp.modes.vib_collision_number > 0 ? 1.0 / sp.modes.vib_collision_number : 0.0;
+    m.omega = sp.vhs.omega;
+    v.push_back(m);
+  }
+  return v;
 }
 
 TpmcEstimates make_estimates(const MomentArray& m, double R, const SimulationConfig& cfg, double z) {
@@ -95,6 +113,7 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
   setup.max_interactions = cfg.tpmc.max_reflections;
   setup.weight = inflow.total_rate_per_s / static_cast<double>(target);
   setup.species_mass = to_device(masses, "species_mass");
+  setup.species_modes = to_device(make_species_modes(cfg.gas), "species_modes");
   setup.tally.history = Kokkos::View<double**, Kokkos::LayoutLeft>("history_tallies", batch, kHistoryTallies);
   setup.tally.moment_center = cfg.reference.moment_center_m;
   if (cfg.output.save_surface_fields)

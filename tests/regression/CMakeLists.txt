@@ -44,7 +44,7 @@ add_test(NAME smoke_resolved_config_reparses
 set_tests_properties(smoke_resolved_config_reparses PROPERTIES FIXTURES_REQUIRED smoke_output LABELS smoke)
 
 # 4. Identical simulation configurations are accepted by every build.
-foreach(_sim tpmc_maxwell tpmc_cll dsmc_maxwell dsmc_cll)
+foreach(_sim tpmc_maxwell tpmc_cll tpmc_air dsmc_maxwell dsmc_cll)
   add_test(NAME smoke_check_${_sim}
     COMMAND vleo_solver --check --config "${_cfg}/simulations/${_sim}.yaml"
                         --platform "${_cfg}/platforms/${_platform}.yaml")
@@ -120,8 +120,7 @@ foreach(_sim dsmc_maxwell dsmc_cll)
   set_tests_properties(repro_${_sim}_results PROPERTIES FIXTURES_REQUIRED repro_${_sim} LABELS smoke)
 endforeach()
 
-# 9. DSMC scope of M3: mixtures and species without VHS data are rejected.
-add_test(NAME smoke_rejects_dsmc_mixture
+# 9. DSMC gas mixtures (M4.2) are accepted.
+add_test(NAME smoke_check_dsmc_mixture
   COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/dsmc_mixture.yaml")
-set_tests_properties(smoke_rejects_dsmc_mixture PROPERTIES
-  PASS_REGULAR_EXPRESSION "DSMC currently supports a single species" LABELS smoke)
+set_tests_properties(smoke_check_dsmc_mixture PROPERTIES LABELS smoke)

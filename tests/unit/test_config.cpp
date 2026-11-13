@@ -78,15 +78,15 @@ void expect_invalid(const std::string& yaml, const std::string& needle) {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Shipped simulation configurations are valid", "[config]") {
-  const auto name = GENERATE(as<std::string>{}, "tpmc_maxwell", "tpmc_cll", "dsmc_maxwell", "dsmc_cll");
+  const auto name = GENERATE(as<std::string>{}, "tpmc_maxwell", "tpmc_cll", "dsmc_maxwell", "dsmc_cll", "tpmc_air");
   INFO(name);
   const SimulationConfig c = load_simulation_config(kSource / "configs" / "simulations" / (name + ".yaml"));
   CHECK(c.simulation.name == name);
   CHECK(c.simulation.mode == (name.starts_with("tpmc") ? SolverMode::TPMC : SolverMode::DSMC));
-  CHECK(c.surface.model == (name.ends_with("cll") ? GSIModel::CLL : GSIModel::Maxwell));
+  CHECK(c.surface.model == (name.ends_with("maxwell") ? GSIModel::Maxwell : GSIModel::CLL));
   CHECK(c.source_file.is_absolute());
   CHECK(c.geometry.resolved_file.is_absolute());
-  CHECK(c.gas.species.size() == (name.starts_with("dsmc") ? 1u : 3u));  // DSMC examples: He only (M3)
+  CHECK(c.gas.species.size() == (name.starts_with("dsmc") ? 1u : (name == "tpmc_air" ? 5u : 3u)));
 }
 
 TEST_CASE("Shipped platform configurations are valid", "[config]") {
@@ -392,9 +392,7 @@ TEST_CASE("Rejected: invalid enumerations and unsupported features", "[config][n
       {"model: maxwell", "model: specular", "surface.model: invalid value 'specular' (allowed: maxwell, cll)"},
       {"file: body.stl", "file: body.stl\n  units: km", "geometry.units: invalid value 'km'"},
       {"file: body.stl", "file: body.stl\n  units: in", "geometry.units: 'in' is not supported yet"},
-      {"    O: 1.0", "    Xe: 1.0", "gas.species.Xe: unknown species (supported: O, N, He, Ar)"},
-      {"    O: 1.0", "    N2: 1.0", "gas.species.N2: molecular species are not supported yet"},
-      {"    O: 1.0", "    O2: 0.5\n    O: 0.5", "gas.species.O2: molecular species are not supported yet"},
+      {"    O: 1.0", "    Xe: 1.0", "gas.species.Xe: unknown species (supported: O, N, He, Ar, N2, O2)"},
   }));
   INFO(needle);
   expect_invalid(mutate(from, to), needle);
@@ -409,7 +407,6 @@ TEST_CASE("Rejected: invalid optional sections", "[config][negative]") {
       {"tpmc:\n  histories: 10\n", "tpmc.histories: unknown key"},
       {"tpmc: 5\n", "tpmc: must be a mapping"},
       {"tpmc:\n", "tpmc: has no value"},
-      {"dsmc:\n  collision_model: VSS\n", "dsmc.collision_model: 'VSS' is not supported yet"},
       {"dsmc:\n  collision_model: hard_sphere\n", "dsmc.collision_model: invalid value"},
       {"dsmc:\n  timestep_mode: fixed\n", "dsmc.timestep_s: required key is missing"},
       {"dsmc:\n  timestep_mode: fixed\n  timestep_s: -1e-6\n", "dsmc.timestep_s: value -1e-06 is outside"},
@@ -561,7 +558,10 @@ TEST_CASE("Rejected: invalid convergence criteria", "[config][negative]") {
 
 TEST_CASE("DSMC options and scope", "[config]") {
   const std::string dsmc = mutate("mode: tpmc", "mode: dsmc");
-  expect_invalid(dsmc, "gas.species.O: no validated VHS collision data for DSMC yet");
+  CHECK_NOTHROW(parse_simulation_config(dsmc, kData));  // O has collision data since M4.1
+  const SimulationConfig mix = parse_simulation_config(
+      std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    O: 0.7\n    N: 0.2\n    He: 0.1"), kData);
+  CHECK(mix.gas.species.size() == 3);  // DSMC mixtures since M4.2
   const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
   const SimulationConfig c = parse_simulation_config(he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n", kData);
   CHECK(*c.dsmc.warmup_steps == 50);
@@ -592,7 +592,31 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
   }));
   INFO(needle);
   expect_invalid(he + extra, needle);
-  std::string mix = he;
-  mix.replace(mix.find("    He: 1.0"), 11, "    He: 0.5\n    Ar: 0.5");
-  expect_invalid(mix, "DSMC currently supports a single species");
+}
+
+// ----------------------------------------------------------------------------
+// M4 additions: molecules, CLL internal accommodation, VSS
+// ----------------------------------------------------------------------------
+
+TEST_CASE("Molecular species, CLL internal accommodation and VSS", "[config]") {
+  const SimulationConfig c = parse_simulation_config(
+      mutate("    O: 1.0", "    N2: 0.6\n    O2: 0.1\n    O: 0.3") + "dsmc:\n  collision_model: vss\n", kData);
+  CHECK(c.gas.species[0].modes.rot_dof == 2);
+  CHECK(c.gas.species[0].modes.vib_temperature_K == 3371.0);
+  CHECK(c.dsmc.collision_model == CollisionModel::VSS);
+  const std::string surf = "  model: maxwell\n  temperature_K: 300.0\n  maxwell:\n    diffuse_fraction: 1.0";
+  const SimulationConfig d = parse_simulation_config(
+      mutate(surf, "  model: cll\n  temperature_K: 300.0\n  cll:\n    alpha_n: 0.8\n    sigma_t: 0.6"), kData);
+  CHECK(d.surface.cll->alpha_rot == 0.8);  // default: alpha_n
+  CHECK(d.surface.cll->alpha_vib == 0.8);
+  const SimulationConfig e = parse_simulation_config(
+      mutate(surf, "  model: cll\n  temperature_K: 300.0\n  cll:\n    alpha_n: 0.8\n    sigma_t: 0.6\n"
+                   "    alpha_rot: 0.5\n    alpha_vib: 0.1"),
+      kData);
+  CHECK(e.surface.cll->alpha_rot == 0.5);
+  CHECK(e.surface.cll->alpha_vib == 0.1);
+  CHECK(to_resolved_yaml(parse_simulation_config(to_resolved_yaml(e), "/")) == to_resolved_yaml(e));
+  expect_invalid(mutate(surf, "  model: cll\n  temperature_K: 300.0\n  cll:\n    alpha_n: 0.8\n    sigma_t: 0.6\n"
+                              "    alpha_rot: 1.5"),
+                 "surface.cll.alpha_rot: value 1.5 is outside");
 }

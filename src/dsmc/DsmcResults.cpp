@@ -80,6 +80,20 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
   w.field("removed_inside_at_fill", c.removed_inside_at_fill);
   w.field("surface_interactions", c.surface_interactions);
   w.field("particle_balance_ok", c.lost_inside_body + c.invalid == 0);
+  w.key("species").begin_array();
+  for (const auto& sd : r.species) {
+    w.begin_object();
+    w.field("name", sd.name);
+    w.field("mean_particles", sd.mean_particles);
+    w.field("injected", sd.injected);
+    w.field("force_N", sd.force_N);
+    w.field("heat_rate_W", sd.heat_rate_W);
+    w.key("collisions_with").begin_object();
+    for (std::size_t q = 0; q < sd.collisions_with.size(); ++q) w.field(r.species[q].name, sd.collisions_with[q]);
+    w.end_object();
+    w.end_object();
+  }
+  w.end_array();
   w.field("wall_time_s", r.wall_time_s);
   w.end_object();
 

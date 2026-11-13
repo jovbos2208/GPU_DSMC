@@ -20,12 +20,20 @@
 //
 // Random numbers per interaction: Maxwell draws R first, then (diffuse
 // branch) Z1, Z2 (one Box-Muller pair) and R1; CLL draws Z1..Z4 (two pairs).
+// Internal energy (molecules, M4.8) is handled after the velocity:
+//   Maxwell specular: e_rot, e_vib unchanged; diffuse: both resampled from
+//     the equilibrium distributions at T_w (full accommodation).
+//   CLL rotation (2 DOF, x = e_rot / (k T_w)):
+//     x' = (sqrt((1 - alpha_rot) x) + sqrt(alpha_rot / 2) Z5)^2 + (alpha_rot / 2) Z6^2
+//     so that <e_rot'> = (1 - alpha_rot) e_rot + alpha_rot k T_w; alpha_rot = 1 is diffuse.
+//   CLL vibration: with probability alpha_vib resampled at T_w, else unchanged.
 
 #include <cstdint>
 
 #include <Kokkos_Core.hpp>
 
 #include "vleo/core/Frames.hpp"
+#include "vleo/core/InternalEnergy.hpp"
 #include "vleo/core/PhysicalConstants.hpp"
 #include "vleo/core/Random.hpp"
 #include "vleo/core/Vec3.hpp"
@@ -41,21 +49,48 @@ struct SurfaceProperties {
   // CLL
   double alpha_n = 0.0;
   double sigma_t = 0.0;
+  double alpha_rot = 0.0;  // rotational energy accommodation
+  double alpha_vib = 0.0;  // vibrational energy accommodation (probability)
   // Velocity of the wall in the body frame (zero for a rigid body at rest in its own frame).
   Vec3 wall_velocity;
 };
 
 struct ScatteringResult {
-  Vec3 velocity_out;          // body frame
-  double internal_energy_out; // J; monatomic gases: unchanged (0)
+  Vec3 velocity_out;  // body frame
+  double e_rot_out;   // J
+  double e_vib_out;   // J
 };
 
+// Internal energy after the interaction (called after the velocity draws).
+KOKKOS_INLINE_FUNCTION void scatter_internal(bool diffuse_maxwell, const SpeciesModes& sm, const SurfaceProperties& surface,
+                                             double& e_rot, double& e_vib, RandomStream& rng) {
+  const double Tw = surface.temperature_K;
+  if (surface.model == GSIModel::Maxwell) {
+    if (!diffuse_maxwell) return;
+    e_rot = sample_rotational_energy(sm.rot_dof, Tw, rng);
+    e_vib = sample_vibrational_energy(sm.vib, sm.theta_v, Tw, rng);
+    return;
+  }
+  if (sm.rot_dof == 2) {
+    const double a = surface.alpha_rot;
+    const double kT = constants::k_B * Tw;
+    const double x = e_rot / kT;
+    const double p = Kokkos::sqrt((1.0 - a) * x) + Kokkos::sqrt(0.5 * a) * rng.normal();
+    const double z = rng.normal();
+    e_rot = (p * p + 0.5 * a * z * z) * kT;
+  }
+  if (sm.vib && rng.uniform() < surface.alpha_vib) e_vib = sample_vibrational_energy(sm.vib, sm.theta_v, Tw, rng);
+}
+
 // Scattered velocity in the wall frame for a given incident relative velocity.
+// `diffuse` reports whether the Maxwell model took the diffuse branch.
 KOKKOS_INLINE_FUNCTION Vec3 scatter_relative(const Vec3& c_in, const Vec3& n, double particle_mass,
-                                             const SurfaceProperties& surface, RandomStream& rng) {
+                                             const SurfaceProperties& surface, RandomStream& rng, bool& diffuse) {
   const double s = Kokkos::sqrt(constants::k_B * surface.temperature_K / particle_mass);
+  diffuse = false;
   if (surface.model == GSIModel::Maxwell) {
     if (rng.uniform() >= surface.diffuse_fraction) return reflect(c_in, n);
+    diffuse = true;
     const OrthonormalBasis b = make_basis_from_normal(n);
     const double z1 = rng.normal();
     const double z2 = rng.normal();
@@ -87,13 +122,26 @@ KOKKOS_INLINE_FUNCTION Vec3 scatter_relative(const Vec3& c_in, const Vec3& n, do
 //   velocity_in     incident velocity (body frame)
 //   wall_velocity   velocity of the surface element (body frame)
 //   outward_normal  unit normal pointing into the gas on the side that was hit
+//   species         mass and internal modes of the particle
+KOKKOS_INLINE_FUNCTION ScatteringResult scatter_particle(const Vec3& velocity_in, const Vec3& wall_velocity,
+                                                         const Vec3& outward_normal, const SpeciesModes& species,
+                                                         double e_rot_in, double e_vib_in,
+                                                         const SurfaceProperties& surface, RandomStream& rng) {
+  const Vec3 c_in = velocity_in - wall_velocity;
+  bool diffuse = false;
+  const Vec3 c_r = scatter_relative(c_in, outward_normal, species.mass, surface, rng, diffuse);
+  double e_rot = e_rot_in, e_vib = e_vib_in;
+  if (species.rot_dof > 0 || species.vib) scatter_internal(diffuse, species, surface, e_rot, e_vib, rng);
+  return {c_r + wall_velocity, e_rot, e_vib};
+}
+
+// Monatomic convenience overload (no internal energy).
 KOKKOS_INLINE_FUNCTION ScatteringResult scatter_particle(const Vec3& velocity_in, const Vec3& wall_velocity,
                                                          const Vec3& outward_normal, double particle_mass,
-                                                         double internal_energy_in, const SurfaceProperties& surface,
-                                                         RandomStream& rng) {
-  const Vec3 c_in = velocity_in - wall_velocity;
-  const Vec3 c_r = scatter_relative(c_in, outward_normal, particle_mass, surface, rng);
-  return {c_r + wall_velocity, internal_energy_in};
+                                                         const SurfaceProperties& surface, RandomStream& rng) {
+  SpeciesModes sm;
+  sm.mass = particle_mass;
+  return scatter_particle(velocity_in, wall_velocity, outward_normal, sm, 0.0, 0.0, surface, rng);
 }
 
 }  // namespace vleo

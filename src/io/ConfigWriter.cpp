@@ -60,6 +60,8 @@ void walk(const SimulationConfig& c, Sink& s) {
     s.begin("cll");
     s.dbl("alpha_n", c.surface.cll->alpha_n);
     s.dbl("sigma_t", c.surface.cll->sigma_t);
+    s.dbl("alpha_rot", c.surface.cll->alpha_rot);
+    s.dbl("alpha_vib", c.surface.cll->alpha_vib);
     s.end();
   }
   s.end();

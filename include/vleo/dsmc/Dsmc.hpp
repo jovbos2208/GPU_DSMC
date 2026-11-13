@@ -70,6 +70,9 @@ struct DsmcSettings {
   bool timestep_automatic = false, cell_size_automatic = false, warmup_automatic = false;
 };
 
+// Mixture reference values (M4.2): with x_s the mole fractions and
+// nu_s = sum_q n_q <sigma g>_sq the collision frequency of species s,
+//   lambda_inf = sum_s x_s c_mean_s / nu_s,   tau_inf = 1 / sum_s x_s nu_s.
 // Automatic rules (docs/dsmc.md section 3):
 //   cell size  = min(lambda_inf / 2, L_max / 16)     (L_max: largest domain extent)
 //   time step  = min(tau_inf / 10, dx_min / (4 (|V_inf| + 3 c_mp)))
@@ -89,6 +92,16 @@ struct DsmcCounters {
   std::uint64_t collision_candidates = 0;
   std::uint64_t collisions = 0;
   std::uint64_t sigma_g_max_updates = 0;
+};
+
+// Per-species diagnostics of the sampling phase (M4.3).
+struct DsmcSpeciesDiagnostics {
+  std::string name;
+  double mean_particles = 0.0;
+  std::uint64_t injected = 0;          // whole run
+  Vec3 force_N;                        // contribution of this species to the force on the body
+  double heat_rate_W = 0.0;            // contribution to the heat rate
+  std::vector<std::uint64_t> collisions_with;  // accepted collisions with species q (whole run)
 };
 
 struct DsmcDiagnostics {
@@ -120,6 +133,7 @@ struct DsmcResult {
   double critical_value = 0.0;
   double wall_time_s = 0.0;
   std::optional<SurfaceFields> surface;
+  std::vector<DsmcSpeciesDiagnostics> species;
   std::vector<std::string> warnings;
 };
 
@@ -144,7 +158,8 @@ class DsmcSimulation {
   void fill_freestream();
   // Replaces all particles (tests): velocities in the body frame, species index 0..
   void set_particles(const std::vector<Vec3>& positions, const std::vector<Vec3>& velocities,
-                     const std::vector<std::uint32_t>& species);
+                     const std::vector<std::uint32_t>& species, const std::vector<double>& e_rot = {},
+                     const std::vector<double>& e_vib = {});
 
   // Advances one time step; `sample` adds the step to the sampling statistics.
   void step(bool sample);
@@ -161,6 +176,11 @@ class DsmcSimulation {
   std::vector<std::uint64_t> particle_ids() const;
   // Per-cell (offset, count) and particle list of the last binning (tests).
   void binning(std::vector<int>& offsets, std::vector<int>& list) const;
+  std::vector<std::uint32_t> species() const;
+  std::vector<double> rotational_energies() const;
+  std::vector<double> vibrational_energies() const;
+  // Accepted collisions per species pair (p <= q), whole run.
+  std::uint64_t pair_collisions(int p, int q) const;
 
   // Statistics of the sampling phase.
   DsmcResult result() const;

@@ -33,7 +33,7 @@ struct ScatterBatch {
   double mass;
   KOKKOS_INLINE_FUNCTION Vec3 operator()(int i) const {
     RandomStream rng(31, static_cast<std::uint64_t>(i), 1, RngStream::SurfaceInteraction);
-    return scatter_particle(v_in, sp.wall_velocity, n, mass, 0.0, sp, rng).velocity_out;
+    return scatter_particle(v_in, sp.wall_velocity, n, mass, sp, rng).velocity_out;
   }
 };
 
@@ -201,7 +201,7 @@ TEST_CASE("Wall velocity: scattering happens in the wall frame", "[gsi][statisti
   sp0.wall_velocity = sp.wall_velocity;
   const Vec3 v_in(-3000, 40, -1000);
   RandomStream rng(1, 1, 1, RngStream::Test);
-  const Vec3 r = scatter_particle(v_in, sp0.wall_velocity, n, kMass, 0.0, sp0, rng).velocity_out;
+  const Vec3 r = scatter_particle(v_in, sp0.wall_velocity, n, kMass, sp0, rng).velocity_out;
   CHECK(approx_equal(r, sp0.wall_velocity + reflect(v_in - sp0.wall_velocity, n), 0.0, 1e-14));
 }
 

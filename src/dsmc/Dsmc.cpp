@@ -21,6 +21,7 @@ constexpr int kStepInteractions = kHistoryTallies;
 constexpr int kStepTallies = kHistoryTallies + 1;
 
 constexpr int kMaxChannels = 64;
+constexpr int kMaxDsmcSpecies = 8;
 
 template <class T>
 Kokkos::View<const T*> to_device(const std::vector<T>& v, const char* label) {
@@ -58,6 +59,7 @@ struct MoveKernel {
   Aabb box;
   GsiInteraction gsi;
   Kokkos::View<const double*> mass;
+  Kokkos::View<const SpeciesModes*> modes;
   Vec3 r0;
   std::uint64_t seed;
   double dt;
@@ -72,6 +74,8 @@ struct MoveKernel {
     const std::uint64_t id = p.particle_id(i);
     const std::uint32_t sp = p.species(i);
     const double m = mass(sp);
+    const SpeciesModes sm = modes(sp);
+    double e_rot = p.e_rot(i), e_vib = p.e_vib(i);
     std::uint32_t k = p.interactions(i);
     double t = dt_rem(i);
     int ignore = -1;
@@ -105,10 +109,14 @@ struct MoveKernel {
           break;
         }
         const Vec3 n_gas = front ? n : -n;
-        const SurfaceEvent ev{pos, vel, n_gas, hit.triangle, sp, m, id, k};
+        const SurfaceEvent ev{pos, vel, n_gas, hit.triangle, sp, m, id, k, e_rot, e_vib, sm};
         RandomStream rng(seed, id, k + 1u, RngStream::SurfaceInteraction);
         const Vec3 v_in = vel;
-        vel = gsi(ev, rng);
+        const double e_int_in = e_rot + e_vib;
+        const InteractionResult res = gsi(ev, rng);
+        vel = res.velocity;
+        e_rot = res.e_rot;
+        e_vib = res.e_vib;
         ++k;
         ++in_step;
         if (!(dot(vel, n_gas) > 0.0) || !is_finite(vel)) {
@@ -117,7 +125,7 @@ struct MoveKernel {
         }
         const Vec3 vw = gsi.wall_velocity(hit.triangle);
         const Vec3 dp = m * (v_in - vel);
-        const double de = 0.5 * m * (norm2(v_in - vw) - norm2(vel - vw));
+        const double de = 0.5 * m * (norm2(v_in - vw) - norm2(vel - vw)) + (e_int_in - e_rot - e_vib);
         dp_sum += dp;
         dl_sum += cross(pos - r0, dp);
         de_sum += de;
@@ -158,6 +166,8 @@ struct MoveKernel {
     p.set_position(i, pos);
     p.set_velocity(i, vel);
     p.interactions(i) = k;
+    p.e_rot(i) = e_rot;
+    p.e_vib(i) = e_vib;
     p.status(i) = static_cast<std::uint8_t>(status);
     dt_rem(i) = dt;
     tally(i, kTallyPx) = dp_sum.x;
@@ -174,23 +184,38 @@ struct MoveKernel {
 };
 
 // Sums of the step tallies and the final status counts.
+// Per-species slots after the global ones: particle count, momentum (3), energy.
+constexpr int kSpeciesSlots = 5;
+
 struct StepReduce {
   using value_type = double[];
   using size_type = std::size_t;
-  static constexpr int kSlots = kStepTallies + kNumParticleStatus;
+  static constexpr int kGlobal = kStepTallies + kNumParticleStatus;
+  static constexpr int kSlots = kGlobal + kSpeciesSlots * kMaxDsmcSpecies;  // upper bound (host array)
+  // Sized for the actual number of species: keeps the shared-memory footprint
+  // of the reduction small (55 doubles per thread exceeded the LDS budget of
+  // small GPUs).
   size_type value_count = kSlots;
   Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<const std::uint8_t*> status;
+  Kokkos::View<const std::uint32_t*> species;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
     for (int k = 0; k < kStepTallies; ++k) s[k] += tally(i, k);
     const int st = status(i) < kNumParticleStatus ? status(i) : static_cast<int>(ParticleStatus::Invalid);
     s[kStepTallies + st] += 1.0;
+    const int sp = static_cast<int>(species(i));
+    double* q = s + kGlobal + kSpeciesSlots * sp;
+    q[0] += 1.0;
+    q[1] += tally(i, kTallyPx);
+    q[2] += tally(i, kTallyPy);
+    q[3] += tally(i, kTallyPz);
+    q[4] += tally(i, kTallyE);
   }
   KOKKOS_INLINE_FUNCTION void init(value_type s) const {
-    for (int k = 0; k < kSlots; ++k) s[k] = 0.0;
+    for (std::size_t k = 0; k < value_count; ++k) s[k] = 0.0;
   }
   KOKKOS_INLINE_FUNCTION void join(value_type d, const value_type s) const {
-    for (int k = 0; k < kSlots; ++k) d[k] += s[k];
+    for (std::size_t k = 0; k < value_count; ++k) d[k] += s[k];
   }
 };
 
@@ -218,6 +243,8 @@ struct InjectKernel {
     p.particle_id(i) = id;
     p.weight(i) = weight;
     p.interactions(i) = 0u;
+    p.e_rot(i) = s.e_rot;
+    p.e_vib(i) = s.e_vib;
     p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Active);
     dt_rem(i) = rng.uniform() * dt;  // enters at a random time within the step
   }
@@ -231,6 +258,8 @@ struct FillKernel {
   Vec3 u;
   Kokkos::View<const double*> species_cdf;
   Kokkos::View<const double*> sigma;  // sqrt(kT/m) per species
+  Kokkos::View<const SpeciesModes*> modes;
+  double T;
   std::uint64_t first_id;
   std::uint64_t seed;
   double dt, weight;
@@ -251,6 +280,8 @@ struct FillKernel {
     p.particle_id(i) = id;
     p.weight(i) = weight;
     p.interactions(i) = 0u;
+    p.e_rot(i) = sample_rotational_energy(modes(sp).rot_dof, T, rng);
+    p.e_vib(i) = sample_vibrational_energy(modes(sp).vib, modes(sp).theta_v, T, rng);
     dt_rem(i) = dt;
     const bool inside = has_closed && inside_body(geo, pos);
     p.status(i) = static_cast<std::uint8_t>(inside ? ParticleStatus::Free : ParticleStatus::Active);
@@ -287,6 +318,8 @@ struct CompactCopy {
     dst.particle_id(j) = src.particle_id(i);
     dst.status(j) = src.status(i);
     dst.interactions(j) = src.interactions(i);
+    dst.e_rot(j) = src.e_rot(i);
+    dst.e_vib(j) = src.e_vib(i);
     dt_dst(j) = dt_src(i);
   }
 };
@@ -356,7 +389,9 @@ struct CollideKernel {
   Kokkos::View<double*> sg_max;
   Kokkos::View<double*> remainder;
   Kokkos::View<const VhsPair*> pairs;
+  Kokkos::View<const SpeciesModes*> modes;
   Kokkos::View<std::uint64_t*> cand, acc, upd;
+  Kokkos::View<std::uint64_t*> pair_acc;  // nsp * nsp, accepted collisions per (min, max) species pair
   int nsp;
   double weight_dt;  // W dt
   std::uint64_t seed;
@@ -387,10 +422,39 @@ struct CollideKernel {
           ++n_upd;
         }
         if (rng.uniform() * max_sg < sg) {
-          vhs_collide(vi, vj, pr.m_p, pr.m_q, rng);
+          const int si = static_cast<int>(p.species(i)), sj = static_cast<int>(p.species(j));
+          const SpeciesModes& mi = modes(si);
+          const SpeciesModes& mj = modes(sj);
+          if (mi.rot_dof > 0 || mi.vib || mj.rot_dof > 0 || mj.vib) {
+            // Larsen-Borgnakke (particle selection, serial): vibration, then
+            // rotation of each molecule with probability 1 / Z.
+            const double mr = pr.m_p * pr.m_q / (pr.m_p + pr.m_q);
+            const double omega = 0.5 * (mi.omega + mj.omega);
+            double Et = 0.5 * mr * norm2(vi - vj);
+            double er_i = p.e_rot(i), ev_i = p.e_vib(i), er_j = p.e_rot(j), ev_j = p.e_vib(j);
+            if (mi.vib && rng.uniform() < mi.vib_relax_prob) lb_vibration(Et, ev_i, mi.theta_v, omega, rng);
+            if (mj.vib && rng.uniform() < mj.vib_relax_prob) lb_vibration(Et, ev_j, mj.theta_v, omega, rng);
+            if (mi.rot_dof == 2 && rng.uniform() < mi.rot_relax_prob) lb_rotation(Et, er_i, omega, rng);
+            if (mj.rot_dof == 2 && rng.uniform() < mj.rot_relax_prob) lb_rotation(Et, er_j, omega, rng);
+            p.e_rot(i) = er_i;
+            p.e_vib(i) = ev_i;
+            p.e_rot(j) = er_j;
+            p.e_vib(j) = ev_j;
+            const double g_new = Kokkos::sqrt(2.0 * Et / mr);
+            if (pr.alpha == 1.0)
+              vhs_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, rng);
+            else
+              vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, g_new, pr.alpha, rng);
+          } else if (pr.alpha == 1.0) {
+            vhs_collide(vi, vj, pr.m_p, pr.m_q, rng);
+          } else {
+            vss_collide_with_speed(vi, vj, pr.m_p, pr.m_q, norm(vi - vj), pr.alpha, rng);
+          }
           p.set_velocity(i, vi);
           p.set_velocity(j, vj);
           ++n_acc;
+          const int a1 = static_cast<int>(p.species(i)), a2 = static_cast<int>(p.species(j));
+          Kokkos::atomic_inc(&pair_acc(a1 < a2 ? a1 * nsp + a2 : a2 * nsp + a1));
         }
       }
       sg_max(c) = max_sg;
@@ -438,14 +502,35 @@ struct MaxSpeed {
 // ============================================================================
 
 DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& domain) {
-  if (cfg.gas.species.size() != 1) throw std::invalid_argument("DSMC: exactly one species is supported (M3)");
-  const auto& sp = cfg.gas.species[0];
-  if (!sp.vhs.available) throw std::invalid_argument("DSMC: species without VHS data");
+  if (cfg.gas.species.empty() || cfg.gas.species.size() > static_cast<std::size_t>(kMaxDsmcSpecies))
+    throw std::invalid_argument("DSMC: 1 to 8 species are supported");
+  for (const auto& sp : cfg.gas.species)
+    if (!sp.vhs.available) throw std::invalid_argument("DSMC: species without VHS data");
   DsmcSettings s;
-  const double T = cfg.gas.translational_temperature_K, n = cfg.gas.number_density_m3, m = sp.mass_kg;
-  s.lambda_inf_m = vhs_mean_free_path(m, sp.vhs, n, T);
-  s.tau_inf_s = vhs_mean_collision_time(m, sp.vhs, n, T);
-  s.c_mp_inf_mps = std::sqrt(2.0 * constants::k_B * T / m);
+  const double T = cfg.gas.translational_temperature_K, n = cfg.gas.number_density_m3;
+  double xsum = 0.0;
+  for (const auto& sp : cfg.gas.species) xsum += sp.mole_fraction;
+  double lambda = 0.0, nu_mean = 0.0, m_min = 1e300, m_mean = 0.0;
+  for (const auto& a : cfg.gas.species) {
+    const double xa = a.mole_fraction / xsum;
+    double nu = 0.0;
+    const bool vss = cfg.dsmc.collision_model == CollisionModel::VSS;
+    for (const auto& b : cfg.gas.species)
+      nu += n * (b.mole_fraction / xsum) *
+            vhs_mean_sigma_g(a.mass_kg, for_model(a.vhs, vss), b.mass_kg, for_model(b.vhs, vss), T);
+    const double c_mean = std::sqrt(8.0 * constants::k_B * T / (constants::pi * a.mass_kg));
+    if (xa > 0.0) {
+      lambda += xa * c_mean / nu;
+      nu_mean += xa * nu;
+    }
+    m_min = std::min(m_min, a.mass_kg);
+    m_mean += xa * a.mass_kg;
+  }
+  s.lambda_inf_m = lambda;
+  s.tau_inf_s = 1.0 / nu_mean;
+  // fastest species for the time-step criterion
+  s.c_mp_inf_mps = std::sqrt(2.0 * constants::k_B * T / m_min);
+  const double c_mp_mean = std::sqrt(2.0 * constants::k_B * T / m_mean);
   const Vec3 e = domain.box.extent();
   const double l_max = max_abs_component(e);
 
@@ -461,7 +546,7 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
 
   s.warmup_automatic = !cfg.dsmc.warmup_steps.has_value();
   if (s.warmup_automatic) {
-    const double v_slow = std::max(cfg.derived.freestream_speed_mps, s.c_mp_inf_mps);
+    const double v_slow = std::max(cfg.derived.freestream_speed_mps, c_mp_mean);
     s.warmup_steps = static_cast<std::uint64_t>(std::ceil(3.0 * norm(e) / v_slow / s.timestep_s));
   } else {
     s.warmup_steps = *cfg.dsmc.warmup_steps;
@@ -488,6 +573,7 @@ struct DsmcSimulation::Impl {
   GsiInteraction gsi;
   Kokkos::View<const double*> mass;
   Kokkos::View<const VhsPair*> pairs;
+  Kokkos::View<const SpeciesModes*> modes;
   int nsp = 1;
 
   std::size_t capacity = 0;
@@ -503,7 +589,11 @@ struct DsmcSimulation::Impl {
   Kokkos::View<int*> count, offset, cursor;
   Kokkos::View<double*> sg_max, remainder, count_sum;
   Kokkos::View<std::uint64_t*> cand, acc, upd;
+  Kokkos::View<std::uint64_t*> pair_acc;
   Kokkos::View<double**, Kokkos::LayoutLeft> surface;
+  std::vector<double> species_count_sum, species_E_sum;
+  std::vector<Vec3> species_P_sum;
+  std::vector<std::uint64_t> species_injected;
 
   DsmcCounters counters;
   std::array<std::vector<double>, kHistoryQuantities> series;
@@ -536,6 +626,8 @@ struct DsmcSimulation::Impl {
         Kokkos::resize(s->particle_id, cap);
         Kokkos::resize(s->status, cap);
         Kokkos::resize(s->interactions, cap);
+        Kokkos::resize(s->e_rot, cap);
+        Kokkos::resize(s->e_vib, cap);
       }
       Kokkos::resize(dt_cur, cap);
       Kokkos::resize(dt_alt, cap);
@@ -573,7 +665,9 @@ struct DsmcSimulation::Impl {
                               set.particle_weight;
       RandomStream rng(cfg.simulation.random_seed, step_index, static_cast<std::uint32_t>(c),
                        RngStream::InjectionCount);
-      total += static_cast<std::uint64_t>(std::floor(expected + rng.uniform()));
+      const auto k = static_cast<std::uint64_t>(std::floor(expected + rng.uniform()));
+      species_injected[inflow_host.channels[static_cast<std::size_t>(c)].species] += k;
+      total += k;
     }
     off[nch] = total;
     if (total == 0) return;
@@ -600,8 +694,8 @@ struct DsmcSimulation::Impl {
   void collide() {
     const int nc = grid.grid.num_cells();
     Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(0, nc),
-                         CollideKernel{cur, offset, list, grid.collision_volume, sg_max, remainder, pairs, cand, acc, upd,
-                                       nsp, set.particle_weight * set.timestep_s, cfg.simulation.random_seed,
+                         CollideKernel{cur, offset, list, grid.collision_volume, sg_max, remainder, pairs, modes, cand, acc, upd,
+                                       pair_acc, nsp, set.particle_weight * set.timestep_s, cfg.simulation.random_seed,
                                        static_cast<std::uint32_t>(step_index)});
     std::uint64_t s[3] = {0, 0, 0};
     Kokkos::parallel_reduce("vleo::dsmc_collision_counts", IntPolicy(0, nc), SumU64x3{3, cand, acc, upd}, s);
@@ -623,6 +717,7 @@ struct DsmcSimulation::Impl {
                   inflow_host.domain.box,
                   gsi,
                   mass,
+                  modes,
                   cfg.reference.moment_center_m,
                   cfg.simulation.random_seed,
                   set.timestep_s,
@@ -635,6 +730,8 @@ struct DsmcSimulation::Impl {
       StepReduce red;
       red.tally = tally;
       red.status = cur.status;
+      red.species = cur.species;
+      red.value_count = static_cast<std::size_t>(StepReduce::kGlobal + kSpeciesSlots * nsp);
       Kokkos::parallel_reduce("vleo::dsmc_step_reduce", policy(0, n), red, s);
     }
     counters.exited += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Exited)]);
@@ -652,6 +749,12 @@ struct DsmcSimulation::Impl {
       series[kQPDrag].push_back(scale * dot(dp, ax.drag));
       series[kQPLift].push_back(scale * dot(dp, ax.lift));
       series[kQPSide].push_back(scale * dot(dp, ax.side));
+      for (int q = 0; q < nsp; ++q) {
+        const double* v = s + StepReduce::kGlobal + kSpeciesSlots * q;
+        species_count_sum[static_cast<std::size_t>(q)] += v[0];
+        species_P_sum[static_cast<std::size_t>(q)] += scale * Vec3(v[1], v[2], v[3]);
+        species_E_sum[static_cast<std::size_t>(q)] += scale * v[4];
+      }
     }
 
     compact();
@@ -698,10 +801,12 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
   std::vector<double> masses;
   for (const auto& sp : cfg.gas.species) masses.push_back(sp.mass_kg);
   s.mass = to_device(masses, "dsmc_species_mass");
+  s.modes = to_device(make_species_modes(cfg.gas), "dsmc_species_modes");
   s.nsp = static_cast<int>(cfg.gas.species.size());
   std::vector<VhsPair> pairs;
   for (const auto& a : cfg.gas.species)
-    for (const auto& b : cfg.gas.species) pairs.push_back(make_vhs_pair(a.mass_kg, a.vhs, b.mass_kg, b.vhs));
+    for (const auto& b : cfg.gas.species)
+      pairs.push_back(make_vhs_pair(a.mass_kg, a.vhs, b.mass_kg, b.vhs, cfg.dsmc.collision_model == CollisionModel::VSS));
   s.pairs = to_device(pairs, "dsmc_vhs_pairs");
 
   const auto nc = static_cast<std::size_t>(s.grid.grid.num_cells());
@@ -713,9 +818,17 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
   s.cand = Kokkos::View<std::uint64_t*>("dsmc_cand", nc);
   s.acc = Kokkos::View<std::uint64_t*>("dsmc_acc", nc);
   s.upd = Kokkos::View<std::uint64_t*>("dsmc_upd", nc);
+  s.pair_acc = Kokkos::View<std::uint64_t*>("dsmc_pair_acc", static_cast<std::size_t>(s.nsp * s.nsp));
+  s.species_count_sum.assign(static_cast<std::size_t>(s.nsp), 0.0);
+  s.species_E_sum.assign(static_cast<std::size_t>(s.nsp), 0.0);
+  s.species_P_sum.assign(static_cast<std::size_t>(s.nsp), Vec3());
+  s.species_injected.assign(static_cast<std::size_t>(s.nsp), 0);
   s.sg_max = Kokkos::View<double*>("dsmc_sg_max", nc);
-  // Initial bound: sigma g at three most probable thermal speeds (raised when exceeded).
-  Kokkos::deep_copy(s.sg_max, pairs[0].sigma_g(3.0 * settings.c_mp_inf_mps));
+  // Initial bound: largest pair sigma g at three most probable thermal speeds of
+  // the fastest species (raised when exceeded).
+  double sg0 = 0.0;
+  for (const VhsPair& pr : pairs) sg0 = std::max(sg0, pr.sigma_g(3.0 * settings.c_mp_inf_mps));
+  Kokkos::deep_copy(s.sg_max, sg0);
   if (cfg.output.save_surface_fields)
     s.surface = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_surface", geometry.host.size(), kSurfaceTallies);
 
@@ -743,7 +856,8 @@ void DsmcSimulation::fill_freestream() {
   }
   Kokkos::parallel_for("vleo::dsmc_fill", policy(0, total),
                        FillKernel{s.cur, s.dt_cur, s.geo, box, s.cfg.gas.bulk_velocity_body_mps,
-                                  to_device(cdf, "fill_cdf"), to_device(sigma, "fill_sigma"), s.next_id,
+                                  to_device(cdf, "fill_cdf"), to_device(sigma, "fill_sigma"), s.modes,
+                                  s.cfg.gas.translational_temperature_K, s.next_id,
                                   s.cfg.simulation.random_seed, s.set.timestep_s, s.set.particle_weight, s.has_closed});
   s.n = total;
   s.next_id += total;
@@ -753,7 +867,8 @@ void DsmcSimulation::fill_freestream() {
 }
 
 void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std::vector<Vec3>& velocities,
-                                   const std::vector<std::uint32_t>& species) {
+                                   const std::vector<std::uint32_t>& species, const std::vector<double>& e_rot,
+                                   const std::vector<double>& e_vib) {
   Impl& s = *impl_;
   const std::size_t total = positions.size();
   s.ensure_capacity(total);
@@ -767,6 +882,8 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
   auto hw = Kokkos::create_mirror_view(s.cur.weight);
   auto hk = Kokkos::create_mirror_view(s.cur.interactions);
   auto hdt = Kokkos::create_mirror_view(s.dt_cur);
+  auto her = Kokkos::create_mirror_view(s.cur.e_rot);
+  auto hev = Kokkos::create_mirror_view(s.cur.e_vib);
   for (std::size_t i = 0; i < total; ++i) {
     hx(i) = positions[i].x;
     hy(i) = positions[i].y;
@@ -779,6 +896,8 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
     hst(i) = static_cast<std::uint8_t>(ParticleStatus::Active);
     hw(i) = s.set.particle_weight;
     hk(i) = 0;
+    her(i) = i < e_rot.size() ? e_rot[i] : 0.0;
+    hev(i) = i < e_vib.size() ? e_vib[i] : 0.0;
     hdt(i) = s.set.timestep_s;
   }
   Kokkos::deep_copy(s.cur.x, hx);
@@ -793,6 +912,8 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
   Kokkos::deep_copy(s.cur.weight, hw);
   Kokkos::deep_copy(s.cur.interactions, hk);
   Kokkos::deep_copy(s.dt_cur, hdt);
+  Kokkos::deep_copy(s.cur.e_rot, her);
+  Kokkos::deep_copy(s.cur.e_vib, hev);
   s.n = total;
   s.next_id += total;
   s.bin();
@@ -823,6 +944,27 @@ std::vector<Vec3> DsmcSimulation::velocities() const {
 std::vector<Vec3> DsmcSimulation::positions() const {
   return host_vec3(impl_->cur.x, impl_->cur.y, impl_->cur.z, impl_->n);
 }
+std::vector<double> DsmcSimulation::rotational_energies() const {
+  auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->cur.e_rot);
+  return std::vector<double>(h.data(), h.data() + impl_->n);
+}
+
+std::vector<double> DsmcSimulation::vibrational_energies() const {
+  auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->cur.e_vib);
+  return std::vector<double>(h.data(), h.data() + impl_->n);
+}
+
+std::vector<std::uint32_t> DsmcSimulation::species() const {
+  auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->cur.species);
+  return std::vector<std::uint32_t>(h.data(), h.data() + impl_->n);
+}
+
+std::uint64_t DsmcSimulation::pair_collisions(int p, int q) const {
+  auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->pair_acc);
+  const int a = std::min(p, q), b = std::max(p, q);
+  return h(a * impl_->nsp + b);
+}
+
 std::vector<std::uint64_t> DsmcSimulation::particle_ids() const {
   auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), impl_->cur.particle_id);
   return std::vector<std::uint64_t>(h.data(), h.data() + impl_->n);
@@ -936,6 +1078,22 @@ DsmcResult DsmcSimulation::result() const {
     d.fraction_cells_below_5 = gas > 0 ? static_cast<double>(below5) / static_cast<double>(gas) : 0.0;
     d.fraction_cells_dx_gt_lambda = gas > 0 ? static_cast<double>(coarse) / static_cast<double>(gas) : 0.0;
     d.min_local_lambda_m = std::isfinite(min_lambda) ? min_lambda : s.set.lambda_inf_m;
+  }
+
+  // Per-species diagnostics.
+  {
+    auto pa = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.pair_acc);
+    const double ns = s.sampled > 0 ? static_cast<double>(s.sampled) : 1.0;
+    for (int q = 0; q < s.nsp; ++q) {
+      DsmcSpeciesDiagnostics sd;
+      sd.name = s.cfg.gas.species[static_cast<std::size_t>(q)].name;
+      sd.mean_particles = s.species_count_sum[static_cast<std::size_t>(q)] / ns;
+      sd.injected = s.species_injected[static_cast<std::size_t>(q)];
+      sd.force_N = s.species_P_sum[static_cast<std::size_t>(q)] / ns;
+      sd.heat_rate_W = s.species_E_sum[static_cast<std::size_t>(q)] / ns;
+      for (int o = 0; o < s.nsp; ++o) sd.collisions_with.push_back(pa(std::min(q, o) * s.nsp + std::max(q, o)));
+      r.species.push_back(sd);
+    }
   }
 
   // Warnings.

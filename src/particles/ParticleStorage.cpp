@@ -25,11 +25,15 @@ ParticleStorage::ParticleStorage(std::size_t capacity, const std::string& label)
       species(label + "_species", capacity),
       particle_id(label + "_id", capacity),
       status(label + "_status", capacity),
-      interactions(label + "_interactions", capacity) {}
+      interactions(label + "_interactions", capacity),
+      e_rot(label + "_erot", capacity),
+      e_vib(label + "_evib", capacity) {}
 
 void ParticleStorage::clear() {
   Kokkos::deep_copy(status, static_cast<std::uint8_t>(ParticleStatus::Free));
   Kokkos::deep_copy(interactions, 0u);
+  Kokkos::deep_copy(e_rot, 0.0);
+  Kokkos::deep_copy(e_vib, 0.0);
 }
 
 }  // namespace vleo

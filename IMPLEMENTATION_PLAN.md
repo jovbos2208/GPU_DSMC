@@ -840,15 +840,15 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 
 #### M4 – Gasgemische, innere Energie und Validierung
 
-- [ ] **M4.1** Speziesdatenbank mit Masse, VHS-Parametern, Einheiten und Quellen anlegen.
-- [ ] **M4.2** Artenpaar-Kollisionen und unterschiedliche Massen implementieren.
-- [ ] **M4.3** Gemischinjektion und artspezifische Diagnosen implementieren.
-- [ ] **M4.4** O/N/He-Mischung gegen homogene Referenzfälle testen.
-- [ ] **M4.5** Datenmodell für Rotations- und Vibrationsenergie festlegen.
-- [ ] **M4.6** Larsen-Borgnakke für Rotation implementieren und validieren.
-- [ ] **M4.7** N2 und O2 erst nach bestandenen Rotationstests freischalten.
-- [ ] **M4.8** Wärmebilanz um innere Energie erweitern.
-- [ ] **M4.9** Vibrationsmodell und VSS als getrennte Erweiterungen validieren.
+- [x] **M4.1** Speziesdatenbank mit Masse, VHS-Parametern, Einheiten und Quellen anlegen. → `docs/species.md` (Bird 1994, SPARTA 27Aug2026, IUPAC)
+- [x] **M4.2** Artenpaar-Kollisionen und unterschiedliche Massen implementieren.
+- [x] **M4.3** Gemischinjektion und artspezifische Diagnosen implementieren. → `diagnostics.species` in results.json
+- [x] **M4.4** O/N/He-Mischung gegen homogene Referenzfälle testen. → `test_mixture`: 6 Paar-Kollisionsraten ≤ 1,5σ
+- [x] **M4.5** Datenmodell für Rotations- und Vibrationsenergie festlegen. → e_rot kontinuierlich, e_vib quantisiert (SHO)
+- [x] **M4.6** Larsen-Borgnakke für Rotation implementieren und validieren. → Gleichgewicht 1,0018 ± 0,0021; Relaxationsrate −2,5 % vs. Herleitung
+- [x] **M4.7** N2 und O2 erst nach bestandenen Rotationstests freischalten.
+- [x] **M4.8** Wärmebilanz um innere Energie erweitern. → TPMC und DSMC; Wand: Maxwell, CLL mit alpha_rot/alpha_vib; N2-Platte analytisch
+- [x] **M4.9** Vibrationsmodell und VSS als getrennte Erweiterungen validieren. → quantisiertes LB; VSS-Streuwinkel (KS)
 - [ ] **M4.10** Maxwell-, CLL- und DSMC-Referenzfälle in SPARTA definieren.
 - [ ] **M4.11** sigma-t-/alpha-t-Übersetzung dokumentieren.
 - [ ] **M4.12** Ergebnisse automatisiert gegen SPARTA vergleichen.
@@ -857,10 +857,10 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 
 **Gate M4**
 
-- [ ] Gemischkollisionen erhalten Gesamtimpuls und Gesamtenergie.
-- [ ] Die Wärmebilanz schließt alle aktivierten Freiheitsgrade ein.
+- [x] Gemischkollisionen erhalten Gesamtimpuls und Gesamtenergie.
+- [x] Die Wärmebilanz schließt alle aktivierten Freiheitsgrade ein.
 - [ ] SPARTA-Fälle bestehen innerhalb der definierten Toleranzen.
-- [ ] Unterstützte Kombinationen sind in einer Capability-Matrix dokumentiert.
+- [x] Unterstützte Kombinationen sind in einer Capability-Matrix dokumentiert. → `docs/capabilities.md`
 
 #### M5 – Performance, Automatisierung und Release
 

@@ -31,14 +31,19 @@ struct GsiInteraction {
   Kokkos::View<const SurfaceProperties*> properties;  // indexed by material id
   Kokkos::View<const std::uint32_t*> material;         // per triangle
 
-  KOKKOS_INLINE_FUNCTION Vec3 operator()(const SurfaceEvent& e, RandomStream& rng) const {
+  KOKKOS_INLINE_FUNCTION InteractionResult operator()(const SurfaceEvent& e, RandomStream& rng) const {
     const SurfaceProperties& sp = properties(material(e.triangle));
-    return scatter_particle(e.velocity_in, sp.wall_velocity, e.normal_gas, e.mass_kg, 0.0, sp, rng).velocity_out;
+    const ScatteringResult r =
+        scatter_particle(e.velocity_in, sp.wall_velocity, e.normal_gas, e.modes, e.e_rot_in, e.e_vib_in, sp, rng);
+    return {r.velocity_out, r.e_rot_out, r.e_vib_out};
   }
   KOKKOS_INLINE_FUNCTION Vec3 wall_velocity(int triangle) const { return properties(material(triangle)).wall_velocity; }
 };
 
 SurfaceProperties make_surface_properties(const SurfaceSection& s);
+
+// Device data of the gas species (mass, internal modes, relaxation probabilities).
+std::vector<SpeciesModes> make_species_modes(const GasSection& gas);
 
 struct TpmcEstimates {
   std::array<Estimate, 3> force_N;

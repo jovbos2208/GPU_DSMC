@@ -56,6 +56,7 @@ class ParticleStorage {
   Kokkos::View<std::uint64_t*> particle_id;
   Kokkos::View<std::uint8_t*> status;          // ParticleStatus
   Kokkos::View<std::uint32_t*> interactions;   // surface interactions of the history
+  Kokkos::View<double*> e_rot, e_vib;           // internal energies [J] (zero for atoms)
 };
 
 }  // namespace vleo

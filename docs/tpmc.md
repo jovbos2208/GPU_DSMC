@@ -42,8 +42,16 @@ s = √(k T_w / m):
 - Random numbers: interaction k of history h uses the stream
   (seed, h, k + 1, SurfaceInteraction). Maxwell draws R first, then (diffuse)
   Z1, Z2 and R1; CLL draws Z1 … Z4.
-- First release: monatomic gases only, internal energy is passed through
-  unchanged (molecular species are rejected by the configuration until M4).
+- **Internal energy (M4.8):** molecules (N2, O2) carry rotational and
+  vibrational energy. Maxwell specular keeps both, Maxwell diffuse resamples
+  both at T_w. CLL: rotation with x' = (√((1−α_rot) x) + √(α_rot/2) Z5)² +
+  (α_rot/2) Z6², x = e_rot/(kT_w), so ⟨e_rot'⟩ = (1−α_rot) e_rot + α_rot kT_w
+  (α_rot = 1 is diffuse); vibration resampled at T_w with probability α_vib.
+  `cll.alpha_rot` and `cll.alpha_vib` default to `alpha_n`. The energy balance
+  is ΔE = ΔE_trans + (e_rot,i + e_vib,i) − (e_rot,r + e_vib,r).
+  Verified: N2 flat plate (diffuse) vs. the analytic flux including ⟨e_rot⟩ =
+  kT and the equilibrium vibrational energy (0.6624 ± 0.0003 W vs 0.6623 W);
+  N2/O2 equilibrium with Maxwell and CLL walls has zero net heat flux.
 
 Surface properties are stored per material id (all materials currently share
 the `surface` block of the configuration).
