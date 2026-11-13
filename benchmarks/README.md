@@ -157,7 +157,7 @@ because the input was already nearly sorted there). On the W7700 (`m5-ranksort-h
 | B3 | 6.10 | **2.75** | 2.2× | 59 % → 5 % | 0.71246 |
 | B4 | 6.73 | **5.12** | 1.31× | 28 % → 2 % | 4.61486 |
 
-B3 now runs at 7.9·10⁷ particle steps/s (4.3× the 12-thread CPU, 5.7× the
+B3 now runs at 7.9·10⁷ particle steps/s (4.3× the 12-thread CPU, 5.6× the
 iGPU), B4 at 5.6·10⁷ (3.2× CPU). TPMC unchanged (B1 0.32 s, B2 0.25 s).
 
 New profile on the W7700: collisions 42 % (B3) and **69 % (B4)**, move
