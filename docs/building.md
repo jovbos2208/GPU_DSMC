@@ -85,6 +85,7 @@ CPU builds, the GPU on CUDA/HIP builds).
 | 2026-11-13 | `cpu-debug` | GCC 15.2.0, `-Werror`, Kokkos bounds checks | M5: 51/51 tests pass |
 | 2026-11-13 | `cpu-asan` | GCC 15.2.0, ASan + LSan + UBSan, Kokkos Serial | M5: 51/51 tests pass, no sanitizer report |
 | 2026-11-13 | `hip-gfx1103` | HIP 7.1.52801, Radeon 740M iGPU (native) | M5: 52/52 tests pass; examples statistically equal to the CPU references (DSMC max z = 1.1, TPMC identical) |
+| 2026-11-13 | `hip-gfx1101` | HIP 6.3.1, 2× Radeon PRO W7700 (gfx1101), openSUSE 15 server | M5: 52/52 tests pass (73 s, incl. `examples_fixed_seeds`) |
 | – | `hip` (GFX942) | not yet available | **open** – compiles the same sources for MI300X; requires that hardware to run |
 
 ### Cross-backend comparison (Gate M2)
@@ -100,7 +101,7 @@ The histories are identical on all backends (counter-based RNG), so the
 results differ only by floating-point rounding in device math and reductions.
 
 Add a row whenever a preset is built on a new toolchain. Gates M0 and M5 still
-require a `cuda` row; the `hip-gfx1101` server has not yet run the M5 state.
+require a `cuda` row.
 
 ## Notes for GPU builds
 

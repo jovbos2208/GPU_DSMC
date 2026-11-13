@@ -40,7 +40,7 @@ Status of every supported combination and the test that validates it.
 | Backend | Status |
 | ------- | ------ |
 | CPU Serial / OpenMP | ✔ all tests |
-| HIP gfx1103 (Radeon 740M, native), gfx1101 (2× Radeon PRO W7700) | ✔ all tests (gfx1101: last full run at M4, see building.md) |
+| HIP gfx1103 (Radeon 740M, native), gfx1101 (2× Radeon PRO W7700) | ✔ all tests (M5 state, see building.md) |
 | HIP gfx942/gfx90a (MI300/MI250) | ◐ presets available, not run |
 | CUDA | ◐ preset available, not run (no hardware) |
 

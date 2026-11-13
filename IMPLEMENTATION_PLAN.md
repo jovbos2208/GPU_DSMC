@@ -878,7 +878,7 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 
 **Gate M5 – Release v1.0**
 
-- [!] CPU-, CUDA- und HIP-Regressionstests bestehen auf dokumentierten Plattformen. → CPU und HIP bestanden (`docs/building.md`); CUDA offen (keine NVIDIA-Hardware)
+- [!] CPU-, CUDA- und HIP-Regressionstests bestehen auf dokumentierten Plattformen. → CPU (cpu-debug, cpu-release, cpu-asan) und HIP (gfx1103, gfx1101/W7700: 52/52) bestanden (`docs/building.md`); CUDA offen (keine NVIDIA-Hardware)
 - [x] Validierungsberichte und Konvergenzstudien sind versioniert und reproduzierbar. → `validation/sparta/` (Skript + Archiv), `scripts/dsmc_studies.py`, Ergebnisse in `docs/dsmc.md` §8, feste Seeds
 - [x] Keine offene Abweichung betrifft unterstützte Physik oder eine Hauptausgabe. → offen ist nur CUDA (Backend, keine Physik); Zellgrößen-Punkt aus M3.17 erledigt (`docs/dsmc.md` §3.1)
 - [x] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar. → frischer Klon von `2777184`: `cpu-release` 52/52 inkl. bitweiser Beispielprüfung (2026-11-13); Checkliste `docs/development.md` §5 (beim Tag v1.0 inkl. GPU wiederholen)
