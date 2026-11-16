@@ -1183,7 +1183,9 @@ struct DsmcSimulation::Impl {
     move_migrant_count = Kokkos::View<int*>("dsmc_move_migrant_count", 1);
     if (decomposed)
       move_migrants =
-          Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_move_migrants"), 4096);
+          // small on purpose: the first steps overflow and exercise the fallback
+          // (multi-rank tests); the buffer then grows to the actual need
+          Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_move_migrants"), 64);
     // initial split by gas volume per plane (no particles yet)
     const std::vector<double> w = plane_sums(grid.gas_fraction, false);
     set_partition(decomposed ? agreed_split(w) : std::vector<int>{0, planes()});
@@ -1509,7 +1511,7 @@ struct DsmcSimulation::Impl {
       }
     }
 
-    migrate();
+    migrate_after_move();
     // Compact only when more than 5 % of the slots are no longer active
     // (deterministic decision; ended particles are skipped meanwhile).
     if (n - n_active > n / 20) {
