@@ -61,7 +61,10 @@ CASES = {
 # one, N2 is emitted and re-emitted without rotational energy, which gave a
 # 0.25 % lower heat rate in the first G-FM-D run); at n = 1e12 m^-3 the mean
 # free path is ~750 km, so collisions are negligible. Forces scale with n.
-N_FM, N_DSMC = 1.0e12, 3.0e18     # DSMC: lambda_inf ~ 0.8 m (Kn ~ 0.15 on GOCE, 0.1 on CHAMP)
+# DSMC: lambda_inf ~ 8 m (Kn ~ 1.5 on GOCE, ~1 on CHAMP). At 3e18 the pilot
+# runs resolved the dense layer at the wall (local lambda of a few cm) and
+# the grid needed ~200 M particles, beyond the 16 GB of one W7700.
+N_FM, N_DSMC = 1.0e12, 3.0e17
 SYS = {False: 0.01, True: 0.03}
 BLOCKS = 20
 

@@ -55,8 +55,13 @@ T_wall = 300 K. Domain: body bounding box + 0.3 m (free-molecular) or
 | G-FM-C | GOCE | free-molecular | O | CLL α_n = 0.85, σ_t = 0.65 | (0,0) (10,0) |
 | C-FM-D | CHAMP | free-molecular | O 0.7, N2 0.3 | diffuse | (0,0) (10,0) (30,0) (0,15) |
 | C-FM-C | CHAMP | free-molecular | O | CLL | (0,0) (10,0) |
-| G-DSMC | GOCE | DSMC, n = 3·10¹⁸ m⁻³ (λ∞ ≈ 0.8 m) | O | diffuse | (0,0) |
-| C-DSMC | CHAMP | DSMC, n = 3·10¹⁸ m⁻³ | O | diffuse | (0,0) |
+| G-DSMC | GOCE | DSMC, n = 3·10¹⁷ m⁻³ (λ∞ ≈ 8 m, Kn ≈ 1.5) | O | diffuse | (0,0) |
+| C-DSMC | CHAMP | DSMC, n = 3·10¹⁷ m⁻³ | O | diffuse | (0,0) |
+
+The DSMC density was first 3·10¹⁸ m⁻³. There the pilot runs resolved the
+dense layer at the wall (local λ of a few cm), and the run needed ~200 M
+particles: more than the 16 GB of one W7700 (allocation failure). With
+3·10¹⁷ m⁻³ the cells are ~10× larger.
 
 **Free-molecular SPARTA runs need a `collide` command.** Without one,
 SPARTA gives molecules no internal energy (emission and re-emission). The
