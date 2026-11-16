@@ -15,7 +15,13 @@ scheme in [docs/development.md](docs/development.md#versioning).
   give identical counters and results equal to rounding (`mpi` tests,
   `scripts/check_ranks.py`). Only rank 0 writes output; `run_metadata.json`
   records ranks and devices; `results.json` records the decomposition.
-- Cut-cell classification of the DSMC grid is shared among the ranks.
+- Cut-cell classification of the DSMC grid is shared among the ranks and
+  runs one team per cut cell (set-up of B5 on one W7700: 1.12 s → 0.19 s;
+  gas fractions bitwise unchanged).
+- Benchmark B5 (large DSMC case) and `benchmark.py run --ranks/--mpiexec/--scale`;
+  scaling on 2× W7700 in benchmarks/README.md (M6.7).
+- Profile: per-rank phases and loads, migration sub-phases, `run.setup`,
+  `run.fill`, `run.steps`, `run.result`.
 
 ### Fixed
 - DSMC species diagnostic `mean_particles` counted the slots of ended

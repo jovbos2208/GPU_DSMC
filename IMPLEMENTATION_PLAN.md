@@ -891,13 +891,13 @@ SPARTA (CPU/MPI und Kokkos-GPU) auf identischer Hardware, CUDA-Verifikation.
 
 Mehrere GPUs:
 
-- [ ] **M6.1** MPI-Build-Option (`VLEO_ENABLE_MPI`), Preset, Rank-/GPU-Zuordnung, nur Rank 0 schreibt Ausgaben.
-- [ ] **M6.2** TPMC auf mehreren Ranks: History-IDs aufteilen, Momente deterministisch zusammenführen.
-- [ ] **M6.3** DSMC-Gebietszerlegung: Zellebenen pro Rank, Partikelmigration nach dem Move, verteilte Injektion und Füllung, Zelllisten nach globaler ID.
-- [ ] **M6.4** Reduktionen: Zeitreihen pro Schritt, Zähler, Oberflächenfelder, Zelldiagnostik, Pilotläufe.
-- [ ] **M6.5** Lastausgleich am Ende des Warm-ups (Partikel pro Ebene); physikalisch neutral.
-- [ ] **M6.6** Tests: 1, 2, 3, 4 Ranks liefern identische ganzzahlige Zähler und gleiche Ergebnisse bis auf Rundung (TPMC und DSMC, CPU und GPU).
-- [ ] **M6.7** Skalierung auf 2× W7700 (stark und schwach) dokumentieren.
+- [x] **M6.1** MPI-Build-Option (`VLEO_ENABLE_MPI`), Preset, Rank-/GPU-Zuordnung, nur Rank 0 schreibt Ausgaben. → Presets `cpu-mpi`, `hip-gfx1101-mpi`, `hip-gfx1103-mpi`; Kokkos ordnet lokale Ranks den GPUs zu (W7700: `rank_device_ids [0, 1]`); `include/vleo/core/Comm.hpp`, `docs/parallel.md`
+- [x] **M6.2** TPMC auf mehreren Ranks: History-IDs aufteilen, Momente deterministisch zusammenführen. → zusammenhängende ID-Bereiche pro Batch, Momente in Rank-Reihenfolge gemergt
+- [x] **M6.3** DSMC-Gebietszerlegung: Zellebenen pro Rank, Partikelmigration nach dem Move, verteilte Injektion und Füllung, Zelllisten nach globaler ID. → z-Ebenen; Migranten im Move-Kernel erfasst; Gitteraufbau verteilt
+- [x] **M6.4** Reduktionen: Zeitreihen pro Schritt, Zähler, Oberflächenfelder, Zelldiagnostik, Pilotläufe. → pro Rank gesammelt, einmal in `result()` summiert (keine Kollektive pro Schritt außer dem Partikelaustausch)
+- [x] **M6.5** Lastausgleich am Ende des Warm-ups (Partikel pro Ebene); physikalisch neutral. → Zellzustand exakt übertragen; `test_comm`: mit/ohne Ausgleich identische Zähler; B5 1,215 M / 1,216 M Partikel pro Rank
+- [x] **M6.6** Tests: 1, 2, 3, 4 Ranks liefern identische ganzzahlige Zähler und gleiche Ergebnisse bis auf Rundung (TPMC und DSMC, CPU und GPU). → `mpi_ranks_*` (`scripts/check_ranks.py`), `test_comm_np2/3`; bestanden auf `cpu-mpi`, `hip-gfx1103-mpi` und `hip-gfx1101-mpi` (2× W7700)
+- [x] **M6.7** Skalierung auf 2× W7700 (stark und schwach) dokumentieren. → `benchmarks/README.md`: TPMC 1,86× / 96 %; DSMC B5 (2,4 M) 1,38× / 83 %, B3 (0,18 M) 0,99×
 
 Reale Satelliten:
 

@@ -1,4 +1,4 @@
-# Benchmarks (M5.1 – M5.5)
+# Benchmarks (M5.1 – M5.5, M6.7)
 
 Performance baseline, profiles and before/after measurements of the M5
 optimisations. Raw results: `results/*.json` (written by
@@ -199,3 +199,81 @@ the same version. Remaining profile on the W7700: B3 move 27 %, collide 25 %,
 step reduce 16 %; B4 collide 52 %, move 23 %. Further candidates: team size
 and chunk size of the wave kernel, the Larsen–Borgnakke branch divergence in
 mixed N2/O2 cells, and fusing the step reduction into the move kernel.
+
+## Several GPUs: 2× Radeon PRO W7700 (M6.7, 2026-11-16, `m6-mpi` at `6875868`)
+
+Server `hagen`, preset `hip-gfx1101-mpi`, Open MPI 5.0.6, one rank per GPU
+(`rank_device_ids [0, 1]`). Median of 3 runs, `--profile`:
+
+```bash
+python3 scripts/benchmark.py run $S w7700-mpi7-np1 --cases B1 B3 B4 B5
+python3 scripts/benchmark.py run $S w7700-mpi7-np2 --cases B1 B3 B4 B5 --ranks 2
+python3 scripts/benchmark.py run $S w7700-mpi7-np2-weak --cases B1 B5 --ranks 2 --scale 2
+```
+
+B5 is B4 with 0.05 m cells (8× the cells, 2.4 M particles), added to fill
+two GPUs. It is not part of the default set. `--scale 2` doubles the
+particles per cell (DSMC) or the histories (TPMC). C_D is identical for one
+and two GPUs in every case (z = 0.0): this is the decomposition guarantee of
+docs/parallel.md, here on GPUs.
+
+**Strong scaling (same problem on 2 GPUs).** Wall time is the full run
+(set-up, fill, time loop); "steps" is the fenced time loop only:
+
+| Case | particles | wall 1 GPU [s] | wall 2 GPUs [s] | speed-up | steps 1 → 2 GPUs [s] | steps speed-up |
+| ---- | --------- | -------------- | --------------- | -------- | -------------------- | -------------- |
+| B1 TPMC | 2·10⁷ histories | 0.315 | 0.169 | **1.86×** | – | – |
+| B3 DSMC | 0.18 M | 2.024 | 2.041 | 0.99× | 1.960 → 1.956 | 1.00× |
+| B4 DSMC | 0.37 M | 2.967 | 2.602 | 1.14× | 2.897 → 2.531 | 1.14× |
+| B5 DSMC | 2.4 M | 3.023 | 2.193 | **1.38×** | 2.782 → 1.949 | 1.43× |
+
+**Weak scaling (twice the problem on 2 GPUs):**
+
+| Case | throughput 1 GPU | throughput 2 GPUs | gain | efficiency |
+| ---- | ---------------- | ----------------- | ---- | ---------- |
+| B1 | 6.35·10⁷ histories/s | 1.22·10⁸ | 1.92× | 96 % |
+| B5 | 2.34·10⁸ particle steps/s | 3.88·10⁸ | 1.66× | 83 % |
+
+**Phases, B5 (rank 0, seconds per run):**
+
+| Phase | 1 GPU | 2 GPUs | ratio |
+| ----- | ----- | ------ | ----- |
+| move | 1.165 | 0.595 | 1.96× |
+| collide | 0.723 | 0.429 | 1.69× |
+| step reduce | 0.402 | 0.363 | 1.11× |
+| migrate (incl. MPI 0.121) | – | 0.314 | – |
+| set-up | 0.189 | 0.103 | 1.8× |
+
+Interpretation:
+
+- **TPMC** scales almost ideally: histories are independent, and only the
+  moments are exchanged once per batch.
+- **DSMC** gains only once each GPU has enough work. Move and collisions
+  scale. The costs per step that do not shrink with the problem size dominate
+  small cases: the step reduction (an array reduction over all particles that
+  only shrinks from 0.40 to 0.36 s here – cause not yet analysed) and the
+  particle exchange (~1 ms per step: two
+  device-to-host syncs, `MPI_Alltoall` + `MPI_Alltoallv` through host memory).
+  For B3 (0.18 M particles, ~1.6 ms per step on one GPU) two GPUs bring no
+  gain. Use one GPU per run for cases of that size.
+- Rule of thumb from these runs: several GPUs pay off from roughly 10⁶
+  particles per GPU (B5: 1.2 M per GPU, 1.43× in the time loop). Set-up and
+  fill are paid once, so long runs come closer to the time-loop speed-up.
+
+Optimisations made while measuring (all results unchanged; 1–4 ranks
+identical counters, tests `mpi`):
+
+| Step | B5, 2 GPUs [s] | change |
+| ---- | -------------- | ------ |
+| first multi-rank version | – (B4 1.08×) | per step: 2 `MPI_Allreduce`, buffer allocation, foreign-particle check |
+| per-rank statistics summed once in `result()` (`e5a4a50`) | 3.27 (1.20×) | only the particle exchange is left per step |
+| pinned staging buffers (`e4fcd19`) | 3.14 (1.25×) | |
+| migrants recorded by the move kernel, direct pinned exchange, contiguous sort keys (`2f9574a`, `5a3a767`) | 3.09 (1.27×) | migrate 0.46 → 0.27 s; no scan over all particles |
+| team-parallel cut-cell sampling (`6875868`) | **2.19 (1.38×)** | set-up 1.12 → 0.19 s on 1 GPU; also helps single-GPU runs |
+
+Next candidates (not done): fuse the step reduction into the move kernel
+(it does not scale and costs 13–19 % of the DSMC step on one GPU as well),
+overlap the particle exchange with the binning of the resident particles,
+and inject directly on the owning rank (injected particles are currently
+spread over the ranks by index and migrate after their first move; their
+share of the 12 000 migrants per step in B5 has not been measured).

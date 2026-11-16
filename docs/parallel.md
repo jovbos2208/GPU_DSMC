@@ -44,14 +44,14 @@ exactly, and surface fields are summed at the end.
 | Step | Single rank | Several ranks |
 | ---- | ----------- | ------------- |
 | ownership | all cells | contiguous range of z planes = cell range `[c_lo, c_hi)` |
-| grid set-up | all cells classified | every P-th cell per rank (interleaved), summed exactly |
 | fill | ids `[0, N)` | contiguous id share per rank, then migration to the cell owners |
 | injection | count per channel from `(step, channel)` | same counts on all ranks; contiguous share of the injection indices; migration after the move |
 | move | all particles | own particles |
-| migration | – | after the move: every active particle outside the owned planes is sent to the owner (`MPI_Alltoallv`, 96-byte records with id, interaction count, internal energies) |
+| migration | – | after the move: the move kernel records every particle that ends outside the owned planes; the host sorts the records by (destination, storage index) and sends them to the owners through pinned buffers (`MPI_Alltoall` + `MPI_Alltoallv`, 96-byte records with id, interaction count, internal energies). If the record buffer overflows, a scan over all particles is used for that step (the buffer then grows). |
 | binning | cell lists sorted by storage index | sorted by **global particle id** |
 | collisions | all cells | owned cells; streams `(cell, candidate, step)` as before |
-| reductions | – | step tallies and status counts (one `MPI_Allreduce` per step); collision counts (one per step); cell populations, surface fields, pair collision counts and the maximum speed once, in `result()` |
+| reductions | – | none per step: series, counters, particle counts and species sums are accumulated per rank and summed once in `result()`, together with the cell populations, surface fields, pair collision counts and the maximum speed |
+| grid set-up | all cells | centre test for every P-th cell, cut candidates (one team per cell, 16³ samples) for every P-th candidate; summed exactly |
 
 **Why the results are identical.** On one rank the storage order equals the
 id order (fill, injection and compaction preserve it). Sorting the cell lists
@@ -115,6 +115,14 @@ particles only.
   domains with few z planes, the balancing granularity is one plane.
 - The cell arrays are allocated in full on every rank (memory ∝ total cells
   per GPU). Only the owned range is processed per step.
-- The profile in `results.json` is that of rank 0 (`dsmc.migrate`,
-  `dsmc.mpi` and `dsmc.rebalance` are the parallel overheads).
-- Scaling measurements on 2× W7700: see M6.7 (`benchmarks/README.md`).
+- The profile in `results.json` is that of rank 0 (`dsmc.migrate` with its
+  sub-phases, `dsmc.mpi` and `dsmc.rebalance` are the parallel overheads).
+  With `--profile` and several ranks, `diagnostics.parallel.rank_profiles`
+  holds the phases of every rank and `rank_mean_particles` the load.
+  `run.setup`, `run.fill`, `run.steps` and `run.result` split the wall time.
+- **Scaling on 2× Radeon PRO W7700** (benchmarks/README.md): TPMC 1.86×
+  strong and 96 % weak efficiency. DSMC 1.38× strong (time loop 1.43×) and
+  83 % weak efficiency for B5 (2.4 M particles), but no gain for B3
+  (0.18 M particles). The per-step particle exchange (~1 ms) and the step
+  reduction do not shrink with the problem size. Use several GPUs from
+  roughly 10⁶ particles per GPU.
