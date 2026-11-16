@@ -53,6 +53,15 @@ KOKKOS_INLINE_FUNCTION double box_exit_time(const Aabb& box, const Vec3& o, cons
   return Kokkos::fmax(t, 0.0);
 }
 
+// Particle sent to another rank (M6.3). `slot` is the storage index on the
+// sending rank (deterministic send order).
+struct MigrantRecord {
+  double x, y, z, vx, vy, vz, weight, e_rot, e_vib;
+  std::uint64_t id;
+  std::uint32_t species, interactions;
+  int dest, slot;
+};
+
 struct MoveKernel {
   ParticleStorage p;
   Kokkos::View<double*> dt_rem;
@@ -68,6 +77,15 @@ struct MoveKernel {
   double dt;
   std::uint32_t max_interactions;
   bool specular_box;
+  // Several ranks (M6.7): particles that end the step outside the planes of
+  // this rank are recorded here (atomic append; the host restores the
+  // storage order). They stay Active until the step reduction has counted them.
+  bool find_migrants = false;
+  DeviceGrid grid{};
+  Kokkos::View<const int*> plane_owner{};
+  int me = 0;
+  Kokkos::View<MigrantRecord*> migrants{};
+  Kokkos::View<int*> migrant_count{};
 
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     for (int k = 0; k < kStepTallies; ++k) tally(i, k) = 0.0;
@@ -177,6 +195,30 @@ struct MoveKernel {
     p.e_vib(i) = e_vib;
     p.status(i) = static_cast<std::uint8_t>(status);
     dt_rem(i) = dt;
+    if (find_migrants && status == ParticleStatus::Active) {
+      const int owner = plane_owner(grid.cell_of(pos) / (grid.nx * grid.ny));
+      if (owner != me) {
+        const int slot = Kokkos::atomic_fetch_add(&migrant_count(0), 1);
+        if (slot < static_cast<int>(migrants.extent(0))) {
+          MigrantRecord r;
+          r.x = pos.x;
+          r.y = pos.y;
+          r.z = pos.z;
+          r.vx = vel.x;
+          r.vy = vel.y;
+          r.vz = vel.z;
+          r.weight = p.weight(i);
+          r.e_rot = e_rot;
+          r.e_vib = e_vib;
+          r.id = id;
+          r.species = sp;
+          r.interactions = k;
+          r.dest = owner;
+          r.slot = static_cast<int>(i);
+          migrants(slot) = r;
+        }
+      }
+    }
     tally(i, kTallyPx) = dp_sum.x;
     tally(i, kTallyPy) = dp_sum.y;
     tally(i, kTallyPz) = dp_sum.z;
@@ -395,11 +437,16 @@ struct FillCells {
   Kokkos::View<const int*> offset;
   Kokkos::View<int*> cursor;
   Kokkos::View<int*> list;
+  // GPU backends with several ranks: the sort key (particle id) is stored
+  // next to the list entry, so the rank sort reads it contiguously (M6.7)
+  Kokkos::View<const std::uint64_t*> id{};
+  Kokkos::View<std::uint64_t*> key{};
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     const int c = cell(i);
     if (c < 0) return;
     const int slot = Kokkos::atomic_fetch_add(&cursor(c), 1);
     list(offset(c) + slot) = static_cast<int>(i);
+    if (key.extent(0) > 0) key(offset(c) + slot) = id(i);
   }
 };
 
@@ -447,7 +494,7 @@ struct RankSortEntries {
   Kokkos::View<const int*> cell_of_particle;
   Kokkos::View<const int*> in;
   Kokkos::View<int*> out;
-  Kokkos::View<const std::uint64_t*> id;
+  Kokkos::View<const std::uint64_t*> key;  // per list entry (by_id only)
   bool by_id;
   KOKKOS_INLINE_FUNCTION void operator()(const int k) const {
     const int v = in(k);
@@ -455,8 +502,8 @@ struct RankSortEntries {
     const int b = offset(c), e = offset(c + 1);
     int r = 0;
     if (by_id) {
-      const std::uint64_t key = id(v);
-      for (int j = b; j < e; ++j) r += id(in(j)) < key ? 1 : 0;
+      const std::uint64_t kv = key(k);
+      for (int j = b; j < e; ++j) r += key(j) < kv ? 1 : 0;
     } else {
       for (int j = b; j < e; ++j) r += in(j) < v ? 1 : 0;
     }
@@ -715,13 +762,6 @@ struct AccumulateCounts {
 
 // --- Particle migration between ranks (M6.3) -----------------------------------
 
-struct MigrantRecord {
-  double x, y, z, vx, vy, vz, weight, e_rot, e_vib;
-  std::uint64_t id;
-  std::uint32_t species, interactions;
-  int dest, pad;
-};
-
 // Destination rank of every active particle that is not in an owned cell.
 struct MigrantScan {
   using value_type = std::size_t;
@@ -770,10 +810,18 @@ struct MigrantPack {
       r.species = p.species(i);
       r.interactions = p.interactions(i);
       r.dest = d;
-      r.pad = 0;
+      r.slot = static_cast<int>(i);
       buf(index(i)) = r;
     }
     p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Free);  // left this rank (not counted)
+  }
+};
+
+struct MigrantRetire {
+  ParticleStorage p;
+  Kokkos::View<const MigrantRecord*> buf;
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t k) const {
+    p.status(static_cast<std::size_t>(buf(k).slot)) = static_cast<std::uint8_t>(ParticleStatus::Free);
   }
 };
 
@@ -929,7 +977,8 @@ struct DsmcSimulation::Impl {
   Kokkos::View<double*> dt_cur, dt_alt;
   Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<std::size_t*> compact_index;
-  Kokkos::View<int*> cell_of_particle, list, list_unsorted;  // list_unsorted: GPU backends only
+  Kokkos::View<int*> cell_of_particle, list, list_unsorted;
+  Kokkos::View<std::uint64_t*> list_key;  // GPU backends, several ranks  // list_unsorted: GPU backends only
   int offset_total = 0;
 
   Kokkos::View<int*> count, offset, cursor;
@@ -958,9 +1007,11 @@ struct DsmcSimulation::Impl {
   int c_lo = 0, c_hi = 0;
   Kokkos::View<int*> plane_owner;     // per z plane
   Kokkos::View<int*> migrant_dest, foreign;
-  Kokkos::View<MigrantRecord*> migrant_buf, recv_dev;
+  Kokkos::View<MigrantRecord*> migrant_buf, recv_dev, move_migrants;
+  Kokkos::View<int*> move_migrant_count;
   // pinned host staging (fast device copies; HostSpace on host backends)
-  Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace> migrant_host, recv_host;
+  Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace> migrant_host, send_host, recv_host;
+  std::vector<std::uint32_t> order;
   DsmcDecomposition decomposition;
 
   int planes() const { return grid.grid.nz; }
@@ -1010,14 +1061,13 @@ struct DsmcSimulation::Impl {
   }
 
   // Sends every active particle that is not in an owned cell to the owner
-  // (drop: removes them without sending, set_particles). Called after the
-  // move, the fill and a change of the partition.
+  // (drop: removes them without sending, set_particles). Full scan over the
+  // particles: used after the fill, a change of the partition and as the
+  // fallback of migrate_after_move().
   void migrate(bool drop = false) {
     if (!decomposed) return;
     Profiler::Scope ps(prof, "dsmc.migrate");
-    if (migrant_dest.extent(0) < capacity) {
-      migrant_dest = Kokkos::View<int*>("dsmc_migrant_dest", capacity);
-    }
+    if (migrant_dest.extent(0) < capacity) migrant_dest = Kokkos::View<int*>("dsmc_migrant_dest", capacity);
     std::size_t m = 0;
     if (n > 0) {
       Profiler::Scope pq(prof, "dsmc.migrate.scan");
@@ -1037,51 +1087,84 @@ struct DsmcSimulation::Impl {
       Kokkos::fence();
       return;
     }
-    // exchange through host memory, in particle order per destination
-    std::vector<std::vector<char>> send(static_cast<std::size_t>(nranks));
-    if (m > 0) {
+    exchange(migrant_buf, m);
+  }
+
+  // After the move (M6.7): the move kernel has recorded the leaving particles,
+  // so no scan over all particles is needed. Falls back to migrate() if the
+  // record buffer overflowed (it then grows for the next steps).
+  void migrate_after_move() {
+    if (!decomposed) return;
+    int m = 0;
+    Kokkos::deep_copy(m, Kokkos::subview(move_migrant_count, 0));
+    Kokkos::deep_copy(move_migrant_count, 0);
+    const auto mm = static_cast<std::size_t>(m);
+    if (mm > move_migrants.extent(0)) {
+      move_migrants = Kokkos::View<MigrantRecord*>(
+          Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_move_migrants"), mm + mm / 2 + 1024);
+      ++migrate_fallbacks;
+      migrate();  // the particles are still Active: the scan finds all of them
+      return;
+    }
+    Profiler::Scope ps(prof, "dsmc.migrate");
+    if (mm > 0) {
+      Profiler::Scope pq(prof, "dsmc.migrate.pack");
+      Kokkos::parallel_for("vleo::dsmc_migrant_retire", policy(0, mm), MigrantRetire{cur, move_migrants});
+    }
+    n_active -= mm;
+    exchange(move_migrants, mm);
+  }
+
+  // Exchange of m records (device buffer) through pinned host memory. The
+  // records are sent in the order (destination, storage index), so the
+  // receivers append them deterministically.
+  void exchange(const Kokkos::View<MigrantRecord*>& dev, std::size_t m) {
+    std::vector<std::size_t> send_bytes(static_cast<std::size_t>(nranks), 0);
+    {
       Profiler::Scope pq(prof, "dsmc.migrate.to_host");
-      // persistent staging buffers: no allocation per step (M6.7)
-      if (m > migrant_host.extent(0))
+      if (m > migrant_host.extent(0)) {
+        const std::size_t cap = m + m / 2 + 1024;
         migrant_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
-            Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants_host"), migrant_buf.extent(0));
-      const auto range = Kokkos::make_pair(std::size_t{0}, m);
-      const auto h = Kokkos::subview(migrant_host, range);
-      Kokkos::deep_copy(h, Kokkos::subview(migrant_buf, range));
-      std::vector<std::size_t> cnt(static_cast<std::size_t>(nranks), 0);
-      for (std::size_t k = 0; k < m; ++k) ++cnt[static_cast<std::size_t>(h(k).dest)];
-      for (int r = 0; r < nranks; ++r) send[static_cast<std::size_t>(r)].reserve(cnt[static_cast<std::size_t>(r)] *
-                                                                                   sizeof(MigrantRecord));
-      for (std::size_t k = 0; k < m; ++k) {
-        const char* b = reinterpret_cast<const char*>(&h(k));
-        auto& dst = send[static_cast<std::size_t>(h(k).dest)];
-        dst.insert(dst.end(), b, b + sizeof(MigrantRecord));
+            Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants_host"), cap);
+        send_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
+            Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_send_host"), cap);
+      }
+      if (m > 0) {
+        const auto range = Kokkos::make_pair(std::size_t{0}, m);
+        Kokkos::deep_copy(Kokkos::subview(migrant_host, range), Kokkos::subview(dev, range));
+        order.resize(m);
+        for (std::size_t k = 0; k < m; ++k) order[k] = static_cast<std::uint32_t>(k);
+        const MigrantRecord* h = migrant_host.data();
+        std::sort(order.begin(), order.end(), [h](std::uint32_t a, std::uint32_t b) {
+          return h[a].dest != h[b].dest ? h[a].dest < h[b].dest : h[a].slot < h[b].slot;
+        });
+        for (std::size_t k = 0; k < m; ++k) {
+          send_host(k) = h[order[k]];
+          send_bytes[static_cast<std::size_t>(h[order[k]].dest)] += sizeof(MigrantRecord);
+        }
       }
     }
-    std::vector<std::vector<char>> recv;
+    std::size_t total = 0;
     {
       Profiler::Scope pm(prof, "dsmc.mpi");
-      recv = comm::alltoallv(send);
+      const std::vector<std::size_t> recv_bytes = comm::exchange_counts(send_bytes);
+      std::size_t bytes = 0;
+      for (std::size_t b : recv_bytes) bytes += b;
+      total = bytes / sizeof(MigrantRecord);
+      if (total > recv_host.extent(0)) {
+        const std::size_t cap = total + total / 2 + 1024;
+        recv_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
+            Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received_host"), cap);
+        recv_dev = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received"), cap);
+      }
+      comm::alltoallv(send_host.data(), send_bytes, recv_host.data(), recv_bytes);
     }
-    std::size_t total = 0;
-    for (const auto& b : recv) total += b.size() / sizeof(MigrantRecord);
     migrated += m;
     if (total == 0) return;
-    if (total > recv_host.extent(0)) {
-      const std::size_t cap = total + total / 2 + 64;
-      recv_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
-          Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received_host"), cap);
-      recv_dev = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received"), cap);
-    }
     Profiler::Scope pq(prof, "dsmc.migrate.from_host");
-    const auto hr = Kokkos::subview(recv_host, Kokkos::make_pair(std::size_t{0}, total));
-    const auto dr = Kokkos::subview(recv_dev, Kokkos::make_pair(std::size_t{0}, total));
-    std::size_t o = 0;
-    for (const auto& b : recv) {
-      if (!b.empty()) std::memcpy(reinterpret_cast<char*>(hr.data()) + o, b.data(), b.size());
-      o += b.size();
-    }
-    Kokkos::deep_copy(dr, hr);
+    const auto range = Kokkos::make_pair(std::size_t{0}, total);
+    const auto dr = Kokkos::subview(recv_dev, range);
+    Kokkos::deep_copy(dr, Kokkos::subview(recv_host, range));
     ensure_capacity(n + total);
     Kokkos::parallel_for("vleo::dsmc_migrant_unpack", policy(0, total),
                          MigrantUnpack{cur, dt_cur, dr, n, set.timestep_s});
@@ -1089,6 +1172,7 @@ struct DsmcSimulation::Impl {
     n_active += total;
   }
   std::uint64_t migrated = 0;  // particles sent by this rank
+  std::uint64_t migrate_fallbacks = 0;
 
   void init_partition() {
     nranks = comm::size();
@@ -1096,6 +1180,10 @@ struct DsmcSimulation::Impl {
     decomposed = nranks > 1;
     plane_owner = Kokkos::View<int*>("dsmc_plane_owner", static_cast<std::size_t>(planes()));
     foreign = Kokkos::View<int*>("dsmc_foreign", 1);
+    move_migrant_count = Kokkos::View<int*>("dsmc_move_migrant_count", 1);
+    if (decomposed)
+      move_migrants =
+          Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_move_migrants"), 4096);
     // initial split by gas volume per plane (no particles yet)
     const std::vector<double> w = plane_sums(grid.gas_fraction, false);
     set_partition(decomposed ? agreed_split(w) : std::vector<int>{0, planes()});
@@ -1221,7 +1309,11 @@ struct DsmcSimulation::Impl {
     compact_index = Kokkos::View<std::size_t*>("dsmc_compact_index", cap);
     cell_of_particle = Kokkos::View<int*>("dsmc_cell", cap);
     list = Kokkos::View<int*>("dsmc_cell_list", cap);
-    if constexpr (!kHostExecution) list_unsorted = Kokkos::View<int*>("dsmc_cell_list_unsorted", cap);
+    if constexpr (!kHostExecution) {
+      list_unsorted = Kokkos::View<int*>("dsmc_cell_list_unsorted", cap);
+      if (comm::size() > 1)
+        list_key = Kokkos::View<std::uint64_t*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_cell_list_key"), cap);
+    }
     capacity = cap;
   }
 
@@ -1293,7 +1385,8 @@ struct DsmcSimulation::Impl {
     {
       Profiler::Scope ps(prof, "dsmc.bin.fill");
       Kokkos::parallel_for("vleo::dsmc_fill_cells", policy(0, n),
-                           FillCells{cell_of_particle, offset, cursor, kHostExecution ? list : list_unsorted});
+                           FillCells{cell_of_particle, offset, cursor, kHostExecution ? list : list_unsorted,
+                                     cur.particle_id, list_key});
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.sort");
@@ -1302,7 +1395,7 @@ struct DsmcSimulation::Impl {
                              SortCells{offset, list, cur.particle_id, decomposed});
       } else {
         Kokkos::parallel_for("vleo::dsmc_rank_sort", IntPolicy(0, offset_total),
-                             RankSortEntries{offset, cell_of_particle, list_unsorted, list, cur.particle_id, decomposed});
+                             RankSortEntries{offset, cell_of_particle, list_unsorted, list, list_key, decomposed});
       }
     }
   }
@@ -1360,6 +1453,14 @@ struct DsmcSimulation::Impl {
                   set.timestep_s,
                   set.max_interactions_per_step,
                   set.boundary == DsmcBoundary::Specular};
+    if (decomposed) {
+      mk.find_migrants = true;
+      mk.grid = grid.grid;
+      mk.plane_owner = plane_owner;
+      mk.me = me;
+      mk.migrants = move_migrants;
+      mk.migrant_count = move_migrant_count;
+    }
     {
       Profiler::Scope ps(prof, "dsmc.move");
       Kokkos::parallel_for("vleo::dsmc_move", policy(0, n), mk);

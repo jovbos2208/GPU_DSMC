@@ -64,6 +64,13 @@ std::vector<std::string> allgather(const std::string& value);  // strings of any
 // Personalised all-to-all exchange of byte blocks: send[k] goes to rank k.
 // Returns the received blocks, recv[k] from rank k.
 std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& send);
+// Allocation-free variant: exchange_counts() sends send_bytes[k] to rank k
+// and returns the byte counts that will arrive from every rank; alltoallv()
+// then moves contiguous, destination-ordered blocks from `send` to `recv`
+// (recv must hold the sum of recv_bytes, in rank order).
+std::vector<std::size_t> exchange_counts(const std::vector<std::size_t>& send_bytes);
+void alltoallv(const void* send, const std::vector<std::size_t>& send_bytes, void* recv,
+               const std::vector<std::size_t>& recv_bytes);
 // Broadcast from rank 0.
 void broadcast(void* data, std::size_t bytes);
 

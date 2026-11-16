@@ -182,6 +182,39 @@ std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& s
   return recv;
 }
 
+std::vector<std::size_t> exchange_counts(const std::vector<std::size_t>& send_bytes) {
+  const int p = size();
+  if (static_cast<int>(send_bytes.size()) != p) throw std::invalid_argument("comm::exchange_counts: one count per rank");
+  if (p == 1) return send_bytes;
+  std::vector<std::uint64_t> s(send_bytes.begin(), send_bytes.end()), r(static_cast<std::size_t>(p));
+  check(MPI_Alltoall(s.data(), 1, MPI_UINT64_T, r.data(), 1, MPI_UINT64_T, MPI_COMM_WORLD), "MPI_Alltoall");
+  return std::vector<std::size_t>(r.begin(), r.end());
+}
+
+void alltoallv(const void* send, const std::vector<std::size_t>& send_bytes, void* recv,
+               const std::vector<std::size_t>& recv_bytes) {
+  const int p = size();
+  if (p == 1) {
+    if (send_bytes[0] > 0) std::memcpy(recv, send, send_bytes[0]);
+    return;
+  }
+  std::vector<int> sc(static_cast<std::size_t>(p)), sd(static_cast<std::size_t>(p)), rc(static_cast<std::size_t>(p)),
+      rd(static_cast<std::size_t>(p));
+  std::size_t so = 0, ro = 0;
+  for (std::size_t k = 0; k < static_cast<std::size_t>(p); ++k) {
+    if (so + send_bytes[k] > static_cast<std::size_t>(INT_MAX) || ro + recv_bytes[k] > static_cast<std::size_t>(INT_MAX))
+      throw std::runtime_error("comm::alltoallv: message too large");
+    sc[k] = static_cast<int>(send_bytes[k]);
+    sd[k] = static_cast<int>(so);
+    rc[k] = static_cast<int>(recv_bytes[k]);
+    rd[k] = static_cast<int>(ro);
+    so += send_bytes[k];
+    ro += recv_bytes[k];
+  }
+  check(MPI_Alltoallv(send, sc.data(), sd.data(), MPI_BYTE, recv, rc.data(), rd.data(), MPI_BYTE, MPI_COMM_WORLD),
+        "MPI_Alltoallv");
+}
+
 void broadcast(void* data, std::size_t bytes) {
   if (size() == 1) return;
   auto* p = static_cast<char*>(data);
@@ -220,6 +253,13 @@ std::vector<std::string> allgather(const std::string& value) { return {value}; }
 std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& send) {
   if (send.size() != 1) throw std::invalid_argument("comm::alltoallv: one block per rank required");
   return send;
+}
+
+std::vector<std::size_t> exchange_counts(const std::vector<std::size_t>& send_bytes) { return send_bytes; }
+
+void alltoallv(const void* send, const std::vector<std::size_t>& send_bytes, void* recv,
+               const std::vector<std::size_t>&) {
+  if (!send_bytes.empty() && send_bytes[0] > 0) std::memcpy(recv, send, send_bytes[0]);
 }
 
 void broadcast(void*, std::size_t) {}
