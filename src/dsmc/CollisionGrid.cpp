@@ -36,7 +36,8 @@ DeviceGrid make_device_grid(const Domain& domain, double cell_size, std::int64_t
 
 namespace {
 
-// Classifies every cell: cut candidates are sampled, the others use their centre.
+// Classifies the cells that are not cut candidates by their centre (cut
+// candidates: CutCellKernel).
 struct FractionKernel {
   DeviceGrid grid;
   DeviceGeometry geo;
@@ -52,20 +53,39 @@ struct FractionKernel {
       fraction(c) = 1.0;
       return;
     }
+    if (candidate(c)) return;
+    fraction(c) = inside_body(geo, grid.cell_box(c).center()) ? 0.0 : 1.0;
+  }
+};
+
+// Cut candidates: one team per cell, the ns^3 stratified samples are shared
+// among the team's threads (M6.7: one thread per cell left the GPU waiting
+// for the few thousand cells near the body, independent of their number).
+// The outside count is an integer, so the fraction does not depend on the
+// summation order.
+struct CutCellKernel {
+  using Member = Kokkos::TeamPolicy<>::member_type;
+  DeviceGrid grid;
+  DeviceGeometry geo;
+  Kokkos::View<const int*> cells;
+  Kokkos::View<double*> fraction;
+  int ns;
+
+  KOKKOS_INLINE_FUNCTION void operator()(const Member& t) const {
+    const int c = cells(t.league_rank());
     const Aabb b = grid.cell_box(c);
-    if (!candidate(c)) {
-      fraction(c) = inside_body(geo, b.center()) ? 0.0 : 1.0;
-      return;
-    }
+    const int total = ns * ns * ns;
     int outside = 0;
-    for (int k = 0; k < ns; ++k)
-      for (int j = 0; j < ns; ++j)
-        for (int i = 0; i < ns; ++i) {
+    Kokkos::parallel_reduce(
+        Kokkos::TeamThreadRange(t, total),
+        [&](const int q, int& o) {
+          const int i = q % ns, j = (q / ns) % ns, k = q / (ns * ns);
           const Vec3 p(b.lo.x + (i + 0.5) * grid.cell_size.x / ns, b.lo.y + (j + 0.5) * grid.cell_size.y / ns,
                        b.lo.z + (k + 0.5) * grid.cell_size.z / ns);
-          outside += inside_body(geo, p) ? 0 : 1;
-        }
-    fraction(c) = static_cast<double>(outside) / static_cast<double>(ns * ns * ns);
+          o += inside_body(geo, p) ? 0 : 1;
+        },
+        outside);
+    Kokkos::single(Kokkos::PerTeam(t), [&]() { fraction(c) = static_cast<double>(outside) / static_cast<double>(total); });
   }
 };
 
@@ -116,6 +136,21 @@ CollisionGrid make_collision_grid(const Domain& domain, double cell_size, const 
     Kokkos::parallel_for("vleo::cell_fractions", Kokkos::RangePolicy<>(0, mine),
                          FractionKernel{g, geometry.device, d_cand, cg.gas_fraction, options.samples_per_axis,
                                         has_closed, me, nranks});
+  if (has_closed) {  // cut candidates of this rank: every P-th in index order
+    std::vector<int> own;
+    int k = 0;
+    for (int c = 0; c < nc; ++c)
+      if (cand[static_cast<std::size_t>(c)] && k++ % nranks == me) own.push_back(c);
+    if (!own.empty()) {
+      Kokkos::View<int*> d_own("cut_cells", own.size());
+      auto h = Kokkos::create_mirror_view(d_own);
+      for (std::size_t q = 0; q < own.size(); ++q) h(q) = own[q];
+      Kokkos::deep_copy(d_own, h);
+      Kokkos::parallel_for("vleo::cut_cell_fractions",
+                           Kokkos::TeamPolicy<>(static_cast<int>(own.size()), Kokkos::AUTO),
+                           CutCellKernel{g, geometry.device, d_own, cg.gas_fraction, options.samples_per_axis});
+    }
+  }
   Kokkos::fence();
 
   Kokkos::View<double*, Kokkos::HostSpace> f("gas_fraction_host", static_cast<std::size_t>(nc));
