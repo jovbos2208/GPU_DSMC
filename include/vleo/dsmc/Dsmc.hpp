@@ -223,7 +223,7 @@ class DsmcSimulation {
   // Advances one time step; `sample` adds the step to the sampling statistics.
   void step(bool sample);
 
-  std::size_t num_particles() const;        // active particles (all ranks)
+  std::size_t num_particles() const;        // active particles (all ranks; collective)
   std::size_t num_local_particles() const;  // active particles on this rank
   // Several ranks: re-splits the cell planes by the current particle count
   // (collective; no effect on the results). Called by run_dsmc after the warm-up.
@@ -237,6 +237,7 @@ class DsmcSimulation {
   const DsmcSettings& settings() const;
   std::uint64_t sampled_steps() const;
 
+  // counters() holds the contributions of this rank (result() sums them).
   // Host copies of the current particle state of this rank (tests, diagnostics).
   std::vector<Vec3> velocities() const;
   std::vector<Vec3> positions() const;

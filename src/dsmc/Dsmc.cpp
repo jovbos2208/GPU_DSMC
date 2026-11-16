@@ -944,7 +944,7 @@ struct DsmcSimulation::Impl {
   DsmcCounters counters;
   std::array<std::vector<double>, kHistoryQuantities> series;
   std::uint64_t sampled = 0;
-  double particles_sum = 0.0, particles_min = 1e300, particles_max = 0.0;
+  std::vector<double> particles_sampled;  // active particles of this rank per sampled step
   double max_speed = 0.0;
   std::uint64_t sampled_cand = 0, sampled_acc = 0, sampled_particle_steps = 0;
   double total_particle_steps = 0.0;
@@ -958,8 +958,8 @@ struct DsmcSimulation::Impl {
   int c_lo = 0, c_hi = 0;
   Kokkos::View<int*> plane_owner;     // per z plane
   Kokkos::View<int*> migrant_dest, foreign;
-  Kokkos::View<MigrantRecord*> migrant_buf;
-  std::uint64_t global_active = 0;    // active particles on all ranks
+  Kokkos::View<MigrantRecord*> migrant_buf, recv_dev;
+  Kokkos::View<MigrantRecord*, Kokkos::HostSpace> migrant_host, recv_host;
   DsmcDecomposition decomposition;
 
   int planes() const { return grid.grid.nz; }
@@ -1021,7 +1021,9 @@ struct DsmcSimulation::Impl {
     if (n > 0)
       Kokkos::parallel_scan("vleo::dsmc_migrant_scan", policy(0, n),
                             MigrantScan{cur, grid.grid, plane_owner, migrant_dest, compact_index, me}, m);
-    if (m > migrant_buf.extent(0)) migrant_buf = Kokkos::View<MigrantRecord*>("dsmc_migrants", m + m / 2 + 64);
+    if (m > migrant_buf.extent(0))
+      migrant_buf = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants"),
+                                                 m + m / 2 + 64);
     if (m > 0)
       Kokkos::parallel_for("vleo::dsmc_migrant_pack", policy(0, n),
                            MigrantPack{cur, migrant_dest, compact_index, migrant_buf, drop});
@@ -1033,8 +1035,13 @@ struct DsmcSimulation::Impl {
     // exchange through host memory, in particle order per destination
     std::vector<std::vector<char>> send(static_cast<std::size_t>(nranks));
     if (m > 0) {
-      auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(),
-                                                   Kokkos::subview(migrant_buf, Kokkos::make_pair(std::size_t{0}, m)));
+      // persistent staging buffers: no allocation per step (M6.7)
+      if (m > migrant_host.extent(0))
+        migrant_host = Kokkos::View<MigrantRecord*, Kokkos::HostSpace>(
+            Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants_host"), migrant_buf.extent(0));
+      const auto range = Kokkos::make_pair(std::size_t{0}, m);
+      const auto h = Kokkos::subview(migrant_host, range);
+      Kokkos::deep_copy(h, Kokkos::subview(migrant_buf, range));
       std::vector<std::size_t> cnt(static_cast<std::size_t>(nranks), 0);
       for (std::size_t k = 0; k < m; ++k) ++cnt[static_cast<std::size_t>(h(k).dest)];
       for (int r = 0; r < nranks; ++r) send[static_cast<std::size_t>(r)].reserve(cnt[static_cast<std::size_t>(r)] *
@@ -1054,13 +1061,19 @@ struct DsmcSimulation::Impl {
     for (const auto& b : recv) total += b.size() / sizeof(MigrantRecord);
     migrated += m;
     if (total == 0) return;
-    Kokkos::View<MigrantRecord*, Kokkos::HostSpace> hr("dsmc_received", total);
+    if (total > recv_host.extent(0)) {
+      const std::size_t cap = total + total / 2 + 64;
+      recv_host = Kokkos::View<MigrantRecord*, Kokkos::HostSpace>(
+          Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received_host"), cap);
+      recv_dev = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received"), cap);
+    }
+    const auto hr = Kokkos::subview(recv_host, Kokkos::make_pair(std::size_t{0}, total));
+    const auto dr = Kokkos::subview(recv_dev, Kokkos::make_pair(std::size_t{0}, total));
     std::size_t o = 0;
     for (const auto& b : recv) {
       if (!b.empty()) std::memcpy(reinterpret_cast<char*>(hr.data()) + o, b.data(), b.size());
       o += b.size();
     }
-    Kokkos::View<MigrantRecord*> dr("dsmc_received_dev", total);
     Kokkos::deep_copy(dr, hr);
     ensure_capacity(n + total);
     Kokkos::parallel_for("vleo::dsmc_migrant_unpack", policy(0, total),
@@ -1115,7 +1128,57 @@ struct DsmcSimulation::Impl {
     compact();
   }
 
-  void update_global_active() { global_active = decomposed ? comm::sum(static_cast<std::uint64_t>(n_active)) : n_active; }
+  // Additive statistics. Each rank accumulates its own contributions during
+  // the run (no communication per step, M6.7); totals() sums them over the
+  // ranks once (collective). Steps, injection counts and the fill count are
+  // the same on every rank and are not summed.
+  struct Totals {
+    DsmcCounters counters;
+    std::array<std::vector<double>, kHistoryQuantities> series;
+    std::vector<double> particles;  // per sampled step
+    std::vector<double> species_count, species_E;
+    std::vector<Vec3> species_P;
+    double total_particle_steps = 0.0;
+    std::uint64_t sampled_cand = 0, sampled_acc = 0, sampled_particle_steps = 0;
+  };
+  Totals totals() const {
+    Totals t;
+    t.counters = counters;
+    t.series = series;
+    t.particles = particles_sampled;
+    t.species_count = species_count_sum;
+    t.species_E = species_E_sum;
+    t.species_P = species_P_sum;
+    t.total_particle_steps = total_particle_steps;
+    t.sampled_cand = sampled_cand;
+    t.sampled_acc = sampled_acc;
+    t.sampled_particle_steps = sampled_particle_steps;
+    if (!decomposed) return t;
+    DsmcCounters& c = t.counters;
+    std::uint64_t u[11] = {c.exited, c.truncated, c.lost_inside_body, c.invalid, c.surface_interactions,
+                           c.collision_candidates, c.collisions, c.sigma_g_max_updates, t.sampled_cand, t.sampled_acc,
+                           t.sampled_particle_steps};
+    comm::sum(u, 11);
+    c.exited = u[0];
+    c.truncated = u[1];
+    c.lost_inside_body = u[2];
+    c.invalid = u[3];
+    c.surface_interactions = u[4];
+    c.collision_candidates = u[5];
+    c.collisions = u[6];
+    c.sigma_g_max_updates = u[7];
+    t.sampled_cand = u[8];
+    t.sampled_acc = u[9];
+    t.sampled_particle_steps = u[10];
+    for (auto& v : t.series) comm::sum(v.data(), v.size());  // same length on all ranks
+    comm::sum(t.particles.data(), t.particles.size());
+    comm::sum(t.species_count.data(), t.species_count.size());
+    comm::sum(t.species_E.data(), t.species_E.size());
+    static_assert(sizeof(Vec3) == 3 * sizeof(double));
+    comm::sum(reinterpret_cast<double*>(t.species_P.data()), 3 * t.species_P.size());
+    t.total_particle_steps = comm::sum(t.total_particle_steps);
+    return t;
+  }
 
   void allocate(std::size_t cap) {
     if (cap > set.max_particles) {
@@ -1200,7 +1263,6 @@ struct DsmcSimulation::Impl {
     }
     n += local;
     n_active += local;
-    global_active += total;
     next_id += total;
     counters.injected += total;
   }
@@ -1213,11 +1275,6 @@ struct DsmcSimulation::Impl {
       Kokkos::deep_copy(Kokkos::subview(cursor, owned), 0);
       Kokkos::parallel_for("vleo::dsmc_cell_index", policy(0, n),
                            CellIndexKernel{cur, grid.grid, cell_of_particle, count, c_lo, c_hi, foreign});
-    }
-    if (decomposed) {
-      int lost = 0;
-      Kokkos::deep_copy(lost, Kokkos::subview(foreign, 0));
-      if (lost > 0) throw std::logic_error("DSMC: particles outside the cells of their rank after migration");
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.scan");
@@ -1268,10 +1325,6 @@ struct DsmcSimulation::Impl {
     std::uint64_t s[3] = {0, 0, 0};
     if (nc > 0)
       Kokkos::parallel_reduce("vleo::dsmc_collision_counts", IntPolicy(c_lo, c_hi), SumU64x3{3, cand, acc, upd}, s);
-    if (decomposed) {
-      Profiler::Scope pm(prof, "dsmc.mpi");
-      comm::sum(s, 3);
-    }
     counters.collision_candidates += s[0];
     counters.collisions += s[1];
     counters.sigma_g_max_updates += s[2];
@@ -1285,7 +1338,7 @@ struct DsmcSimulation::Impl {
       Profiler::Scope ps(prof, "dsmc.inject");
       inject();
     }
-    total_particle_steps += static_cast<double>(global_active);
+    total_particle_steps += static_cast<double>(n_active);
     MoveKernel mk{cur,
                   dt_cur,
                   tally,
@@ -1325,11 +1378,6 @@ struct DsmcSimulation::Impl {
       s[kStepInteractions] = c[kNumParticleStatus];
     }
     n_active = static_cast<std::size_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
-    if (decomposed) {  // global tallies and counts (counts are exact in double below 2^53)
-      Profiler::Scope pm(prof, "dsmc.mpi");
-      comm::sum(s, StepReduce::kSlots);
-    }
-    global_active = static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
     counters.exited += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Exited)]);
     counters.truncated += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Truncated)]);
     counters.lost_inside_body +=
@@ -1374,13 +1422,10 @@ struct DsmcSimulation::Impl {
       if (n > 0)
         Kokkos::parallel_reduce("vleo::dsmc_max_speed", policy(0, n), MaxSpeed{cur}, Kokkos::Max<double>(vmax));
       max_speed = std::max(max_speed, vmax);
-      const double np = static_cast<double>(global_active);
-      particles_sum += np;
-      particles_min = std::min(particles_min, np);
-      particles_max = std::max(particles_max, np);
+      particles_sampled.push_back(static_cast<double>(n_active));
       sampled_cand += last_cand;
       sampled_acc += last_acc;
-      sampled_particle_steps += global_active;
+      sampled_particle_steps += n_active;
       ++sampled;
     }
     ++step_index;
@@ -1481,7 +1526,6 @@ void DsmcSimulation::fill_freestream() {
     s.compact();
   }
   s.counters.removed_inside_at_fill += removed;
-  s.update_global_active();
   s.bin();
 }
 
@@ -1540,12 +1584,13 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
     s.migrate(true);
     s.compact();
   }
-  s.update_global_active();
   s.bin();
 }
 
 void DsmcSimulation::step(bool sample) { impl_->step(sample); }
-std::size_t DsmcSimulation::num_particles() const { return impl_->global_active; }
+std::size_t DsmcSimulation::num_particles() const {
+  return impl_->decomposed ? comm::sum(static_cast<std::uint64_t>(impl_->n_active)) : impl_->n_active;
+}
 std::size_t DsmcSimulation::num_local_particles() const { return impl_->n_active; }
 void DsmcSimulation::rebalance() { impl_->rebalance(); }
 const DsmcDecomposition& DsmcSimulation::decomposition() const { return impl_->decomposition; }
@@ -1612,16 +1657,22 @@ void DsmcSimulation::binning(std::vector<int>& offsets, std::vector<int>& list) 
 
 DsmcResult DsmcSimulation::result() const {
   const Impl& s = *impl_;
+  if (s.decomposed) {  // migration must have left every particle in a cell of its rank
+    int lost = 0;
+    Kokkos::deep_copy(lost, Kokkos::subview(s.foreign, 0));
+    if (comm::any(lost > 0)) throw std::logic_error("DSMC: particles outside the cells of their rank after migration");
+  }
+  const Impl::Totals tot = s.totals();
   DsmcResult r;
   r.settings = s.set;
-  r.counters = s.counters;
+  r.counters = tot.counters;
   r.grid = s.grid.report;
   r.critical_value = critical_value(s.cfg.statistics.confidence_level);
   const double z = r.critical_value;
 
   std::array<Estimate, kHistoryQuantities> base{};
   for (std::size_t q = 0; q < base.size(); ++q) {
-    r.series[q] = analyze_series(s.series[q], s.set.blocks);
+    r.series[q] = analyze_series(tot.series[q], s.set.blocks);
     base[q].value = r.series[q].mean;
     base[q].std_error = r.series[q].std_error_blocks;
   }
@@ -1686,12 +1737,18 @@ DsmcResult DsmcSimulation::result() const {
   d.max_cfl = comm::max(s.max_speed) * s.set.timestep_s / dx_min;
   d.free_stream_collisions_per_particle_per_step = s.set.timestep_s / s.set.tau_inf_s;
   if (s.sampled > 0) {
-    d.particles_mean = s.particles_sum / static_cast<double>(s.sampled);
-    d.particles_min = s.particles_min;
-    d.particles_max = s.particles_max;
-    d.acceptance_ratio = s.sampled_cand > 0 ? static_cast<double>(s.sampled_acc) / static_cast<double>(s.sampled_cand) : 0.0;
+    double psum = 0.0, pmin = 1e300, pmax = 0.0;
+    for (double np : tot.particles) {
+      psum += np;
+      pmin = std::min(pmin, np);
+      pmax = std::max(pmax, np);
+    }
+    d.particles_mean = psum / static_cast<double>(s.sampled);
+    d.particles_min = pmin;
+    d.particles_max = pmax;
+    d.acceptance_ratio = tot.sampled_cand > 0 ? static_cast<double>(tot.sampled_acc) / static_cast<double>(tot.sampled_cand) : 0.0;
     d.collisions_per_particle_per_step =
-        s.sampled_particle_steps > 0 ? 2.0 * static_cast<double>(s.sampled_acc) / static_cast<double>(s.sampled_particle_steps)
+        tot.sampled_particle_steps > 0 ? 2.0 * static_cast<double>(tot.sampled_acc) / static_cast<double>(tot.sampled_particle_steps)
                                      : 0.0;
     Kokkos::View<double*, Kokkos::HostSpace> cs("dsmc_count_sum_host", s.count_sum.extent(0));
     Kokkos::deep_copy(cs, s.count_sum);
@@ -1722,7 +1779,7 @@ DsmcResult DsmcSimulation::result() const {
   }
 
   r.profile = s.prof.phases();
-  r.particle_steps = s.total_particle_steps;
+  r.particle_steps = tot.total_particle_steps;
   r.decomposition = s.decomposition;
   r.decomposition.migrated = s.decomposed ? comm::sum(s.migrated) : 0;
 
@@ -1735,10 +1792,10 @@ DsmcResult DsmcSimulation::result() const {
     for (int q = 0; q < s.nsp; ++q) {
       DsmcSpeciesDiagnostics sd;
       sd.name = s.cfg.gas.species[static_cast<std::size_t>(q)].name;
-      sd.mean_particles = s.species_count_sum[static_cast<std::size_t>(q)] / ns;
+      sd.mean_particles = tot.species_count[static_cast<std::size_t>(q)] / ns;
       sd.injected = s.species_injected[static_cast<std::size_t>(q)];
-      sd.force_N = s.species_P_sum[static_cast<std::size_t>(q)] / ns;
-      sd.heat_rate_W = s.species_E_sum[static_cast<std::size_t>(q)] / ns;
+      sd.force_N = tot.species_P[static_cast<std::size_t>(q)] / ns;
+      sd.heat_rate_W = tot.species_E[static_cast<std::size_t>(q)] / ns;
       for (int o = 0; o < s.nsp; ++o) sd.collisions_with.push_back(pa(std::min(q, o) * s.nsp + std::max(q, o)));
       r.species.push_back(sd);
     }
@@ -1746,7 +1803,7 @@ DsmcResult DsmcSimulation::result() const {
 
   // Warnings.
   auto warn = [&r](const std::string& w) { r.warnings.push_back(w); };
-  const DsmcCounters& c = s.counters;
+  const DsmcCounters& c = tot.counters;
   if (c.truncated > 0) warn(std::to_string(c.truncated) + " particles exceeded the interaction limit per step");
   if (c.lost_inside_body + c.invalid > 0)
     warn(std::to_string(c.lost_inside_body) + " particles lost inside the body, " + std::to_string(c.invalid) +
@@ -1782,9 +1839,11 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
     const bool sample = k >= settings.warmup_steps;
     sim.step(sample);
     if (k + 1 == settings.warmup_steps && settings.load_balance) sim.rebalance();
-    if (progress && ((k + 1) % report == 0 || k + 1 == total)) {
+    // report steps are the same on every rank (num_particles() is collective)
+    if ((k + 1) % report == 0 || k + 1 == total) {
+      const std::size_t np = progress || comm::size() > 1 ? sim.num_particles() : 0;
       const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-      progress({k + 1, total, sample, sim.num_particles(), el});
+      if (progress) progress({k + 1, total, sample, np, el});
     }
   }
   Kokkos::fence();
