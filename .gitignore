@@ -7,3 +7,9 @@ compile_commands.json
 .idea/
 /build-*.log
 __pycache__/
+
+# validation/satellites: large, regenerable run files (see validation/satellites/README.md)
+/validation/satellites/**/dump.surf
+/validation/satellites/**/body.surf
+/validation/satellites/**/surface_fields.csv
+/validation/satellites/**/log.debug
