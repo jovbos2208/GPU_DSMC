@@ -959,7 +959,8 @@ struct DsmcSimulation::Impl {
   Kokkos::View<int*> plane_owner;     // per z plane
   Kokkos::View<int*> migrant_dest, foreign;
   Kokkos::View<MigrantRecord*> migrant_buf, recv_dev;
-  Kokkos::View<MigrantRecord*, Kokkos::HostSpace> migrant_host, recv_host;
+  // pinned host staging (fast device copies; HostSpace on host backends)
+  Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace> migrant_host, recv_host;
   DsmcDecomposition decomposition;
 
   int planes() const { return grid.grid.nz; }
@@ -1037,7 +1038,7 @@ struct DsmcSimulation::Impl {
     if (m > 0) {
       // persistent staging buffers: no allocation per step (M6.7)
       if (m > migrant_host.extent(0))
-        migrant_host = Kokkos::View<MigrantRecord*, Kokkos::HostSpace>(
+        migrant_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
             Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants_host"), migrant_buf.extent(0));
       const auto range = Kokkos::make_pair(std::size_t{0}, m);
       const auto h = Kokkos::subview(migrant_host, range);
@@ -1063,7 +1064,7 @@ struct DsmcSimulation::Impl {
     if (total == 0) return;
     if (total > recv_host.extent(0)) {
       const std::size_t cap = total + total / 2 + 64;
-      recv_host = Kokkos::View<MigrantRecord*, Kokkos::HostSpace>(
+      recv_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
           Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received_host"), cap);
       recv_dev = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received"), cap);
     }

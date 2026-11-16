@@ -95,7 +95,19 @@ surface: {{model: cll, temperature_K: 300, cll: {{alpha_n: 0.85, sigma_t: 0.65}}
 dsmc: {{cell_size_mode: fixed, cell_size_m: 0.1, particles_per_cell_target: 20, warmup_steps: 200,
        sample_steps: 600, blocks: 20}}
 """),
+        # M6.7: large enough to fill several GPUs (B4 with 8x the cells, ~3 M particles); not in the default set
+        "B5": ("DSMC, satellite, air with N2/O2, dx = 0.05 m (~3 M particles, multi-GPU)", f"""simulation: {{name: B5, mode: dsmc, random_seed: 5}}
+geometry: {{file: {SAT}}}
+domain: {{margin_m: 0.2}}
+{COMMON}gas: {{number_density_m3: 2.0e19, translational_temperature_K: 900, bulk_velocity_body_mps: [-7800, 0, 0],
+      species: {{O: 0.5, N2: 0.4, O2: 0.1}}}}
+surface: {{model: cll, temperature_K: 300, cll: {{alpha_n: 0.85, sigma_t: 0.65}}}}
+dsmc: {{cell_size_mode: fixed, cell_size_m: 0.05, particles_per_cell_target: 20, warmup_steps: 100,
+       sample_steps: 200, blocks: 20}}
+"""),
     }
+
+DEFAULT_CASES = ["B1", "B2", "B3", "B4"]
 
 
 def cube_stl(path, h=0.25):
@@ -117,7 +129,7 @@ def run_cmd(args):
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="vleo_bench_"))
     cube_stl(tmp / "cube.stl")
     all_cases = cases(tmp)
-    selected = args.cases or list(all_cases)
+    selected = args.cases or DEFAULT_CASES
     version = subprocess.run([args.solver, "--version"], stdout=subprocess.PIPE, universal_newlines=True).stdout
     out = {"label": args.label, "host": platform.node(), "solver_version": version, "ranks": args.ranks,
            "scale": args.scale, "cases": {}}
