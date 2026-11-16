@@ -159,6 +159,8 @@ def main():
     ap.add_argument("--vleo-ranks", type=int, nargs="+", default=[1])
     ap.add_argument("--sparta-kk")
     ap.add_argument("--gpu-ranks", type=int, nargs="+", default=[1])
+    ap.add_argument("--sparta-kk-args", default="",
+                    help="extra SPARTA Kokkos arguments, e.g. '-pk kokkos gpu/aware no' (MPI without ROCm support)")
     ap.add_argument("--sparta-cpu")
     ap.add_argument("--cpu-ranks", type=int, nargs="+", default=[])
     ap.add_argument("--cases", nargs="+", default=list(CASES))
@@ -167,7 +169,8 @@ def main():
     args = ap.parse_args()
     launch = [args.mpiexec] + shlex.split(args.mpiexec_flags)
 
-    out = {"label": args.label, "method": "E = SE(F_x)^2 * t, %d blocks" % BLOCKS, "cases": {}}
+    out = {"label": args.label, "method": "E = SE(F_x)^2 * t, %d blocks" % BLOCKS,
+           "sparta_kk_args": args.sparta_kk_args, "cases": {}}
     for name in args.cases:
         case = CASES[name]
         num = numerics(case, args.quick)
@@ -194,7 +197,7 @@ def main():
             if not binary:
                 continue
             for n in ranks:
-                extra = ["-k", "on", "g", str(n), "-sf", "kk"] if kind == "kk" else []
+                extra = (["-k", "on", "g", str(n), "-sf", "kk"] + shlex.split(args.sparta_kk_args)) if kind == "kk" else []
                 log = d / ("sparta_%s_np%d.log" % (kind, n))
                 run(launch + ["-n", str(n), os.path.abspath(binary)] + extra + ["-in", "in.case"], d, log)
                 p = parse_sparta(log)
