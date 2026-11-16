@@ -8,12 +8,21 @@ accuracy; lower is better, independent of the run length).
 
   benchmark.py run <vleo_solver> <label> [--cases B1 B2 ...]   -> benchmarks/results/<label>.json
   benchmark.py compare <before.json> <after.json>                -> speed-up table
+
+Several GPUs (M6.7, MPI builds): --ranks N [--mpiexec mpiexec] [--mpiexec-flags "..."]
+starts the solver with N ranks; --scale K multiplies the problem size (DSMC
+particles per cell, TPMC histories) for weak scaling, e.g.
+  benchmark.py run <solver> w7700-np1 --cases B3 B4
+  benchmark.py run <solver> w7700-np2 --cases B3 B4 --ranks 2           (strong)
+  benchmark.py run <solver> w7700-np2-weak --cases B3 B4 --ranks 2 --scale 2
 """
+import re
 import argparse
 import json
 import math
 import pathlib
 import platform
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -110,16 +119,22 @@ def run_cmd(args):
     all_cases = cases(tmp)
     selected = args.cases or list(all_cases)
     version = subprocess.run([args.solver, "--version"], stdout=subprocess.PIPE, universal_newlines=True).stdout
-    out = {"label": args.label, "host": platform.node(), "solver_version": version, "cases": {}}
+    out = {"label": args.label, "host": platform.node(), "solver_version": version, "ranks": args.ranks,
+           "scale": args.scale, "cases": {}}
     for name in selected:
         desc, text = all_cases[name]
+        if args.scale != 1:
+            text = re.sub(r"(particles_per_cell_target|particle_histories): (\d+)",
+                          lambda m: "%s: %d" % (m.group(1), int(m.group(2)) * args.scale), text)
         cfg = tmp / f"{name}.yaml"
         cfg.write_text(text)
         print(f"[{name}] {desc} ...", flush=True)
         walls = []
         for rep in range(args.repeat):
             prof = [] if args.no_profile else ["--profile"]
-            subprocess.run([args.solver, "-q", *prof, "-c", str(cfg), "-o", str(tmp / name)], check=True,
+            launch = [] if args.ranks == 1 and not args.mpiexec_flags and args.mpiexec is None else \
+                [args.mpiexec or "mpiexec", *shlex.split(args.mpiexec_flags), "-n", str(args.ranks)]
+            subprocess.run([*launch, args.solver, "-q", *prof, "-c", str(cfg), "-o", str(tmp / name)], check=True,
                            stderr=subprocess.DEVNULL)
             r = json.loads((tmp / name / "results.json").read_text())
             walls.append(r["diagnostics"]["wall_time_s"])
@@ -130,7 +145,8 @@ def run_cmd(args):
         entry = {"description": desc, "mode": r["simulation"]["mode"], "wall_time_s": wall,
                  "wall_times_s": walls,
                  "C_D": r["results"]["C_D"], "C_D_std_error": se, "heat_rate_W": r["results"]["heat_rate_W"],
-                 "efficiency_se2_time": se * se * wall, "profile": d.get("profile", {})}
+                 "efficiency_se2_time": se * se * wall, "profile": d.get("profile", {}),
+                 "parallel": d.get("parallel", {})}
         if entry["mode"] == "tpmc":
             entry["throughput"] = d["histories_per_s"] * d["wall_time_s"] / wall
             entry["throughput_unit"] = "histories/s"
@@ -176,6 +192,10 @@ def main():
     r.add_argument("--cases", nargs="+")
     r.add_argument("--repeat", type=int, default=3, help="repetitions per case (median is reported)")
     r.add_argument("--no-profile", action="store_true", help="for solver versions without --profile (before M5)")
+    r.add_argument("--ranks", type=int, default=1, help="MPI ranks (one per GPU)")
+    r.add_argument("--mpiexec", help="MPI launcher (default: mpiexec when --ranks > 1)")
+    r.add_argument("--mpiexec-flags", default="", help="extra launcher flags")
+    r.add_argument("--scale", type=int, default=1, help="problem size factor (weak scaling)")
     c = sub.add_parser("compare")
     c.add_argument("before")
     c.add_argument("after")
