@@ -1703,6 +1703,7 @@ std::size_t DsmcSimulation::num_particles() const {
 }
 std::size_t DsmcSimulation::num_local_particles() const { return impl_->n_active; }
 void DsmcSimulation::rebalance() { impl_->rebalance(); }
+void DsmcSimulation::record_phase(const std::string& name, double seconds) { impl_->prof.add(name, seconds); }
 const DsmcDecomposition& DsmcSimulation::decomposition() const { return impl_->decomposition; }
 
 void DsmcSimulation::compact() {
@@ -1964,8 +1965,19 @@ DsmcResult DsmcSimulation::result() const {
 DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
                     const DsmcSettings& settings, const DsmcProgressCallback& progress) {
   const auto t0 = std::chrono::steady_clock::now();
+  const bool profile = settings.profile || profiling_requested_by_environment();
+  auto lap = [profile, last = t0]() mutable {  // fenced interval since the previous lap (profiling only)
+    if (!profile) return 0.0;
+    Kokkos::fence();
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = std::chrono::duration<double>(now - last).count();
+    last = now;
+    return dt;
+  };
   DsmcSimulation sim(cfg, geometry, inflow, settings);
+  sim.record_phase("run.setup", lap());
   if (settings.initial_fill) sim.fill_freestream();
+  sim.record_phase("run.fill", lap());
   const std::uint64_t total = settings.warmup_steps + settings.sample_steps;
   const std::uint64_t report = std::max<std::uint64_t>(1, total / 20);
   for (std::uint64_t k = 0; k < total; ++k) {
@@ -1980,7 +1992,9 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
     }
   }
   Kokkos::fence();
+  sim.record_phase("run.steps", lap());
   DsmcResult r = sim.result();
+  if (profile) r.profile["run.result"] = Profiler::Entry{lap(), 1};
   r.wall_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   return r;
 }

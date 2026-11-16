@@ -52,6 +52,14 @@ class Profiler {
 
   const std::map<std::string, Entry>& phases() const { return phases_; }
 
+  // Adds an externally timed phase (no-op when disabled).
+  void add(const std::string& name, double seconds) {
+    if (!enabled_) return;
+    auto& e = phases_[name];
+    e.seconds += seconds;
+    ++e.calls;
+  }
+
  private:
   bool enabled_;
   std::map<std::string, Entry> phases_;

@@ -175,16 +175,22 @@ def run_cmd(args):
     path.write_text(json.dumps(out, indent=2) + "\n")
     print(f"wrote {path}")
     for name, e in out["cases"].items():
-        tot = sum(p["seconds"] for p in e["profile"].values()) or 1.0
-        top = sorted(e["profile"].items(), key=lambda kv: -kv[1]["seconds"])[:5]
+        phases = {k: v for k, v in e["profile"].items() if not k.startswith("run.")}
+        tot = sum(p["seconds"] for p in phases.values()) or 1.0
+        top = sorted(phases.items(), key=lambda kv: -kv[1]["seconds"])[:5]
         print(f"  {name} profile: " + ", ".join(f"{k} {100 * v['seconds'] / tot:.0f} %" for k, v in top))
+        runs = {k: v["seconds"] for k, v in e["profile"].items() if k.startswith("run.")}
+        if runs:
+            print(f"    wall {e['wall_time_s']:.2f} s = " + ", ".join(f"{k[4:]} {v:.3f}" for k, v in sorted(runs.items())) +
+                  " s")
         par = e.get("parallel", {})
         if par.get("rank_mean_particles"):
             print(f"    particles per rank: " + ", ".join(f"{v:.4g}" for v in par["rank_mean_particles"]) +
                   f"  (planes {par.get('plane_bounds')}, migrated {par.get('migrated_particles')})")
         for k, rp in enumerate(par.get("rank_profiles", [])):
-            top = sorted(((n, v) for n, v in rp.items()), key=lambda kv: -kv[1])[:8]
-            print(f"    rank {k}: " + ", ".join(f"{n.replace('dsmc.', '')} {v:.3f}" for n, v in top) + " s")
+            top = sorted(((n, v) for n, v in rp.items() if not n.startswith("run.")), key=lambda kv: -kv[1])[:8]
+            print(f"    rank {k}: " + ", ".join(f"{n.replace('dsmc.', '')} {v:.3f}" for n, v in top) + " s" +
+                  "  [setup %.3f, steps %.3f]" % (rp.get("run.setup", 0.0), rp.get("run.steps", 0.0)))
 
 
 def compare_cmd(args):

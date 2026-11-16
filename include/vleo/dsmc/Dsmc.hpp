@@ -231,6 +231,8 @@ class DsmcSimulation {
   // (collective; no effect on the results). Called by run_dsmc after the warm-up.
   void rebalance();
   const DsmcDecomposition& decomposition() const;
+  // Adds an externally timed phase to the profile (profiling enabled only).
+  void record_phase(const std::string& name, double seconds);
   // Removes ended particles now (the time step compacts lazily; tests call
   // this before inspecting the particle arrays).
   void compact();
