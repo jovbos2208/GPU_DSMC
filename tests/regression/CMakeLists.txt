@@ -153,3 +153,14 @@ if(VLEO_ENABLE_MPI AND Python3_FOUND)
                          RUN_SERIAL ON)
   endforeach()
 endif()
+
+# 12. M6.8: --attitude rotates the free stream (speed kept) and rejects a lift
+#     axis parallel to the flow.
+add_test(NAME smoke_attitude
+  COMMAND vleo_solver --check --print-config --attitude 10 0 --config "${_cfg}/simulations/tpmc_cll.yaml")
+set_tests_properties(smoke_attitude PROPERTIES
+  PASS_REGULAR_EXPRESSION "bulk_velocity_body_mps: \\[-7681\\.50047[0-9]*, -0\\.0, -1354\\.455785" LABELS smoke)
+add_test(NAME smoke_attitude_rejects_parallel_lift
+  COMMAND vleo_solver --check --attitude 90 0 --config "${_cfg}/simulations/tpmc_cll.yaml")
+set_tests_properties(smoke_attitude_rejects_parallel_lift PROPERTIES
+  PASS_REGULAR_EXPRESSION "invalid attitude" LABELS smoke)

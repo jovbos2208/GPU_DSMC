@@ -14,6 +14,7 @@
 // rank 0 prints progress and writes the output files (docs/parallel.md).
 
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -54,6 +55,7 @@ struct Options {
   std::optional<fs::path> output_dir;
   std::uint64_t histories = 0;  // 0: use tpmc.particle_histories
   std::optional<std::uint64_t> sample_steps, warmup_steps;
+  std::optional<std::pair<double, double>> attitude_deg;  // (alpha, beta), M6.8
   bool check_only = false;
   bool quiet = false;
   bool profile = false;
@@ -72,6 +74,8 @@ void print_usage(std::ostream& os) {
         "  -n, --histories <N>      Override tpmc.particle_histories (recorded in the resolved config)\n"
         "      --sample-steps <N>   Override dsmc.sample_steps\n"
         "      --warmup-steps <N>   Override dsmc.warmup_steps\n"
+        "      --attitude <A> <B>   Flight direction (cos A cos B, sin B, sin A cos B) in the body frame [deg];\n"
+        "                           replaces the direction of gas.bulk_velocity_body_mps (speed kept)\n"
         "  -q, --quiet              No progress output\n"
         "      --profile            Record phase timings (fenced) in results.json\n"
         "      --check              Validate the configuration(s) and exit (no Kokkos initialisation)\n"
@@ -125,6 +129,26 @@ std::optional<Options> parse_args(int argc, char** argv) {
         return std::nullopt;
       }
       (a == "--sample-steps" ? o.sample_steps : o.warmup_steps) = n;
+    } else if (a == "--attitude") {
+      if (i + 2 >= argc) {
+        std::cerr << "error: --attitude requires two angles (alpha beta, degrees)\n";
+        return std::nullopt;
+      }
+      double ang[2];
+      for (double& x : ang) {
+        const std::string v = argv[++i];
+        std::size_t used = 0;
+        try {
+          x = std::stod(v, &used);
+        } catch (const std::exception&) {
+          used = 0;
+        }
+        if (used != v.size() || !std::isfinite(x)) {
+          std::cerr << "error: --attitude expects two numbers (degrees)\n";
+          return std::nullopt;
+        }
+      }
+      o.attitude_deg = std::make_pair(ang[0], ang[1]);
     } else if (a == "--profile") {
       o.profile = true;
     } else if (a == "-q" || a == "--quiet") {
@@ -255,6 +279,7 @@ int run(const Options& opt, int argc, char** argv) {
       vleo::check_platform_matches_build(*platform);
     }
     cfg = vleo::load_simulation_config(*opt.config);
+    if (opt.attitude_deg) vleo::set_attitude(cfg, opt.attitude_deg->first, opt.attitude_deg->second);
   } catch (const vleo::ConfigError& e) {
     std::cerr << "error: " << e.what() << "\n";
     return kExitConfigError;

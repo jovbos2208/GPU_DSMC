@@ -18,6 +18,12 @@ scheme in [docs/development.md](docs/development.md#versioning).
 - Cut-cell classification of the DSMC grid is shared among the ranks and
   runs one team per cut cell (set-up of B5 on one W7700: 1.12 s → 0.19 s;
   gas fractions bitwise unchanged).
+- `--attitude <alpha> <beta>` (flight direction in the body frame, speed kept)
+  and `scripts/attitude_sweep.py` (M6.8).
+- GOCE and CHAMP geometries of March et al. 2019 (`examples/geometry/*_march2019.stl`,
+  mm) with reference quantities, and `validation/satellites/run_sat.py`
+  (comparison with SPARTA, free-molecular and DSMC) ([docs/satellites.md](docs/satellites.md)).
+- `benchmarks/sparta_perf.py`: performance comparison with SPARTA (M6.12).
 - Benchmark B5 (large DSMC case) and `benchmark.py run --ranks/--mpiexec/--scale`;
   scaling on 2× W7700 in benchmarks/README.md (M6.7).
 - Profile: per-rank phases and loads, migration sub-phases, `run.setup`,

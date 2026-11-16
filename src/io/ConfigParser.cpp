@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "YamlHelpers.hpp"
+#include "vleo/core/PhysicalConstants.hpp"
 #include "vleo/core/Species.hpp"
 
 namespace vleo {
@@ -468,6 +469,16 @@ SimulationConfig parse_simulation_config(std::string_view yaml_text, const fs::p
                       "simulation configuration");
   }
   return parse_root(root, fs::absolute(base_dir).lexically_normal());
+}
+
+void set_attitude(SimulationConfig& cfg, double alpha_deg, double beta_deg) {
+  const double a = alpha_deg * constants::pi / 180.0, b = beta_deg * constants::pi / 180.0;
+  const double speed = norm(cfg.gas.bulk_velocity_body_mps);
+  const Vec3 d(std::cos(a) * std::cos(b), std::sin(b), std::sin(a) * std::cos(b));
+  cfg.gas.bulk_velocity_body_mps = -speed * d;
+  Issues is;
+  compute_derived(cfg, is);
+  is.throw_if_any("attitude");
 }
 
 SimulationConfig load_simulation_config(const fs::path& file) {

@@ -901,9 +901,9 @@ Mehrere GPUs:
 
 Reale Satelliten:
 
-- [ ] **M6.8** Lagewinkel-Sweep (mehrere Anströmrichtungen pro Lauf bzw. Skript, Ergebnistabelle).
-- [ ] **M6.9** GOCE- und CHAMP-Geometrien (March et al. 2019) importieren, prüfen, Referenzgrößen festlegen.
-- [ ] **M6.10** TPMC (freimolekular) gegen die veröffentlichten Koeffizienten (diffus und CLL, Lagewinkel).
+- [x] **M6.8** Lagewinkel-Sweep (mehrere Anströmrichtungen pro Lauf bzw. Skript, Ergebnistabelle). → `--attitude α β`, `scripts/attitude_sweep.py` (JSON/CSV/Markdown), `docs/satellites.md` §2
+- [x] **M6.9** GOCE- und CHAMP-Geometrien (March et al. 2019) importieren, prüfen, Referenzgrößen festlegen. → geschlossene Netze (CATIA, mm), +x Flugrichtung, A_ref = 1 m², L_ref = 1 m, Momente um CAD-Ursprung; Stirnflächen 1,027 / 0,770 m²
+- [ ] **M6.10** TPMC (freimolekular) gegen die veröffentlichten Koeffizienten (diffus und CLL, Lagewinkel). → keine veröffentlichten Tabellen verfügbar: Vergleich gegen SPARTA mit identischen Eingaben (`validation/satellites/run_sat.py`, Toleranz 3σ + 1 %)
 - [ ] **M6.11** DSMC bei niedriger Höhe gegen SPARTA mit identischen Eingaben; Zellgrößen- und Pilotregel-Prüfung an realer Geometrie.
 
 Performance und Plattformen:

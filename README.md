@@ -45,6 +45,7 @@ build/cpu-debug/vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | [docs/species.md](docs/species.md) | species data with sources |
 | [docs/capabilities.md](docs/capabilities.md) | capability matrix: supported combinations and their validation |
 | [docs/dependencies.md](docs/dependencies.md) | pinned Kokkos / yaml-cpp / Catch2 versions |
+| [docs/satellites.md](docs/satellites.md) | GOCE and CHAMP geometries (March et al. 2019), reference quantities, attitude sweeps, comparison with SPARTA |
 | [docs/parallel.md](docs/parallel.md) | several GPUs with MPI: building, starting, TPMC/DSMC decomposition, load balancing, multi-rank tests |
 | [docs/sparta.md](docs/sparta.md) | SPARTA comparison cases S1–S4 and results |
 | [docs/development.md](docs/development.md) | checks, sanitizers, CI and GPU runners, fixed-seed examples, versioning, release checklist |
