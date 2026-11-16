@@ -131,6 +131,19 @@ std::vector<int> allgather(int value) {
   return v;
 }
 
+std::vector<std::string> allgather(const std::string& value) {
+  const std::vector<int> len = allgather(static_cast<int>(value.size()));
+  std::size_t width = 0;
+  for (int l : len) width = std::max(width, static_cast<std::size_t>(l));
+  std::string padded = value;
+  padded.resize(width, '\0');
+  const std::vector<char> all = allgather(padded.data(), width);
+  std::vector<std::string> out;
+  for (std::size_t k = 0; k < len.size(); ++k)
+    out.emplace_back(all.data() + k * width, static_cast<std::size_t>(len[k]));
+  return out;
+}
+
 std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& send) {
   const int p = size();
   if (static_cast<int>(send.size()) != p) throw std::invalid_argument("comm::alltoallv: one block per rank required");
@@ -201,6 +214,8 @@ std::vector<char> allgather(const void* data, std::size_t bytes) {
 }
 
 std::vector<int> allgather(int value) { return {value}; }
+
+std::vector<std::string> allgather(const std::string& value) { return {value}; }
 
 std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& send) {
   if (send.size() != 1) throw std::invalid_argument("comm::alltoallv: one block per rank required");

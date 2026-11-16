@@ -176,6 +176,8 @@ struct DsmcDecomposition {
   double imbalance_before = 1.0;       // max / mean particles per rank at the end of the warm-up
   double imbalance_after = 1.0;
   std::uint64_t migrated = 0;          // particles sent to another rank (whole run)
+  std::vector<double> rank_mean_particles;                 // per rank, sampling phase
+  std::vector<std::map<std::string, double>> rank_profiles;  // per rank: phase -> seconds (profiling only)
 };
 
 struct DsmcResult {

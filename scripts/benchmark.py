@@ -178,6 +178,13 @@ def run_cmd(args):
         tot = sum(p["seconds"] for p in e["profile"].values()) or 1.0
         top = sorted(e["profile"].items(), key=lambda kv: -kv[1]["seconds"])[:5]
         print(f"  {name} profile: " + ", ".join(f"{k} {100 * v['seconds'] / tot:.0f} %" for k, v in top))
+        par = e.get("parallel", {})
+        if par.get("rank_mean_particles"):
+            print(f"    particles per rank: " + ", ".join(f"{v:.4g}" for v in par["rank_mean_particles"]) +
+                  f"  (planes {par.get('plane_bounds')}, migrated {par.get('migrated_particles')})")
+        for k, rp in enumerate(par.get("rank_profiles", [])):
+            top = sorted(((n, v) for n, v in rp.items()), key=lambda kv: -kv[1])[:8]
+            print(f"    rank {k}: " + ", ".join(f"{n.replace('dsmc.', '')} {v:.3f}" for n, v in top) + " s")
 
 
 def compare_cmd(args):

@@ -1019,15 +1019,19 @@ struct DsmcSimulation::Impl {
       migrant_dest = Kokkos::View<int*>("dsmc_migrant_dest", capacity);
     }
     std::size_t m = 0;
-    if (n > 0)
+    if (n > 0) {
+      Profiler::Scope pq(prof, "dsmc.migrate.scan");
       Kokkos::parallel_scan("vleo::dsmc_migrant_scan", policy(0, n),
                             MigrantScan{cur, grid.grid, plane_owner, migrant_dest, compact_index, me}, m);
+    }
     if (m > migrant_buf.extent(0))
       migrant_buf = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_migrants"),
                                                  m + m / 2 + 64);
-    if (m > 0)
+    if (m > 0) {
+      Profiler::Scope pq(prof, "dsmc.migrate.pack");
       Kokkos::parallel_for("vleo::dsmc_migrant_pack", policy(0, n),
                            MigrantPack{cur, migrant_dest, compact_index, migrant_buf, drop});
+    }
     n_active -= m;
     if (drop) {
       Kokkos::fence();
@@ -1036,6 +1040,7 @@ struct DsmcSimulation::Impl {
     // exchange through host memory, in particle order per destination
     std::vector<std::vector<char>> send(static_cast<std::size_t>(nranks));
     if (m > 0) {
+      Profiler::Scope pq(prof, "dsmc.migrate.to_host");
       // persistent staging buffers: no allocation per step (M6.7)
       if (m > migrant_host.extent(0))
         migrant_host = Kokkos::View<MigrantRecord*, Kokkos::SharedHostPinnedSpace>(
@@ -1068,6 +1073,7 @@ struct DsmcSimulation::Impl {
           Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received_host"), cap);
       recv_dev = Kokkos::View<MigrantRecord*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_received"), cap);
     }
+    Profiler::Scope pq(prof, "dsmc.migrate.from_host");
     const auto hr = Kokkos::subview(recv_host, Kokkos::make_pair(std::size_t{0}, total));
     const auto dr = Kokkos::subview(recv_dev, Kokkos::make_pair(std::size_t{0}, total));
     std::size_t o = 0;
@@ -1783,6 +1789,29 @@ DsmcResult DsmcSimulation::result() const {
   r.particle_steps = tot.total_particle_steps;
   r.decomposition = s.decomposition;
   r.decomposition.migrated = s.decomposed ? comm::sum(s.migrated) : 0;
+  if (s.decomposed) {  // per-rank load and (with profiling) phase timings (M6.7)
+    double local_mean = 0.0;
+    for (double np : s.particles_sampled) local_mean += np;
+    if (!s.particles_sampled.empty()) local_mean /= static_cast<double>(s.particles_sampled.size());
+    const std::vector<char> pm = comm::allgather(&local_mean, sizeof(double));
+    r.decomposition.rank_mean_particles.resize(static_cast<std::size_t>(s.nranks));
+    std::memcpy(r.decomposition.rank_mean_particles.data(), pm.data(), pm.size());
+    if (s.prof.enabled()) {
+      std::string own;
+      for (const auto& [name, entry] : s.prof.phases()) own += name + "\t" + std::to_string(entry.seconds) + "\n";
+      for (const std::string& text : comm::allgather(own)) {
+        std::map<std::string, double> m;
+        std::size_t a = 0;
+        while (a < text.size()) {
+          const std::size_t tab = text.find('\t', a), nl = text.find('\n', a);
+          if (tab == std::string::npos || nl == std::string::npos) break;
+          m[text.substr(a, tab - a)] = std::stod(text.substr(tab + 1, nl - tab - 1));
+          a = nl + 1;
+        }
+        r.decomposition.rank_profiles.push_back(std::move(m));
+      }
+    }
+  }
 
   // Per-species diagnostics.
   {

@@ -125,6 +125,18 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
     w.field("imbalance_before", dc.imbalance_before);
     w.field("imbalance_after", dc.imbalance_after);
     w.field("migrated_particles", dc.migrated);
+    w.key("rank_mean_particles").begin_array();
+    for (double v : dc.rank_mean_particles) w.value(v);
+    w.end_array();
+    if (!dc.rank_profiles.empty()) {
+      w.key("rank_profiles").begin_array();
+      for (const auto& m : dc.rank_profiles) {
+        w.begin_object();
+        for (const auto& [name, sec] : m) w.field(name, sec);
+        w.end_object();
+      }
+      w.end_array();
+    }
     w.end_object();
   }
   if (!r.profile.empty()) {

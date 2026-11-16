@@ -60,6 +60,7 @@ inline bool all(bool value) { return !any(!value); }
 // Every rank contributes `bytes` bytes; returns the concatenation in rank order.
 std::vector<char> allgather(const void* data, std::size_t bytes);
 std::vector<int> allgather(int value);
+std::vector<std::string> allgather(const std::string& value);  // strings of any length
 // Personalised all-to-all exchange of byte blocks: send[k] goes to rank k.
 // Returns the received blocks, recv[k] from rank k.
 std::vector<std::vector<char>> alltoallv(const std::vector<std::vector<char>>& send);
