@@ -642,7 +642,7 @@ struct CollideCellsSerial {
 // earlier candidates of the chunk that share one of its particles have run.
 // Chunks run one after the other. This is the same dependency order as the
 // serial kernel, hence the same result.
-inline constexpr int kCollideChunk = 256;
+enum : int { kCollideChunk = 256 };  // enumerator: usable in device code also where bound to a reference (CUDA)
 struct CollideCellsWaves {
   using Member = Kokkos::TeamPolicy<>::member_type;
   CollisionPairOp m;
@@ -678,8 +678,8 @@ struct CollideCellsWaves {
     std::uint64_t n_acc = 0, n_upd = 0;
     double max_new = max0;
     for (std::uint64_t c0 = 0; c0 < n_cand; c0 += kCollideChunk) {
-      const int nk = static_cast<int>(n_cand - c0 < static_cast<std::uint64_t>(kCollideChunk) ? n_cand - c0
-                                                                                              : kCollideChunk);
+      const std::uint64_t chunk = static_cast<std::uint64_t>(kCollideChunk);
+      const int nk = static_cast<int>(n_cand - c0 < chunk ? n_cand - c0 : chunk);
       Kokkos::parallel_for(Kokkos::TeamThreadRange(t, nk), [&](const int k) {
         RandomStream rng = m.stream(c, c0 + static_cast<std::uint64_t>(k));
         int a, q;
