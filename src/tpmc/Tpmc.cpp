@@ -3,7 +3,10 @@
 #include <chrono>
 #include <type_traits>
 #include <cmath>
+#include <cstring>
 #include <sstream>
+
+#include "vleo/core/Comm.hpp"
 
 namespace vleo {
 
@@ -97,6 +100,13 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
   const auto t0 = std::chrono::steady_clock::now();
   const std::uint64_t target = histories_override > 0 ? histories_override : cfg.tpmc.particle_histories;
   const std::size_t batch = static_cast<std::size_t>(std::min<std::uint64_t>(cfg.tpmc.batch_size, target));
+  // Several ranks (M6.2): every global batch of histories [done, done + n) is
+  // split into contiguous id ranges, one per rank. Each history keeps its id
+  // and therefore its random streams; the per-rank moments are merged in rank
+  // order, so the result equals the single-rank run up to rounding.
+  const int nranks = comm::size(), me = comm::rank();
+  auto share = [&](std::size_t n, int r) { return n * static_cast<std::size_t>(r) / static_cast<std::size_t>(nranks); };
+  const std::size_t local_batch = share(batch, 1) + 1;
 
   // --- Device setup ---------------------------------------------------------
   std::vector<SurfaceProperties> props(geometry.host.material_names.size(), make_surface_properties(cfg.surface));
@@ -116,13 +126,13 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
   setup.weight = inflow.total_rate_per_s / static_cast<double>(target);
   setup.species_mass = to_device(masses, "species_mass");
   setup.species_modes = to_device(make_species_modes(cfg.gas), "species_modes");
-  setup.tally.history = Kokkos::View<double**, Kokkos::LayoutLeft>("history_tallies", batch, kHistoryTallies);
+  setup.tally.history = Kokkos::View<double**, Kokkos::LayoutLeft>("history_tallies", local_batch, kHistoryTallies);
   setup.tally.moment_center = cfg.reference.moment_center_m;
   if (cfg.output.save_surface_fields)
     setup.tally.surface =
         Kokkos::View<double**, Kokkos::LayoutLeft>("surface_tallies", geometry.host.size(), kSurfaceTallies);
 
-  ParticleStorage particles(batch);
+  ParticleStorage particles(local_batch);
   const AeroAxes& axes = cfg.derived.aero_axes;
 
   TpmcResult r;
@@ -133,7 +143,10 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
   // --- Batches --------------------------------------------------------------
   std::uint64_t done = 0;
   while (done < target) {
-    const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(batch, target - done));
+    const std::size_t n_global = static_cast<std::size_t>(std::min<std::uint64_t>(batch, target - done));
+    const std::size_t lo = share(n_global, me);
+    const std::size_t n = share(n_global, me + 1) - lo;
+    const std::uint64_t first = done + lo;
     using policy = Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>;
     // Host backends: injection fused into the transport kernel (+9 % on the
     // CPU). Devices: separate kernels (the fused kernel needs more registers
@@ -144,13 +157,13 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
       Kokkos::parallel_for("vleo::tpmc_histories", policy(0, n),
                            detail::FusedHistoryKernel<GsiInteraction>{
                                particles.status, particles.interactions, setup.inflow, setup.geometry, setup.domain,
-                               gsi, setup.seed, done, setup.max_interactions, setup.species_mass,
+                               gsi, setup.seed, first, setup.max_interactions, setup.species_mass,
                                setup.species_modes, setup.tally});
     } else {
       {
         Profiler::Scope ps(prof, "tpmc.inject");
         Kokkos::parallel_for("vleo::inject", policy(0, n),
-                             detail::InjectKernel{particles, setup.inflow, setup.seed, done, setup.weight});
+                             detail::InjectKernel{particles, setup.inflow, setup.seed, first, setup.weight});
       }
       Profiler::Scope ps(prof, "tpmc.transport");
       Kokkos::parallel_for("vleo::transport", policy(0, n),
@@ -170,8 +183,19 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
       Profiler::Scope ps(prof, "tpmc.moments");
       bm = reduce_history_moments(setup.tally.history, n, axes);
     }
-    for (std::size_t k = 0; k < r.moments.size(); ++k) r.moments[k].merge(bm[k]);
-    done += n;
+    if (nranks > 1) {
+      Profiler::Scope ps(prof, "tpmc.mpi");
+      static_assert(std::is_trivially_copyable_v<MomentArray>);
+      const std::vector<char> all = comm::allgather(&bm, sizeof(MomentArray));
+      for (int q = 0; q < nranks; ++q) {
+        MomentArray o;
+        std::memcpy(&o, all.data() + static_cast<std::size_t>(q) * sizeof(MomentArray), sizeof(MomentArray));
+        for (std::size_t k = 0; k < r.moments.size(); ++k) r.moments[k].merge(o[k]);
+      }
+    } else {
+      for (std::size_t k = 0; k < r.moments.size(); ++k) r.moments[k].merge(bm[k]);
+    }
+    done += n_global;
     ++r.batches;
 
     const TpmcEstimates e = make_estimates(r.moments, r.inflow_rate_per_s, cfg, r.critical_value);
@@ -186,13 +210,30 @@ TpmcResult run_tpmc(const SimulationConfig& cfg, const Geometry& geometry, const
     }
   }
   Kokkos::fence();
+  if (nranks > 1) {  // integer counters: exact
+    TransportCounters& c = r.counters;
+    std::uint64_t v[8] = {c.injected, c.active, c.exited, c.truncated, c.lost_inside_body, c.invalid,
+                          c.surface_interactions, c.histories_with_hits};
+    comm::sum(v, 8);
+    c.injected = v[0];
+    c.active = v[1];
+    c.exited = v[2];
+    c.truncated = v[3];
+    c.lost_inside_body = v[4];
+    c.invalid = v[5];
+    c.surface_interactions = v[6];
+    c.histories_with_hits = v[7];
+    c.max_interactions = static_cast<std::uint64_t>(comm::max(static_cast<double>(c.max_interactions)));
+  }
   r.histories = done;
+  r.ranks = nranks;
   r.event_rate_factor_per_s = r.inflow_rate_per_s / static_cast<double>(done);
   r.estimates = make_estimates(r.moments, r.inflow_rate_per_s, cfg, r.critical_value);
 
   // --- Surface fields (same events, scaled by gamma = R / N) ------------------
   if (cfg.output.save_surface_fields) {
     auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), setup.tally.surface);
+    comm::sum(h.data(), h.size());  // contiguous (LayoutLeft, no padding for a mirror)
     SurfaceFields f;
     const double g = r.event_rate_factor_per_s;
     for (std::size_t t = 0; t < geometry.host.size(); ++t) {

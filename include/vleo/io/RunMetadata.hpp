@@ -23,6 +23,9 @@ struct RuntimeInfo {
   std::string execution_space;        // Kokkos default execution space at runtime
   int concurrency = 0;                // Kokkos::DefaultExecutionSpace().concurrency()
   int device_id = -1;                 // Kokkos::device_id(); -1 for host backends
+  int mpi_ranks = 1;                  // MPI ranks of the run (1 without MPI)
+  std::string mpi_library;            // MPI library version ("" without MPI)
+  std::vector<int> rank_device_ids;   // device id of every rank (rank order)
 };
 
 struct RunMetadataInput {

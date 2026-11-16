@@ -6,6 +6,21 @@ scheme in [docs/development.md](docs/development.md#versioning).
 
 ## [Unreleased]
 
+### Added
+- MPI parallelisation (M6.1–M6.6, [docs/parallel.md](docs/parallel.md)):
+  `VLEO_ENABLE_MPI`, presets `cpu-mpi`, `hip-gfx1101-mpi`, `hip-gfx1103-mpi`,
+  one rank per GPU. TPMC splits the histories by id. DSMC decomposes the domain
+  into z planes, migrates particles after the move, sorts cell lists by
+  global id and rebalances the planes at the end of the warm-up. 1–4 ranks
+  give identical counters and results equal to rounding (`mpi` tests,
+  `scripts/check_ranks.py`). Only rank 0 writes output; `run_metadata.json`
+  records ranks and devices; `results.json` records the decomposition.
+- Cut-cell classification of the DSMC grid is shared among the ranks.
+
+### Fixed
+- DSMC species diagnostic `mean_particles` counted the slots of ended
+  particles that were not yet compacted; it now counts active particles only.
+
 ### Changed
 - DSMC cell sort on GPU backends: parallel rank sort (one thread per particle)
   instead of a serial insertion sort per cell, which dominated the time step

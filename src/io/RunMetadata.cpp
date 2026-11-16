@@ -81,6 +81,14 @@ std::string make_run_metadata_json(const RunMetadataInput& in) {
   w.field("execution_space", in.runtime.execution_space);
   w.field("concurrency", in.runtime.concurrency);
   w.field("device_id", in.runtime.device_id);
+  w.key("mpi").begin_object();
+  w.field("enabled", !in.runtime.mpi_library.empty());
+  w.field("ranks", in.runtime.mpi_ranks);
+  w.field("library", in.runtime.mpi_library);
+  w.key("rank_device_ids").begin_array();
+  for (int d : in.runtime.rank_device_ids) w.value(d);
+  w.end_array();
+  w.end_object();
   w.end_object();
 
   w.key("platform");

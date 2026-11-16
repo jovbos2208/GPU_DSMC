@@ -38,6 +38,11 @@ cmake --build --preset hip -j
 ctest --preset hip
 ```
 
+Several GPUs (MPI, one rank per GPU): presets `cpu-mpi`, `hip-gfx1101-mpi`,
+`hip-gfx1103-mpi` (`-DVLEO_ENABLE_MPI=ON` for any other preset), started
+with `mpirun -n <GPUs> build/<preset>/vleo_solver ...`. See
+[parallel.md](parallel.md). The `mpi` test label holds the multi-rank tests.
+
 Build directories are `build/<preset>/`. Any CMake generator works; add
 `-G Ninja` to the configure command if Ninja is installed. Without presets,
 `ctest --test-dir build/<preset> --output-on-failure` is equivalent.

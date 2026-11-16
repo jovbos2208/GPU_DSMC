@@ -883,6 +883,41 @@ Hinweis M3: DSMC ist auf eine monatomare Spezies (He, Ar) beschränkt; Gemische 
 - [x] Keine offene Abweichung betrifft unterstützte Physik oder eine Hauptausgabe. → offen ist nur CUDA (Backend, keine Physik); Zellgrößen-Punkt aus M3.17 erledigt (`docs/dsmc.md` §3.1)
 - [x] Release-Artefakte sind aus einem sauberen Checkout reproduzierbar. → frischer Klon von `2777184`: `cpu-release` 52/52 inkl. bitweiser Beispielprüfung (2026-11-13); Checkliste `docs/development.md` §5 (beim Tag v1.0 inkl. GPU wiederholen)
 
+#### M6 – Mehrere GPUs, reale Satelliten, Vergleich mit SPARTA (Release v1.0)
+
+Ziel: DSMC und TPMC auf mehreren GPUs (MPI, ein Rank pro GPU), Validierung an
+GOCE und CHAMP (Geometrien von March et al. 2019), Performancevergleich gegen
+SPARTA (CPU/MPI und Kokkos-GPU) auf identischer Hardware, CUDA-Verifikation.
+
+Mehrere GPUs:
+
+- [ ] **M6.1** MPI-Build-Option (`VLEO_ENABLE_MPI`), Preset, Rank-/GPU-Zuordnung, nur Rank 0 schreibt Ausgaben.
+- [ ] **M6.2** TPMC auf mehreren Ranks: History-IDs aufteilen, Momente deterministisch zusammenführen.
+- [ ] **M6.3** DSMC-Gebietszerlegung: Zellebenen pro Rank, Partikelmigration nach dem Move, verteilte Injektion und Füllung, Zelllisten nach globaler ID.
+- [ ] **M6.4** Reduktionen: Zeitreihen pro Schritt, Zähler, Oberflächenfelder, Zelldiagnostik, Pilotläufe.
+- [ ] **M6.5** Lastausgleich am Ende des Warm-ups (Partikel pro Ebene); physikalisch neutral.
+- [ ] **M6.6** Tests: 1, 2, 3, 4 Ranks liefern identische ganzzahlige Zähler und gleiche Ergebnisse bis auf Rundung (TPMC und DSMC, CPU und GPU).
+- [ ] **M6.7** Skalierung auf 2× W7700 (stark und schwach) dokumentieren.
+
+Reale Satelliten:
+
+- [ ] **M6.8** Lagewinkel-Sweep (mehrere Anströmrichtungen pro Lauf bzw. Skript, Ergebnistabelle).
+- [ ] **M6.9** GOCE- und CHAMP-Geometrien (March et al. 2019) importieren, prüfen, Referenzgrößen festlegen.
+- [ ] **M6.10** TPMC (freimolekular) gegen die veröffentlichten Koeffizienten (diffus und CLL, Lagewinkel).
+- [ ] **M6.11** DSMC bei niedriger Höhe gegen SPARTA mit identischen Eingaben; Zellgrößen- und Pilotregel-Prüfung an realer Geometrie.
+
+Performance und Plattformen:
+
+- [ ] **M6.12** Performancevergleich gegen SPARTA-CPU (MPI, alle Kerne) und SPARTA-Kokkos (HIP, ggf. CUDA) auf identischer Hardware: Zeit bis zur gleichen statistischen Genauigkeit (SE²·t).
+- [ ] **M6.13** CUDA: Build, alle Tests, Beispiele und Benchmarks auf NVIDIA-Hardware.
+
+**Gate M6 – Release v1.0**
+
+- [ ] Mehrere GPUs liefern dieselben Ergebnisse wie eine GPU (Zähler exakt, Größen bis auf Rundung).
+- [ ] GOCE/CHAMP stimmen innerhalb definierter Toleranzen mit den Referenzen überein.
+- [ ] Performancebericht gegen SPARTA liegt vor und ist reproduzierbar.
+- [ ] CPU-, CUDA- und HIP-Regressionstests bestehen; Release-Checkliste (`docs/development.md`) erfüllt.
+
 ## 12. Physikalische Validierungsstrategie
 
 Die Validierung sollte von Beginn an Teil der Entwicklung sein, nicht erst eine abschließende Aufgabe.

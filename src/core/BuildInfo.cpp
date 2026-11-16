@@ -4,6 +4,8 @@
 
 #include <Kokkos_Core.hpp>
 
+#include "vleo/core/Comm.hpp"
+
 namespace vleo {
 
 namespace {
@@ -96,7 +98,8 @@ std::string build_info_string() {
   for (std::size_t i = 0; i < b.enabled_kokkos_backends.size(); ++i)
     os << (i ? ", " : "") << b.enabled_kokkos_backends[i];
   os << "\n"
-     << "  Kokkos arch      : " << b.configure.kokkos_arch << "\n";
+     << "  Kokkos arch      : " << b.configure.kokkos_arch << "\n"
+     << "  MPI              : " << (comm::enabled() ? comm::library_version() : std::string("disabled")) << "\n";
   return os.str();
 }
 

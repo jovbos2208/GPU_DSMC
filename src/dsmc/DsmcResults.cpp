@@ -109,6 +109,24 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
   w.field("wall_time_s", r.wall_time_s);
   w.field("particle_steps", r.particle_steps);
   w.field("particle_steps_per_s", r.wall_time_s > 0 ? r.particle_steps / r.wall_time_s : 0.0);
+  {
+    const DsmcDecomposition& dc = r.decomposition;
+    w.key("parallel").begin_object();
+    w.field("ranks", static_cast<std::uint64_t>(dc.ranks));
+    w.field("decomposition", "z planes");
+    auto bounds = [&w](const char* key, const std::vector<int>& b) {
+      w.key(key).begin_array();
+      for (int v : b) w.value(v);
+      w.end_array();
+    };
+    bounds("initial_plane_bounds", dc.initial_bounds);
+    bounds("plane_bounds", dc.bounds);
+    w.field("load_balanced", dc.rebalanced);
+    w.field("imbalance_before", dc.imbalance_before);
+    w.field("imbalance_after", dc.imbalance_after);
+    w.field("migrated_particles", dc.migrated);
+    w.end_object();
+  }
   if (!r.profile.empty()) {
     w.key("profile");
     write_profile(w, r.profile);

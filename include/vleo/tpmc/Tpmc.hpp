@@ -75,6 +75,7 @@ struct TpmcResult {
   double event_rate_factor_per_s = 0.0;  // gamma = R / N
   double critical_value = 0.0;           // z for the configured confidence level
   bool converged = false;                // convergence criterion reached (false if none configured)
+  int ranks = 1;                         // MPI ranks that shared the histories
   double wall_time_s = 0.0;
   std::optional<SurfaceFields> surface;
   std::map<std::string, Profiler::Entry> profile;  // phase timings (only with profiling enabled)

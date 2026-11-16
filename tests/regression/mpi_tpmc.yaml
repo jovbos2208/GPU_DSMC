@@ -1,0 +1,33 @@
+# Multi-rank check (M6.6): TPMC with surface fields and several batches.
+simulation:
+  name: mpi_tpmc
+  mode: tpmc
+  random_seed: 99
+geometry:
+  file: ../../examples/geometry/satellite.stl
+  units: m
+reference:
+  area_m2: 1.0
+  length_m: 1.0
+  moment_center_m: [0.1, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+gas:
+  number_density_m3: 1.0e15
+  translational_temperature_K: 900.0
+  bulk_velocity_body_mps: [-7600.0, 400.0, -900.0]
+  species:
+    O: 0.7
+    N2: 0.3
+surface:
+  model: cll
+  temperature_K: 300.0
+  cll:
+    alpha_n: 0.9
+    sigma_t: 0.8
+tpmc:
+  particle_histories: 300001
+  batch_size: 65536
+  max_reflections: 100
+output:
+  format: json
+  save_surface_fields: true

@@ -41,6 +41,7 @@ add_custom_target(vleo_git_info
 
 add_library(vleo_core STATIC
   BuildInfo.cpp
+  Comm.cpp
   Profiler.cpp
   SelfTest.cpp
   Species.cpp
@@ -50,3 +51,7 @@ add_dependencies(vleo_core vleo_git_info)
 target_include_directories(vleo_core PUBLIC "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(vleo_core PUBLIC Kokkos::kokkos PRIVATE vleo_warnings)
 target_compile_features(vleo_core PUBLIC cxx_std_20)
+if(VLEO_ENABLE_MPI)
+  target_link_libraries(vleo_core PUBLIC MPI::MPI_CXX)
+  target_compile_definitions(vleo_core PUBLIC VLEO_HAVE_MPI=1)
+endif()

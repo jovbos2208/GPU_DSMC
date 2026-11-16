@@ -7,6 +7,11 @@
 // results with uncertainties plus the resolved configuration and complete run
 // metadata. With simulation.mode: dsmc the DSMC solver (single monatomic
 // species, VHS collisions) is run instead.
+//
+// MPI builds (VLEO_ENABLE_MPI, M6.1): start with one rank per GPU, e.g.
+// `mpirun -n 2 vleo_solver --config ...`. All ranks run the solver (TPMC:
+// histories split by id; DSMC: domain decomposition into cell planes); only
+// rank 0 prints progress and writes the output files (docs/parallel.md).
 
 #include <charconv>
 #include <cstdint>
@@ -22,6 +27,7 @@
 #include <Kokkos_Core.hpp>
 
 #include "vleo/core/BuildInfo.hpp"
+#include "vleo/core/Comm.hpp"
 #include "vleo/core/SelfTest.hpp"
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/io/ConfigParser.hpp"
@@ -220,6 +226,19 @@ void write_inflow_json(vleo::JsonWriter& w, const vleo::InflowModel& inflow, con
   w.end_object();
 }
 
+// Runtime error on one rank: the other ranks may be waiting in a collective
+// operation, so with several ranks the whole job is aborted.
+std::streambuf* g_stderr = nullptr;  // real stderr (std::cerr is silenced on ranks > 0)
+
+int runtime_failure(const std::string& message) {
+  std::ostream err(g_stderr ? g_stderr : std::cerr.rdbuf());
+  err << "error";
+  if (vleo::comm::size() > 1) err << " (rank " << vleo::comm::rank() << ")";
+  err << ": " << message << std::endl;
+  if (vleo::comm::size() > 1) vleo::comm::abort(kExitRuntimeError);
+  return kExitRuntimeError;
+}
+
 // Releases device memory before Kokkos::finalize (declared after the ScopeGuard).
 struct DeviceGeometryReset {
   vleo::Geometry& g;
@@ -295,10 +314,14 @@ int run(const Options& opt, int argc, char** argv) {
 
   // --- Kokkos ----------------------------------------------------------------
   Kokkos::InitializationSettings settings;
+  const int nranks = vleo::comm::size();
   if (platform) {
-    if (platform->backend != vleo::Backend::CPU) settings.set_device_id(platform->device_id);
+    // Several ranks: Kokkos assigns GPU (local rank mod visible devices) from
+    // the launcher's local-rank variable; the platform's device_id is ignored.
+    if (platform->backend != vleo::Backend::CPU && nranks == 1) settings.set_device_id(platform->device_id);
     if (platform->num_threads > 0) settings.set_num_threads(platform->num_threads);
   }
+  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) settings.set_map_device_id_by("mpi_rank");
   Kokkos::ScopeGuard guard(settings);
   vleo::upload_geometry(geometry);
   const DeviceGeometryReset release_device_geometry{geometry};
@@ -310,9 +333,25 @@ int run(const Options& opt, int argc, char** argv) {
   rt.execution_space = Kokkos::DefaultExecutionSpace::name();
   rt.concurrency = Kokkos::DefaultExecutionSpace().concurrency();
   rt.device_id = vleo::compiled_backend() == vleo::Backend::CPU ? -1 : Kokkos::device_id();
+  rt.mpi_ranks = nranks;
+  rt.mpi_library = vleo::comm::library_version();
+  rt.rank_device_ids = vleo::comm::allgather(rt.device_id);
+  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) {
+    for (int a = 0; a < nranks; ++a)
+      for (int b = 0; b < a; ++b)
+        if (rt.rank_device_ids[static_cast<std::size_t>(a)] == rt.rank_device_ids[static_cast<std::size_t>(b)]) {
+          const std::string w = "several MPI ranks share one GPU (device " +
+                                std::to_string(rt.rank_device_ids[static_cast<std::size_t>(a)]) +
+                                "); start one rank per GPU";
+          notes.push_back(w);
+          if (vleo::comm::root()) std::cerr << "warning: " << w << "\n";
+          a = nranks;
+          break;
+        }
+  }
 
   const vleo::SelfTestResult self_test = vleo::backend_self_test(cfg.simulation.random_seed);
-  const bool self_test_ok = self_test.passed;
+  const bool self_test_ok = vleo::comm::all(self_test.passed);
   notes.push_back(self_test.detail);
   if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
@@ -329,8 +368,7 @@ int run(const Options& opt, int argc, char** argv) {
       try {
         dsmc_settings = vleo::refine_cell_size_with_pilot(cfg, geometry, inflow, dsmc_settings, pilot);
       } catch (const std::exception& e) {
-        std::cerr << "error: DSMC pilot run failed: " << e.what() << "\n";
-        return kExitRuntimeError;
+        return runtime_failure(std::string("DSMC pilot run failed: ") + e.what());
       }
       if (!opt.quiet)
         std::cerr << "  dsmc: " << pilot.pilots << " pilot run(s), " << pilot.wall_time_s
@@ -356,8 +394,7 @@ int run(const Options& opt, int argc, char** argv) {
         dresult.warnings.push_back("automatic cell size limited by the maximum cell count; the grid does not resolve "
                                    "the local mean free path");
     } catch (const std::exception& e) {
-      std::cerr << "error: DSMC run failed: " << e.what() << "\n";
-      return kExitRuntimeError;
+      return runtime_failure(std::string("DSMC run failed: ") + e.what());
     }
     for (const auto& w : dresult.warnings) {
       notes.push_back("dsmc: " + w);
@@ -375,8 +412,7 @@ int run(const Options& opt, int argc, char** argv) {
     try {
       result = vleo::run_tpmc(cfg, geometry, inflow, 0, progress, opt.profile);
     } catch (const std::exception& e) {
-      std::cerr << "error: TPMC run failed: " << e.what() << "\n";
-      return kExitRuntimeError;
+      return runtime_failure(std::string("TPMC run failed: ") + e.what());
     }
     for (const auto& w : result.warnings) {
       notes.push_back("tpmc: " + w);
@@ -384,7 +420,8 @@ int run(const Options& opt, int argc, char** argv) {
     }
   }
 
-  // --- Outputs -----------------------------------------------------------------
+  // --- Outputs (rank 0 only) ------------------------------------------------------
+  if (!vleo::comm::root()) return self_test_ok ? kExitOk : kExitRuntimeError;
   const fs::path out_dir = opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory);
   try {
     fs::create_directories(out_dir);
@@ -434,7 +471,8 @@ int run(const Options& opt, int argc, char** argv) {
     write_text_file(f_meta, vleo::make_run_metadata_json(meta));
 
     std::cerr << "vleo_solver: backend " << vleo::to_string(vleo::compiled_backend()) << " ("
-              << rt.execution_space << "), "
+              << rt.execution_space << (nranks > 1 ? ", " + std::to_string(nranks) + " MPI ranks" : std::string())
+              << "), "
               << (dsmc ? std::to_string(dresult.counters.steps) + " steps in " + std::to_string(dresult.wall_time_s)
                        : std::to_string(result.histories) + " histories in " + std::to_string(result.wall_time_s))
               << " s, wrote " << fs::absolute(out_dir).lexically_normal().string() << "\n";
@@ -454,7 +492,8 @@ int run(const Options& opt, int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  const auto opt = parse_args(argc, argv);
+  vleo::comm::Session mpi(&argc, &argv);
+  auto opt = parse_args(argc, argv);
   if (!opt) {
     print_usage(std::cerr);
     return kExitUsage;
@@ -472,10 +511,22 @@ int main(int argc, char** argv) {
     print_usage(std::cerr);
     return kExitUsage;
   }
-  try {
-    return run(*opt, argc, argv);
-  } catch (const std::exception& e) {
-    std::cerr << "error: " << e.what() << "\n";
-    return kExitRuntimeError;
+  // Configuration errors are detected identically on every rank; only rank 0
+  // reports them and the progress (the other ranks print runtime errors only).
+  std::ofstream null_stream;
+  std::streambuf* cerr_buf = std::cerr.rdbuf();
+  g_stderr = cerr_buf;
+  if (!vleo::comm::root()) {
+    opt->quiet = true;
+    std::cerr.rdbuf(null_stream.rdbuf());
   }
+  int rc = kExitRuntimeError;
+  try {
+    rc = run(*opt, argc, argv);
+  } catch (const std::exception& e) {
+    std::cerr.rdbuf(cerr_buf);
+    rc = runtime_failure(e.what());
+  }
+  std::cerr.rdbuf(cerr_buf);
+  return rc;
 }

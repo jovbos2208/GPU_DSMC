@@ -1,0 +1,35 @@
+# Multi-rank check (M6.6): automatic cell size with pilot runs (collective
+# reductions of the pilot diagnostics) and a gas mixture on an open plate.
+simulation:
+  name: mpi_dsmc_pilot
+  mode: dsmc
+  random_seed: 7
+geometry:
+  file: open_plate.stl
+  require_closed: false
+reference:
+  area_m2: 1.0
+  length_m: 1.0
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+gas:
+  number_density_m3: 3.0e19
+  translational_temperature_K: 900.0
+  bulk_velocity_body_mps: [-7800.0, 0.0, -1500.0]
+  species:
+    He: 0.5
+    Ar: 0.5
+surface:
+  model: maxwell
+  temperature_K: 300.0
+  maxwell:
+    diffuse_fraction: 0.9
+dsmc:
+  cell_size_mode: automatic
+  cell_size_pilot: true
+  particles_per_cell_target: 10
+  sample_steps: 40
+  blocks: 10
+output:
+  format: json
+  save_surface_fields: true

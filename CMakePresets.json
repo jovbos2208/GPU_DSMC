@@ -96,6 +96,32 @@
         "Kokkos_ARCH_AMD_GFX942": "OFF",
         "Kokkos_ARCH_AMD_GFX1101": "ON"
       }
+    },
+    {
+      "name": "cpu-mpi",
+      "displayName": "CPU Release with MPI (Kokkos Serial, one core per rank)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VLEO_ENABLE_MPI": "ON",
+        "VLEO_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "hip-gfx1101-mpi",
+      "displayName": "AMD HIP Release for RDNA3 Navi 32 with MPI (one rank per GPU, e.g. 2x Radeon PRO W7700)",
+      "inherits": "hip-gfx1101",
+      "cacheVariables": {
+        "VLEO_ENABLE_MPI": "ON"
+      }
+    },
+    {
+      "name": "hip-gfx1103-mpi",
+      "displayName": "AMD HIP Release for RDNA3 APUs with MPI (tests of the decomposition on one iGPU)",
+      "inherits": "hip-gfx1103",
+      "cacheVariables": {
+        "VLEO_ENABLE_MPI": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -130,6 +156,18 @@
     {
       "name": "hip-gfx1103",
       "configurePreset": "hip-gfx1103"
+    },
+    {
+      "name": "cpu-mpi",
+      "configurePreset": "cpu-mpi"
+    },
+    {
+      "name": "hip-gfx1101-mpi",
+      "configurePreset": "hip-gfx1101-mpi"
+    },
+    {
+      "name": "hip-gfx1103-mpi",
+      "configurePreset": "hip-gfx1103-mpi"
     }
   ],
   "testPresets": [
@@ -191,6 +229,21 @@
       "name": "hip-gfx1103",
       "inherits": "base",
       "configurePreset": "hip-gfx1103"
+    },
+    {
+      "name": "cpu-mpi",
+      "inherits": "base",
+      "configurePreset": "cpu-mpi"
+    },
+    {
+      "name": "hip-gfx1101-mpi",
+      "inherits": "base",
+      "configurePreset": "hip-gfx1101-mpi"
+    },
+    {
+      "name": "hip-gfx1103-mpi",
+      "inherits": "base",
+      "configurePreset": "hip-gfx1103-mpi"
     }
   ]
 }

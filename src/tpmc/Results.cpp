@@ -175,6 +175,10 @@ std::string results_json(const TpmcResult& r, const SimulationConfig& cfg, const
   w.field("particle_balance_ok", r.counters.balanced());
   w.field("wall_time_s", r.wall_time_s);
   w.field("histories_per_s", r.wall_time_s > 0 ? static_cast<double>(r.histories) / r.wall_time_s : 0.0);
+  w.key("parallel").begin_object();
+  w.field("ranks", static_cast<std::uint64_t>(r.ranks));
+  w.field("decomposition", "history ids");
+  w.end_object();
   if (!r.profile.empty()) {
     w.key("profile");
     write_profile(w, r.profile);

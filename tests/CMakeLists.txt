@@ -52,4 +52,24 @@ vleo_add_unit_test(test_internal  SOURCES unit/test_internal.cpp LIBS vleo_dsmc 
 target_compile_definitions(test_internal PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
 set_tests_properties(test_internal PROPERTIES TIMEOUT ${_t900})
 
+vleo_add_unit_test(test_comm     SOURCES unit/test_comm.cpp LIBS vleo_dsmc LABELS mpi)
+
+# Multi-rank tests (M6.6): MPI builds only. OpenMPI refuses more ranks than
+# cores without --oversubscribe (VLEO_MPIEXEC_FLAGS).
+if(VLEO_ENABLE_MPI)
+  if(MPI_CXX_LIBRARY_VERSION_STRING MATCHES "Open MPI")
+    set(_mpi_default_flags "--oversubscribe")
+  else()
+    set(_mpi_default_flags "")
+  endif()
+  set(VLEO_MPIEXEC_FLAGS "${_mpi_default_flags}" CACHE STRING "Extra mpiexec flags for the multi-rank tests")
+  separate_arguments(_mpi_flags NATIVE_COMMAND "${VLEO_MPIEXEC_FLAGS}")
+  foreach(_np 2 3)
+    add_test(NAME test_comm_np${_np}
+      COMMAND ${MPIEXEC_EXECUTABLE} ${_mpi_flags} ${MPIEXEC_NUMPROC_FLAG} ${_np} ${MPIEXEC_PREFLAGS}
+              $<TARGET_FILE:test_comm> ${MPIEXEC_POSTFLAGS} --order lex --colour-mode none)
+    set_tests_properties(test_comm_np${_np} PROPERTIES LABELS "unit;mpi" TIMEOUT ${_t120} PROCESSORS ${_np})
+  endforeach()
+endif()
+
 add_subdirectory(regression)

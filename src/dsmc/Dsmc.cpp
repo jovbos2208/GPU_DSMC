@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
 
+#include "vleo/core/Comm.hpp"
 #include "vleo/core/PhysicalConstants.hpp"
 
 namespace vleo {
@@ -210,7 +212,8 @@ struct StepReduce {
     s[kStepTallies + st] += 1.0;
     const int sp = static_cast<int>(species(i));
     double* q = s + kGlobal + kSpeciesSlots * sp;
-    q[0] += 1.0;
+    // active particles only (slots of ended particles wait for compaction)
+    q[0] += st == static_cast<int>(ParticleStatus::Active) ? 1.0 : 0.0;
     q[1] += tally(i, kTallyPx);
     q[2] += tally(i, kTallyPy);
     q[3] += tally(i, kTallyPz);
@@ -256,10 +259,12 @@ struct InjectKernel {
   std::uint64_t seed;
   double dt;
   double weight;
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t j) const {
+  std::uint64_t j0;  // first injection index of this rank (M6.3)
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t jl) const {
+    const std::uint64_t j = j0 + jl;
     int ch = 0;
     while (ch + 1 < channels && j >= offsets[ch + 1]) ++ch;
-    const std::size_t i = base + j;
+    const std::size_t i = base + jl;
     const std::uint64_t id = first_id + j;
     RandomStream rng(seed, id, 0u, RngStream::Injection);
     const InflowSample s = inflow.sample_channel(ch, rng);
@@ -355,12 +360,19 @@ struct CellIndexKernel {
   DeviceGrid grid;
   Kokkos::View<int*> cell;
   Kokkos::View<int*> count;
+  int c_lo, c_hi;               // cells owned by this rank
+  Kokkos::View<int*> foreign;   // particles outside the owned cells (must stay 0)
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) {
       cell(i) = -1;  // not yet compacted
       return;
     }
     const int c = grid.cell_of(p.position(i));
+    if (c < c_lo || c >= c_hi) {
+      cell(i) = -1;
+      Kokkos::atomic_inc(&foreign(0));
+      return;
+    }
     cell(i) = c;
     Kokkos::atomic_inc(&count(c));
   }
@@ -397,16 +409,26 @@ struct FillCells {
 // (fill, injection and set_particles assign ids in index order; compaction
 // preserves the order) - checked in test_grid. Comparing indices avoids one
 // gather per comparison (M5.3).
+//
+// With several ranks (M6.3) migrated particles are appended to the storage,
+// so the lists are sorted by the global particle id instead (`by_id`): every
+// cell then holds the same particles in the same order as in a single-rank
+// run, and the collisions are identical.
 struct SortCells {
   Kokkos::View<const int*> offset;
   Kokkos::View<int*> list;
+  Kokkos::View<const std::uint64_t*> id;
+  bool by_id;
+  KOKKOS_INLINE_FUNCTION std::uint64_t key_of(const int v) const {
+    return by_id ? id(v) : static_cast<std::uint64_t>(v);
+  }
   KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
     const int b = offset(c), e = offset(c + 1);
     for (int a = b + 1; a < e; ++a) {
       const int v = list(a);
-      const int key = v;
+      const std::uint64_t key = key_of(v);
       int k = a - 1;
-      while (k >= b && list(k) > key) {
+      while (k >= b && key_of(list(k)) > key) {
         list(k + 1) = list(k);
         --k;
       }
@@ -425,12 +447,19 @@ struct RankSortEntries {
   Kokkos::View<const int*> cell_of_particle;
   Kokkos::View<const int*> in;
   Kokkos::View<int*> out;
+  Kokkos::View<const std::uint64_t*> id;
+  bool by_id;
   KOKKOS_INLINE_FUNCTION void operator()(const int k) const {
     const int v = in(k);
     const int c = cell_of_particle(v);
     const int b = offset(c), e = offset(c + 1);
     int r = 0;
-    for (int j = b; j < e; ++j) r += in(j) < v ? 1 : 0;
+    if (by_id) {
+      const std::uint64_t key = id(v);
+      for (int j = b; j < e; ++j) r += id(in(j)) < key ? 1 : 0;
+    } else {
+      for (int j = b; j < e; ++j) r += in(j) < v ? 1 : 0;
+    }
     out(b + r) = v;
   }
 };
@@ -575,13 +604,14 @@ struct CollideCellsWaves {
   Kokkos::View<double*> sg_max;
   Kokkos::View<const std::uint64_t*> cand;
   Kokkos::View<std::uint64_t*> acc, upd;
+  int c_lo = 0;  // first owned cell (league rank 0)
 
   static std::size_t scratch_bytes() {
     return kCollideChunk * (sizeof(double) + 2 * sizeof(int) + 2 * sizeof(char)) + 64;
   }
 
   KOKKOS_INLINE_FUNCTION void operator()(const Member& t) const {
-    const int c = t.league_rank();
+    const int c = c_lo + t.league_rank();
     const std::uint64_t n_cand = cand(c);
     if (n_cand == 0) {
       Kokkos::single(Kokkos::PerTeam(t), [&]() {
@@ -682,6 +712,123 @@ struct AccumulateCounts {
   Kokkos::View<double*> sum;
   KOKKOS_INLINE_FUNCTION void operator()(const int c) const { sum(c) += count(c); }
 };
+
+// --- Particle migration between ranks (M6.3) -----------------------------------
+
+struct MigrantRecord {
+  double x, y, z, vx, vy, vz, weight, e_rot, e_vib;
+  std::uint64_t id;
+  std::uint32_t species, interactions;
+  int dest, pad;
+};
+
+// Destination rank of every active particle that is not in an owned cell.
+struct MigrantScan {
+  using value_type = std::size_t;
+  ParticleStorage p;
+  DeviceGrid grid;
+  Kokkos::View<const int*> plane_owner;
+  Kokkos::View<int*> dest;
+  Kokkos::View<std::size_t*> index;
+  int me;
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, std::size_t& update, const bool final) const {
+    int d = -1;
+    if (p.status(i) == static_cast<std::uint8_t>(ParticleStatus::Active)) {
+      const int c = grid.cell_of(p.position(i));
+      const int o = plane_owner(c / (grid.nx * grid.ny));
+      if (o != me) d = o;
+    }
+    if (final) {
+      dest(i) = d;
+      index(i) = update;
+    }
+    if (d >= 0) ++update;
+  }
+};
+
+struct MigrantPack {
+  ParticleStorage p;
+  Kokkos::View<const int*> dest;
+  Kokkos::View<const std::size_t*> index;
+  Kokkos::View<MigrantRecord*> buf;
+  bool drop;  // only remove (set_particles)
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
+    const int d = dest(i);
+    if (d < 0) return;
+    if (!drop) {
+      MigrantRecord r;
+      r.x = p.x(i);
+      r.y = p.y(i);
+      r.z = p.z(i);
+      r.vx = p.vx(i);
+      r.vy = p.vy(i);
+      r.vz = p.vz(i);
+      r.weight = p.weight(i);
+      r.e_rot = p.e_rot(i);
+      r.e_vib = p.e_vib(i);
+      r.id = p.particle_id(i);
+      r.species = p.species(i);
+      r.interactions = p.interactions(i);
+      r.dest = d;
+      r.pad = 0;
+      buf(index(i)) = r;
+    }
+    p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Free);  // left this rank (not counted)
+  }
+};
+
+struct MigrantUnpack {
+  ParticleStorage p;
+  Kokkos::View<double*> dt_rem;
+  Kokkos::View<const MigrantRecord*> buf;
+  std::size_t base;
+  double dt;
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t k) const {
+    const MigrantRecord& r = buf(k);
+    const std::size_t i = base + k;
+    p.x(i) = r.x;
+    p.y(i) = r.y;
+    p.z(i) = r.z;
+    p.vx(i) = r.vx;
+    p.vy(i) = r.vy;
+    p.vz(i) = r.vz;
+    p.weight(i) = r.weight;
+    p.e_rot(i) = r.e_rot;
+    p.e_vib(i) = r.e_vib;
+    p.particle_id(i) = r.id;
+    p.species(i) = r.species;
+    p.interactions(i) = r.interactions;
+    p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Active);
+    dt_rem(i) = dt;
+  }
+};
+
+// Contiguous split of the planes [0, w.size()) into `parts` ranges of about
+// equal weight; returns parts + 1 bounds. Every part gets at least one plane
+// if there are enough planes.
+std::vector<int> split_planes(const std::vector<double>& w, int parts) {
+  const int nz = static_cast<int>(w.size());
+  std::vector<double> cum(w.size() + 1, 0.0);
+  for (std::size_t k = 0; k < w.size(); ++k) cum[k + 1] = cum[k] + std::max(0.0, w[k]);
+  std::vector<int> b(static_cast<std::size_t>(parts) + 1, 0);
+  b[static_cast<std::size_t>(parts)] = nz;
+  const double total = cum.back();
+  for (int r = 1; r < parts; ++r) {
+    int k;
+    if (total > 0.0) {
+      const double target = total * r / parts;
+      k = static_cast<int>(std::lower_bound(cum.begin(), cum.end(), target) - cum.begin());
+      // the bound closer to the target
+      if (k > 0 && target - cum[static_cast<std::size_t>(k - 1)] < cum[static_cast<std::size_t>(k)] - target) --k;
+    } else {
+      k = static_cast<int>(static_cast<long long>(nz) * r / parts);
+    }
+    const int lo = b[static_cast<std::size_t>(r - 1)] + (nz >= parts ? 1 : 0);
+    const int hi = nz - (nz >= parts ? parts - r : 0);
+    b[static_cast<std::size_t>(r)] = std::clamp(k, lo, std::max(lo, hi));
+  }
+  return b;
+}
 
 struct MaxSpeed {
   ParticleStorage p;
@@ -803,6 +950,173 @@ struct DsmcSimulation::Impl {
   double total_particle_steps = 0.0;
   Profiler prof;
 
+  // --- Domain decomposition (M6.3): rank `me` owns the cell planes
+  // [plane_bounds[me], plane_bounds[me + 1]) along z = cells [c_lo, c_hi).
+  int nranks = 1, me = 0;
+  bool decomposed = false;            // nranks > 1
+  std::vector<int> plane_bounds;
+  int c_lo = 0, c_hi = 0;
+  Kokkos::View<int*> plane_owner;     // per z plane
+  Kokkos::View<int*> migrant_dest, foreign;
+  Kokkos::View<MigrantRecord*> migrant_buf;
+  std::uint64_t global_active = 0;    // active particles on all ranks
+  DsmcDecomposition decomposition;
+
+  int planes() const { return grid.grid.nz; }
+  int cells_per_plane() const { return grid.grid.nx * grid.grid.ny; }
+
+  void set_partition(const std::vector<int>& bounds) {
+    plane_bounds = bounds;
+    c_lo = bounds[static_cast<std::size_t>(me)] * cells_per_plane();
+    c_hi = bounds[static_cast<std::size_t>(me) + 1] * cells_per_plane();
+    auto h = Kokkos::create_mirror_view(plane_owner);
+    for (int r = 0; r < nranks; ++r)
+      for (int k = bounds[static_cast<std::size_t>(r)]; k < bounds[static_cast<std::size_t>(r) + 1]; ++k) h(k) = r;
+    Kokkos::deep_copy(plane_owner, h);
+  }
+
+  // Weight of each plane on all ranks: sum over its cells of a per-cell value
+  // (host copy of the owned cells; the sum over ranks is exact since every
+  // plane has a single owner).
+  template <class View>
+  std::vector<double> plane_sums(const View& v, bool owned_only) const {
+    auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), v);
+    std::vector<double> w(static_cast<std::size_t>(planes()), 0.0);
+    const int cpp = cells_per_plane();
+    const int lo = owned_only ? c_lo : 0, hi = owned_only ? c_hi : grid.grid.num_cells();
+    for (int c = lo; c < hi; ++c) w[static_cast<std::size_t>(c / cpp)] += static_cast<double>(h(c));
+    return w;
+  }
+
+  // Bounds computed on rank 0 and broadcast (identical on all ranks).
+  std::vector<int> agreed_split(const std::vector<double>& w) const {
+    std::vector<int> b = split_planes(w, nranks);
+    comm::broadcast(b.data(), b.size() * sizeof(int));
+    return b;
+  }
+
+  static double imbalance(const std::vector<double>& w, const std::vector<int>& b) {
+    const int p = static_cast<int>(b.size()) - 1;
+    double total = 0.0, mx = 0.0;
+    for (int r = 0; r < p; ++r) {
+      double l = 0.0;
+      for (int k = b[static_cast<std::size_t>(r)]; k < b[static_cast<std::size_t>(r) + 1]; ++k)
+        l += w[static_cast<std::size_t>(k)];
+      total += l;
+      mx = std::max(mx, l);
+    }
+    return total > 0.0 ? mx * p / total : 1.0;
+  }
+
+  // Sends every active particle that is not in an owned cell to the owner
+  // (drop: removes them without sending, set_particles). Called after the
+  // move, the fill and a change of the partition.
+  void migrate(bool drop = false) {
+    if (!decomposed) return;
+    Profiler::Scope ps(prof, "dsmc.migrate");
+    if (migrant_dest.extent(0) < capacity) {
+      migrant_dest = Kokkos::View<int*>("dsmc_migrant_dest", capacity);
+    }
+    std::size_t m = 0;
+    if (n > 0)
+      Kokkos::parallel_scan("vleo::dsmc_migrant_scan", policy(0, n),
+                            MigrantScan{cur, grid.grid, plane_owner, migrant_dest, compact_index, me}, m);
+    if (m > migrant_buf.extent(0)) migrant_buf = Kokkos::View<MigrantRecord*>("dsmc_migrants", m + m / 2 + 64);
+    if (m > 0)
+      Kokkos::parallel_for("vleo::dsmc_migrant_pack", policy(0, n),
+                           MigrantPack{cur, migrant_dest, compact_index, migrant_buf, drop});
+    n_active -= m;
+    if (drop) {
+      Kokkos::fence();
+      return;
+    }
+    // exchange through host memory, in particle order per destination
+    std::vector<std::vector<char>> send(static_cast<std::size_t>(nranks));
+    if (m > 0) {
+      auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(),
+                                                   Kokkos::subview(migrant_buf, Kokkos::make_pair(std::size_t{0}, m)));
+      std::vector<std::size_t> cnt(static_cast<std::size_t>(nranks), 0);
+      for (std::size_t k = 0; k < m; ++k) ++cnt[static_cast<std::size_t>(h(k).dest)];
+      for (int r = 0; r < nranks; ++r) send[static_cast<std::size_t>(r)].reserve(cnt[static_cast<std::size_t>(r)] *
+                                                                                   sizeof(MigrantRecord));
+      for (std::size_t k = 0; k < m; ++k) {
+        const char* b = reinterpret_cast<const char*>(&h(k));
+        auto& dst = send[static_cast<std::size_t>(h(k).dest)];
+        dst.insert(dst.end(), b, b + sizeof(MigrantRecord));
+      }
+    }
+    std::vector<std::vector<char>> recv;
+    {
+      Profiler::Scope pm(prof, "dsmc.mpi");
+      recv = comm::alltoallv(send);
+    }
+    std::size_t total = 0;
+    for (const auto& b : recv) total += b.size() / sizeof(MigrantRecord);
+    migrated += m;
+    if (total == 0) return;
+    Kokkos::View<MigrantRecord*, Kokkos::HostSpace> hr("dsmc_received", total);
+    std::size_t o = 0;
+    for (const auto& b : recv) {
+      if (!b.empty()) std::memcpy(reinterpret_cast<char*>(hr.data()) + o, b.data(), b.size());
+      o += b.size();
+    }
+    Kokkos::View<MigrantRecord*> dr("dsmc_received_dev", total);
+    Kokkos::deep_copy(dr, hr);
+    ensure_capacity(n + total);
+    Kokkos::parallel_for("vleo::dsmc_migrant_unpack", policy(0, total),
+                         MigrantUnpack{cur, dt_cur, dr, n, set.timestep_s});
+    n += total;
+    n_active += total;
+  }
+  std::uint64_t migrated = 0;  // particles sent by this rank
+
+  void init_partition() {
+    nranks = comm::size();
+    me = comm::rank();
+    decomposed = nranks > 1;
+    plane_owner = Kokkos::View<int*>("dsmc_plane_owner", static_cast<std::size_t>(planes()));
+    foreign = Kokkos::View<int*>("dsmc_foreign", 1);
+    // initial split by gas volume per plane (no particles yet)
+    const std::vector<double> w = plane_sums(grid.gas_fraction, false);
+    set_partition(decomposed ? agreed_split(w) : std::vector<int>{0, planes()});
+    decomposition.ranks = nranks;
+    decomposition.initial_bounds = plane_bounds;
+    decomposition.bounds = plane_bounds;
+  }
+
+  // Load balancing at the end of the warm-up (M6.5): planes re-split by the
+  // particle count of the last binning. The cell state (sigma g max, NTC
+  // remainder, sampled populations) moves with the cells and the particles
+  // migrate to the new owners, so the run continues exactly as before.
+  void rebalance() {
+    if (!decomposed) return;
+    Profiler::Scope ps(prof, "dsmc.rebalance");
+    std::vector<double> w = plane_sums(count, true);
+    comm::sum(w.data(), w.size());
+    const std::vector<int> b = agreed_split(w);
+    decomposition.imbalance_before = imbalance(w, plane_bounds);
+    decomposition.imbalance_after = imbalance(w, b);
+    decomposition.rebalanced = true;
+    if (b == plane_bounds) return;
+    auto move_cells = [&](auto& view) {
+      auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), view);
+      const int nc = grid.grid.num_cells();
+      for (int c = 0; c < nc; ++c)
+        if (c < c_lo || c >= c_hi) h(c) = 0;
+      comm::sum(h.data(), static_cast<std::size_t>(nc));  // one non-zero contribution per cell: exact
+      Kokkos::deep_copy(view, h);
+    };
+    move_cells(sg_max);
+    move_cells(remainder);
+    move_cells(count_sum);
+    set_partition(b);
+    decomposition.bounds = b;
+    migrate();
+    compact();
+  }
+
+  void update_global_active() { global_active = decomposed ? comm::sum(static_cast<std::uint64_t>(n_active)) : n_active; }
+
   void allocate(std::size_t cap) {
     if (cap > set.max_particles) {
       std::ostringstream os;
@@ -874,28 +1188,43 @@ struct DsmcSimulation::Impl {
     }
     off[nch] = total;
     if (total == 0) return;
-    ensure_capacity(n + total);
-    Kokkos::parallel_for("vleo::dsmc_inject", policy(0, total),
-                         InjectKernel{cur, dt_cur, inflow, off, nch, n, next_id, cfg.simulation.random_seed,
-                                      set.timestep_s, set.particle_weight});
-    n += total;
-    n_active += total;
+    // several ranks: contiguous share of the injection indices (the particles
+    // migrate to the owners of their cells after the move)
+    const std::uint64_t j0 = total * static_cast<std::uint64_t>(me) / static_cast<std::uint64_t>(nranks);
+    const std::uint64_t local = total * static_cast<std::uint64_t>(me + 1) / static_cast<std::uint64_t>(nranks) - j0;
+    if (local > 0) {
+      ensure_capacity(n + local);
+      Kokkos::parallel_for("vleo::dsmc_inject", policy(0, local),
+                           InjectKernel{cur, dt_cur, inflow, off, nch, n, next_id, cfg.simulation.random_seed,
+                                        set.timestep_s, set.particle_weight, j0});
+    }
+    n += local;
+    n_active += local;
+    global_active += total;
     next_id += total;
     counters.injected += total;
   }
 
   void bin() {
-    const int nc = grid.grid.num_cells();
+    const auto owned = Kokkos::make_pair(static_cast<std::size_t>(c_lo), static_cast<std::size_t>(c_hi));
     {
       Profiler::Scope ps(prof, "dsmc.bin.histogram");
-      Kokkos::deep_copy(count, 0);
-      Kokkos::deep_copy(cursor, 0);
-      Kokkos::parallel_for("vleo::dsmc_cell_index", policy(0, n), CellIndexKernel{cur, grid.grid, cell_of_particle, count});
+      Kokkos::deep_copy(Kokkos::subview(count, owned), 0);
+      Kokkos::deep_copy(Kokkos::subview(cursor, owned), 0);
+      Kokkos::parallel_for("vleo::dsmc_cell_index", policy(0, n),
+                           CellIndexKernel{cur, grid.grid, cell_of_particle, count, c_lo, c_hi, foreign});
+    }
+    if (decomposed) {
+      int lost = 0;
+      Kokkos::deep_copy(lost, Kokkos::subview(foreign, 0));
+      if (lost > 0) throw std::logic_error("DSMC: particles outside the cells of their rank after migration");
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.scan");
       offset_total = 0;  // number of binned (active) particles
-      Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(0, nc), OffsetScan{count, offset, nc}, offset_total);
+      if (c_hi > c_lo)
+        Kokkos::parallel_scan("vleo::dsmc_offsets", IntPolicy(c_lo, c_hi), OffsetScan{count, offset, c_hi},
+                              offset_total);
     }
     {
       Profiler::Scope ps(prof, "dsmc.bin.fill");
@@ -905,35 +1234,44 @@ struct DsmcSimulation::Impl {
     {
       Profiler::Scope ps(prof, "dsmc.bin.sort");
       if constexpr (kHostExecution) {
-        Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(0, nc), SortCells{offset, list});
+        Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(c_lo, c_hi),
+                             SortCells{offset, list, cur.particle_id, decomposed});
       } else {
         Kokkos::parallel_for("vleo::dsmc_rank_sort", IntPolicy(0, offset_total),
-                             RankSortEntries{offset, cell_of_particle, list_unsorted, list});
+                             RankSortEntries{offset, cell_of_particle, list_unsorted, list, cur.particle_id, decomposed});
       }
     }
   }
 
   void collide() {
-    const int nc = grid.grid.num_cells();
-    Kokkos::parallel_for("vleo::dsmc_candidates", IntPolicy(0, nc),
+    const int nc = c_hi - c_lo;  // owned cells
+    if (nc > 0)
+      Kokkos::parallel_for("vleo::dsmc_candidates", IntPolicy(c_lo, c_hi),
                          CellCandidates{offset, grid.collision_volume, sg_max, remainder, cand,
                                         set.particle_weight * set.timestep_s});
     const CollisionPairOp model{cur, pairs, modes, pair_acc, nsp, cfg.simulation.random_seed,
                                static_cast<std::uint32_t>(step_index)};
     const bool per_cell = set.collision_kernel == CollisionKernel::PerCell ||
                           (set.collision_kernel == CollisionKernel::Automatic && kHostExecution);
-    if (per_cell) {
-      Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(0, nc),
+    if (nc == 0) {
+      // no owned cells (more ranks than planes)
+    } else if (per_cell) {
+      Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(c_lo, c_hi),
                            CollideCellsSerial{model, offset, list, sg_max, cand, acc, upd});
     } else {
       // 32 threads per cell on GPUs (wave32 / warp); host backends (tests) choose themselves
       Kokkos::TeamPolicy<> tp = kHostExecution ? Kokkos::TeamPolicy<>(nc, Kokkos::AUTO) : Kokkos::TeamPolicy<>(nc, 32);
       tp.set_scratch_size(0, Kokkos::PerTeam(static_cast<int>(CollideCellsWaves::scratch_bytes())));
       Kokkos::parallel_for("vleo::dsmc_collide_waves", tp,
-                           CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd});
+                           CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd, c_lo});
     }
     std::uint64_t s[3] = {0, 0, 0};
-    Kokkos::parallel_reduce("vleo::dsmc_collision_counts", IntPolicy(0, nc), SumU64x3{3, cand, acc, upd}, s);
+    if (nc > 0)
+      Kokkos::parallel_reduce("vleo::dsmc_collision_counts", IntPolicy(c_lo, c_hi), SumU64x3{3, cand, acc, upd}, s);
+    if (decomposed) {
+      Profiler::Scope pm(prof, "dsmc.mpi");
+      comm::sum(s, 3);
+    }
     counters.collision_candidates += s[0];
     counters.collisions += s[1];
     counters.sigma_g_max_updates += s[2];
@@ -947,7 +1285,7 @@ struct DsmcSimulation::Impl {
       Profiler::Scope ps(prof, "dsmc.inject");
       inject();
     }
-    total_particle_steps += static_cast<double>(n_active);
+    total_particle_steps += static_cast<double>(global_active);
     MoveKernel mk{cur,
                   dt_cur,
                   tally,
@@ -987,6 +1325,11 @@ struct DsmcSimulation::Impl {
       s[kStepInteractions] = c[kNumParticleStatus];
     }
     n_active = static_cast<std::size_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
+    if (decomposed) {  // global tallies and counts (counts are exact in double below 2^53)
+      Profiler::Scope pm(prof, "dsmc.mpi");
+      comm::sum(s, StepReduce::kSlots);
+    }
+    global_active = static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
     counters.exited += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Exited)]);
     counters.truncated += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Truncated)]);
     counters.lost_inside_body +=
@@ -1010,6 +1353,7 @@ struct DsmcSimulation::Impl {
       }
     }
 
+    migrate();
     // Compact only when more than 5 % of the slots are no longer active
     // (deterministic decision; ended particles are skipped meanwhile).
     if (n - n_active > n / 20) {
@@ -1024,18 +1368,19 @@ struct DsmcSimulation::Impl {
 
     if (sample) {
       Profiler::Scope ps(prof, "dsmc.sample");
-      Kokkos::parallel_for("vleo::dsmc_count_sum", IntPolicy(0, grid.grid.num_cells()), AccumulateCounts{count, count_sum});
+      if (c_hi > c_lo)
+        Kokkos::parallel_for("vleo::dsmc_count_sum", IntPolicy(c_lo, c_hi), AccumulateCounts{count, count_sum});
       double vmax = 0.0;
       if (n > 0)
         Kokkos::parallel_reduce("vleo::dsmc_max_speed", policy(0, n), MaxSpeed{cur}, Kokkos::Max<double>(vmax));
       max_speed = std::max(max_speed, vmax);
-      const double np = static_cast<double>(n_active);
+      const double np = static_cast<double>(global_active);
       particles_sum += np;
       particles_min = std::min(particles_min, np);
       particles_max = std::max(particles_max, np);
       sampled_cand += last_cand;
       sampled_acc += last_acc;
-      sampled_particle_steps += n_active;
+      sampled_particle_steps += global_active;
       ++sampled;
     }
     ++step_index;
@@ -1096,6 +1441,7 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
     s.surface = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_surface", geometry.host.size(), kSurfaceTallies);
 
   s.allocate(std::min<std::size_t>(settings.max_particles, 1u << 16));
+  s.init_partition();
 }
 
 DsmcSimulation::~DsmcSimulation() = default;
@@ -1107,8 +1453,11 @@ void DsmcSimulation::fill_freestream() {
   const double expected = s.cfg.gas.number_density_m3 * e.x * e.y * e.z / s.set.particle_weight;
   RandomStream rng(s.cfg.simulation.random_seed, 0, 0, RngStream::InjectionCount);
   const auto total = static_cast<std::size_t>(std::floor(expected + rng.uniform()));
+  // several ranks: contiguous share of the ids, then migration to the owners
+  const std::size_t lo = total * static_cast<std::size_t>(s.me) / static_cast<std::size_t>(s.nranks);
+  const std::size_t local = total * static_cast<std::size_t>(s.me + 1) / static_cast<std::size_t>(s.nranks) - lo;
   s.n = 0;
-  s.ensure_capacity(total);
+  s.ensure_capacity(local);
   std::vector<double> cdf, sigma;
   double acc = 0.0, sum = 0.0;
   for (const auto& sp : s.cfg.gas.species) sum += sp.mole_fraction;
@@ -1117,15 +1466,22 @@ void DsmcSimulation::fill_freestream() {
     cdf.push_back(acc);
     sigma.push_back(std::sqrt(constants::k_B * s.cfg.gas.translational_temperature_K / sp.mass_kg));
   }
-  Kokkos::parallel_for("vleo::dsmc_fill", policy(0, total),
+  Kokkos::parallel_for("vleo::dsmc_fill", policy(0, local),
                        FillKernel{s.cur, s.dt_cur, s.geo, box, s.cfg.gas.bulk_velocity_body_mps,
                                   to_device(cdf, "fill_cdf"), to_device(sigma, "fill_sigma"), s.modes,
-                                  s.cfg.gas.translational_temperature_K, s.next_id,
+                                  s.cfg.gas.translational_temperature_K, s.next_id + lo,
                                   s.cfg.simulation.random_seed, s.set.timestep_s, s.set.particle_weight, s.has_closed});
-  s.n = total;
+  s.n = local;
   s.next_id += total;
   s.compact();
-  s.counters.removed_inside_at_fill += total - s.n;
+  std::uint64_t removed = local - s.n;
+  if (s.decomposed) {
+    removed = comm::sum(removed);
+    s.migrate();
+    s.compact();
+  }
+  s.counters.removed_inside_at_fill += removed;
+  s.update_global_active();
   s.bin();
 }
 
@@ -1180,11 +1536,19 @@ void DsmcSimulation::set_particles(const std::vector<Vec3>& positions, const std
   s.n = total;
   s.n_active = total;
   s.next_id += total;
+  if (s.decomposed) {  // every rank keeps the particles in its own cells
+    s.migrate(true);
+    s.compact();
+  }
+  s.update_global_active();
   s.bin();
 }
 
 void DsmcSimulation::step(bool sample) { impl_->step(sample); }
-std::size_t DsmcSimulation::num_particles() const { return impl_->n_active; }
+std::size_t DsmcSimulation::num_particles() const { return impl_->global_active; }
+std::size_t DsmcSimulation::num_local_particles() const { return impl_->n_active; }
+void DsmcSimulation::rebalance() { impl_->rebalance(); }
+const DsmcDecomposition& DsmcSimulation::decomposition() const { return impl_->decomposition; }
 
 void DsmcSimulation::compact() {
   impl_->compact();
@@ -1289,7 +1653,11 @@ DsmcResult DsmcSimulation::result() const {
 
   // Surface fields: event sums over the sampling phase -> rates.
   if (s.surface.extent(0) > 0 && s.sampled > 0) {
-    auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.surface);
+    // separate host copy: on host backends the mirror would alias the tally
+    Kokkos::View<double**, Kokkos::LayoutLeft, Kokkos::HostSpace> h("dsmc_surface_host", s.surface.extent(0),
+                                                                   s.surface.extent(1));
+    Kokkos::deep_copy(h, s.surface);
+    comm::sum(h.data(), h.size());
     const double g = s.set.particle_weight / (s.set.timestep_s * static_cast<double>(s.sampled));
     SurfaceFields f;
     for (std::size_t t = 0; t < s.num_triangles; ++t) {
@@ -1315,7 +1683,7 @@ DsmcResult DsmcSimulation::result() const {
   d.tau_inf_s = s.set.tau_inf_s;
   d.cell_over_lambda_inf = dx_max / s.set.lambda_inf_m;
   d.dt_over_tau_inf = s.set.timestep_s / s.set.tau_inf_s;
-  d.max_cfl = s.max_speed * s.set.timestep_s / dx_min;
+  d.max_cfl = comm::max(s.max_speed) * s.set.timestep_s / dx_min;
   d.free_stream_collisions_per_particle_per_step = s.set.timestep_s / s.set.tau_inf_s;
   if (s.sampled > 0) {
     d.particles_mean = s.particles_sum / static_cast<double>(s.sampled);
@@ -1325,7 +1693,9 @@ DsmcResult DsmcSimulation::result() const {
     d.collisions_per_particle_per_step =
         s.sampled_particle_steps > 0 ? 2.0 * static_cast<double>(s.sampled_acc) / static_cast<double>(s.sampled_particle_steps)
                                      : 0.0;
-    auto cs = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.count_sum);
+    Kokkos::View<double*, Kokkos::HostSpace> cs("dsmc_count_sum_host", s.count_sum.extent(0));
+    Kokkos::deep_copy(cs, s.count_sum);
+    comm::sum(cs.data(), cs.size());  // one owner per cell: exact
     auto fr = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.grid.gas_fraction);
     std::int64_t gas = 0, below5 = 0, coarse = 0;
     double ppc = 0.0, min_lambda = Kokkos::infinity_v<double>, min_lambda_resolved = Kokkos::infinity_v<double>;
@@ -1353,10 +1723,14 @@ DsmcResult DsmcSimulation::result() const {
 
   r.profile = s.prof.phases();
   r.particle_steps = s.total_particle_steps;
+  r.decomposition = s.decomposition;
+  r.decomposition.migrated = s.decomposed ? comm::sum(s.migrated) : 0;
 
   // Per-species diagnostics.
   {
-    auto pa = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.pair_acc);
+    Kokkos::View<std::uint64_t*, Kokkos::HostSpace> pa("dsmc_pair_acc_host", s.pair_acc.extent(0));
+    Kokkos::deep_copy(pa, s.pair_acc);
+    comm::sum(pa.data(), pa.size());
     const double ns = s.sampled > 0 ? static_cast<double>(s.sampled) : 1.0;
     for (int q = 0; q < s.nsp; ++q) {
       DsmcSpeciesDiagnostics sd;
@@ -1407,6 +1781,7 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   for (std::uint64_t k = 0; k < total; ++k) {
     const bool sample = k >= settings.warmup_steps;
     sim.step(sample);
+    if (k + 1 == settings.warmup_steps && settings.load_balance) sim.rebalance();
     if (progress && ((k + 1) % report == 0 || k + 1 == total)) {
       const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       progress({k + 1, total, sample, sim.num_particles(), el});

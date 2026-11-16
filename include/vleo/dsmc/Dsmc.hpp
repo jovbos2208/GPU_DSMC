@@ -24,6 +24,14 @@
 // compaction, id-sorted cells) and the global tallies are reduced, not
 // accumulated atomically. A run is therefore bitwise reproducible for a given
 // backend and configuration.
+//
+// Several MPI ranks (M6.3, docs/parallel.md): the cell planes along z are
+// split into contiguous ranges, one per rank. Injection and fill are split by
+// particle id; after the move every particle migrates to the rank owning its
+// cell, and the cell lists are sorted by the global particle id. Every cell
+// therefore sees the same particles in the same order as in a single-rank
+// run: integer counters are identical, floating-point results differ only by
+// the rounding of the sums over ranks.
 
 #include <cstdint>
 #include <functional>
@@ -69,6 +77,7 @@ struct DsmcSettings {
   DsmcBoundary boundary = DsmcBoundary::Open;
   bool initial_fill = true;            // start from free-stream gas (else empty domain)
   bool profile = false;                // phase timings (also VLEO_PROFILE=1)
+  bool load_balance = true;            // several ranks: re-split the planes at the end of the warm-up (M6.5)
   CollisionKernel collision_kernel = CollisionKernel::Automatic;
   GridOptions grid;
 
@@ -158,6 +167,17 @@ struct DsmcDiagnostics {
   double free_stream_collisions_per_particle_per_step = 0.0;  // dt / tau_inf
 };
 
+// Domain decomposition over MPI ranks (M6.3, M6.5).
+struct DsmcDecomposition {
+  int ranks = 1;
+  std::vector<int> initial_bounds;     // z-plane bounds (ranks + 1), split by gas volume
+  std::vector<int> bounds;             // after load balancing
+  bool rebalanced = false;
+  double imbalance_before = 1.0;       // max / mean particles per rank at the end of the warm-up
+  double imbalance_after = 1.0;
+  std::uint64_t migrated = 0;          // particles sent to another rank (whole run)
+};
+
 struct DsmcResult {
   TpmcEstimates estimates;                 // same quantities as TPMC, SE from block averaging
   std::array<SeriesStatistics, kHistoryQuantities> series;  // per quantity (rates, unscaled)
@@ -173,6 +193,7 @@ struct DsmcResult {
   double particle_steps = 0.0;                     // sum over steps of the particle number
   std::vector<std::string> warnings;
   CellSizePilotReport pilot;               // set by refine_cell_size_with_pilot
+  DsmcDecomposition decomposition;
 };
 
 struct DsmcProgress {
@@ -202,7 +223,12 @@ class DsmcSimulation {
   // Advances one time step; `sample` adds the step to the sampling statistics.
   void step(bool sample);
 
-  std::size_t num_particles() const;  // active particles
+  std::size_t num_particles() const;        // active particles (all ranks)
+  std::size_t num_local_particles() const;  // active particles on this rank
+  // Several ranks: re-splits the cell planes by the current particle count
+  // (collective; no effect on the results). Called by run_dsmc after the warm-up.
+  void rebalance();
+  const DsmcDecomposition& decomposition() const;
   // Removes ended particles now (the time step compacts lazily; tests call
   // this before inspecting the particle arrays).
   void compact();
@@ -211,7 +237,7 @@ class DsmcSimulation {
   const DsmcSettings& settings() const;
   std::uint64_t sampled_steps() const;
 
-  // Host copies of the current particle state (tests, diagnostics).
+  // Host copies of the current particle state of this rank (tests, diagnostics).
   std::vector<Vec3> velocities() const;
   std::vector<Vec3> positions() const;
   std::vector<std::uint64_t> particle_ids() const;
@@ -223,7 +249,7 @@ class DsmcSimulation {
   // Accepted collisions per species pair (p <= q), whole run.
   std::uint64_t pair_collisions(int p, int q) const;
 
-  // Statistics of the sampling phase.
+  // Statistics of the sampling phase (collective with several ranks).
   DsmcResult result() const;
 
  private:

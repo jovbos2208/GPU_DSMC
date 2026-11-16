@@ -4,6 +4,8 @@
 #include <cmath>
 #include <sstream>
 
+#include "vleo/core/Comm.hpp"
+
 namespace vleo {
 
 DeviceGrid make_device_grid(const Domain& domain, double cell_size, std::int64_t max_cells) {
@@ -42,8 +44,10 @@ struct FractionKernel {
   Kokkos::View<double*> fraction;
   int ns;
   bool has_closed;
+  int first = 0, stride = 1;  // cells first, first + stride, ... (one share per MPI rank)
 
-  KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
+  KOKKOS_INLINE_FUNCTION void operator()(const int share_index) const {
+    const int c = first + stride * share_index;
     if (!has_closed) {
       fraction(c) = 1.0;
       return;
@@ -102,13 +106,24 @@ CollisionGrid make_collision_grid(const Domain& domain, double cell_size, const 
     for (int c = 0; c < nc; ++c) h(c) = cand[static_cast<std::size_t>(c)];
     Kokkos::deep_copy(d_cand, h);
   }
+  // Several MPI ranks (M6.3): every rank classifies every P-th cell
+  // (interleaved, so the expensive cut cells near the body are shared evenly);
+  // the sum over ranks is exact (one non-zero contribution per cell).
+  const int nranks = comm::size(), me = comm::rank();
   cg.gas_fraction = Kokkos::View<double*>("gas_fraction", static_cast<std::size_t>(nc));
-  Kokkos::parallel_for("vleo::cell_fractions", Kokkos::RangePolicy<>(0, nc),
-                       FractionKernel{g, geometry.device, d_cand, cg.gas_fraction, options.samples_per_axis,
-                                      has_closed});
+  const int mine = nc > me ? (nc - me + nranks - 1) / nranks : 0;
+  if (mine > 0)
+    Kokkos::parallel_for("vleo::cell_fractions", Kokkos::RangePolicy<>(0, mine),
+                         FractionKernel{g, geometry.device, d_cand, cg.gas_fraction, options.samples_per_axis,
+                                        has_closed, me, nranks});
   Kokkos::fence();
 
-  auto f = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), cg.gas_fraction);
+  Kokkos::View<double*, Kokkos::HostSpace> f("gas_fraction_host", static_cast<std::size_t>(nc));
+  Kokkos::deep_copy(f, cg.gas_fraction);
+  if (nranks > 1) {
+    comm::sum(f.data(), f.size());
+    Kokkos::deep_copy(cg.gas_fraction, f);
+  }
   Kokkos::View<double*> veff("collision_volume", static_cast<std::size_t>(nc));
   auto hv = Kokkos::create_mirror_view(veff);
   GridReport& r = cg.report;

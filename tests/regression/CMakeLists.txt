@@ -133,3 +133,23 @@ if(Python3_FOUND AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/scripts/check_examples.py" $<TARGET_FILE:vleo_solver>)
   set_tests_properties(examples_fixed_seeds PROPERTIES LABELS "examples;smoke" TIMEOUT 1200)
 endif()
+
+# 11. M6.6: 1, 2, 3 and 4 MPI ranks give identical integer counters and equal
+#     results up to rounding (TPMC, DSMC mixture with surface fields, DSMC with
+#     pilot runs). MPI builds only.
+if(VLEO_ENABLE_MPI AND Python3_FOUND)
+  foreach(_case tpmc dsmc_air dsmc_pilot)
+    if(_case STREQUAL "tpmc")
+      set(_extra "")
+    else()
+      set(_extra -- --warmup-steps 30)
+    endif()
+    add_test(NAME mpi_ranks_${_case}
+      COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/scripts/check_ranks.py"
+              --solver $<TARGET_FILE:vleo_solver> --mpiexec ${MPIEXEC_EXECUTABLE} "--mpiexec-flags=${VLEO_MPIEXEC_FLAGS}"
+              --config "${CMAKE_CURRENT_SOURCE_DIR}/mpi_${_case}.yaml"
+              --out "${CMAKE_CURRENT_BINARY_DIR}/mpi_ranks_${_case}" ${_extra})
+    set_tests_properties(mpi_ranks_${_case} PROPERTIES LABELS "mpi;smoke" TIMEOUT ${_t900} PROCESSORS 4
+                         RUN_SERIAL ON)
+  endforeach()
+endif()

@@ -19,6 +19,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 option(VLEO_BUILD_TESTS "Build the VLEO test suite" ON)
 option(VLEO_ENABLE_WARNINGS "Enable compiler warnings for project targets" ON)
 option(VLEO_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for project targets" OFF)
+option(VLEO_ENABLE_MPI "Build with MPI (multiple ranks, one GPU per rank; docs/parallel.md)" OFF)
 
 # ---------------------------------------------------------------------------
 # Third-party dependencies (pinned, vendored copies; see docs/dependencies.md)
@@ -30,6 +31,11 @@ include(VleoThirdParty)
 # ---------------------------------------------------------------------------
 include(VleoWarnings)
 include(VleoBackend)   # derives VLEO_BACKEND (cpu | cuda | hip) from Kokkos
+
+if(VLEO_ENABLE_MPI)
+  find_package(MPI 3.0 REQUIRED COMPONENTS CXX)
+  message(STATUS "VLEO: MPI ${MPI_CXX_VERSION} (${MPIEXEC_EXECUTABLE})")
+endif()
 
 if(VLEO_BUILD_TESTS)
   enable_testing()

@@ -93,6 +93,7 @@ struct CollisionGrid {
 // Grid over `domain` with cells of (at most) `cell_size` edge length.
 DeviceGrid make_device_grid(const Domain& domain, double cell_size, std::int64_t max_cells = 1 << 24);
 
+// Collective with several MPI ranks (the cells are classified in parallel).
 CollisionGrid make_collision_grid(const Domain& domain, double cell_size, const Geometry& geometry,
                                   const GridOptions& options = {});
 
