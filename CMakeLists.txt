@@ -20,7 +20,6 @@ option(VLEO_BUILD_TESTS "Build the VLEO test suite" ON)
 option(VLEO_ENABLE_WARNINGS "Enable compiler warnings for project targets" ON)
 option(VLEO_WARNINGS_AS_ERRORS "Treat compiler warnings as errors for project targets" OFF)
 option(VLEO_ENABLE_MPI "Build with MPI (multiple ranks, one GPU per rank; docs/parallel.md)" OFF)
-option(VLEO_BUILD_AUDIT_TOOLS "Build research audit executables" ON)
 
 # ---------------------------------------------------------------------------
 # Third-party dependencies (pinned, vendored copies; see docs/dependencies.md)
@@ -63,15 +62,6 @@ target_link_libraries(vleo_solver PRIVATE
   vleo_io
   vleo_warnings
   Kokkos::kokkos)
-
-if(VLEO_BUILD_AUDIT_TOOLS)
-  add_executable(vleo_vgroove_ray_audit tools/vgroove_return_audit.cpp)
-  target_link_libraries(vleo_vgroove_ray_audit PRIVATE
-    vleo_core
-    vleo_geometry
-    vleo_warnings
-    Kokkos::kokkos)
-endif()
 
 if(VLEO_BUILD_TESTS)
   add_subdirectory(tests)
