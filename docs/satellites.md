@@ -103,4 +103,54 @@ vleo_solver also runs with the free-stream cell-size rule (no pilot) and
 with half the pilot cell size. The pilot rule is adequate if C_D and Q at
 half the cell size agree with the pilot grid within 3 σ + 1 %.
 
-Results: section 4 (filled in after the runs).
+## 4. Results (2026-11-16, server `hagen`, `m6-mpi` at `de78517`)
+
+vleo_solver on one Radeon PRO W7700 (`hip-gfx1101-mpi`). SPARTA on 24 CPU
+ranks (`spa_mpi`; the other cores were in use by other users, which does not
+affect the results). All 14 comparisons pass. Reports, inputs and logs:
+`validation/satellites/<case>/` on the server.
+
+**Free-molecular (M6.10), 12 attitudes.** Deviation vleo_solver − SPARTA of
+the quantities that are not zero by symmetry:
+
+| Case | (α, β) | F_x | F_z (lift) / F_y (β = 15°) | Q | M (largest component) | max \|z\| |
+| ---- | ------ | --- | -------------------------- | - | --------------------- | ---------- |
+| G-FM-D | (0,0) (10,0) (30,0) (0,15) | +0.03, +0.06, −0.07, −0.01 % | F_z +0.12, −0.06 %; F_y 0.00 % | +0.02, +0.06, −0.06, −0.02 % | M_y +0.33, −0.15 %; M_z −0.15 % | 2.07 |
+| G-FM-C | (0,0) (10,0) | −0.01, +0.03 % | F_z +0.15 % | +0.03, +0.06 % | M_y +0.40 % | 2.33 |
+| C-FM-D | (0,0) (10,0) (30,0) (0,15) | +0.03, +0.02, +0.05, −0.02 % | F_z +0.20, +0.03, +0.05, −0.39 %; F_y −0.01 % | +0.02, +0.02, +0.05, −0.02 % | M_y +0.53, +0.43, −0.01, +0.73 % | 1.54 |
+| C-FM-C | (0,0) (10,0) | +0.01, +0.06 % | F_z −0.04, +0.06 % | +0.01, +0.05 % | M_y −0.07, +0.62 % | 1.80 |
+
+Large relative differences of components that vanish by symmetry (e.g.
+F_y at β = 0) are noise around zero, all with |z| < 2.4. Coefficients
+(A_ref = 1 m²) at α = β = 0: GOCE C_D = 3.750 (diffuse), 3.909 (CLL);
+CHAMP C_D = 2.338 (diffuse), 2.061 (CLL), C_L = 0.054 / 0.223.
+
+**DSMC (M6.11), n = 3·10¹⁷ m⁻³, α = β = 0:**
+
+| Case | C_D | F_x | F_z | Q | M_y (centroids) | max \|z\| |
+| ---- | --- | --- | --- | - | --------------- | ---------- |
+| G-DSMC | 4.027 ± 0.015 | +0.41 % | (≈ 0) | +0.30 % | (≈ 0) | 1.80 |
+| C-DSMC | 2.477 ± 0.015 | +0.17 % | −0.16 % | +0.19 % | −7.5 % (z = 1.13) | 1.21 |
+
+**Cell-size rule on the real geometries (M6.11).** The pilot runs kept the
+free-stream rule (L_max / 16): its cells were already within 1.5 λ_min.
+
+| Case | grid | cell [m] | C_D | Q [W] |
+| ---- | ---- | -------- | --- | ----- |
+| G-DSMC | free-stream rule = pilot | 0.457 × 0.456 × 0.444 | 4.0271 ± 0.015 | 3610 ± 14 |
+| | half cell | 0.229 × 0.228 × 0.222 | 3.9755 ± 0.0075 (−1.3 %, z = 3.1) | 3565 ± 6.6 (−1.25 %, z = 2.9) |
+| C-DSMC | free-stream rule = pilot | 0.646 × 0.613 × 0.565 | 2.4769 ± 0.015 | 2248 ± 14 |
+| | half cell | 0.323 × 0.307 × 0.308 | 2.4515 ± 0.0093 (−1.0 %, z = 1.5) | 2225 ± 8.4 (−1.0 %, z = 1.4) |
+
+The pre-defined criterion (3 σ + 1 %) is met in both cases. The trend is
+systematic, though: C_D and Q decrease by 1.0–1.3 % at half the cell size,
+for both satellites. On these geometries the pilot rule
+(`lambda_fraction = 1.5`) therefore leaves a cell-size error of about 1 %,
+larger than the 0.24 % of the M3.17 study on the cube. For ≤ 0.5 %
+accuracy, use a smaller `lambda_fraction` or check convergence with
+half the cell size (8× the cells). The comparison with SPARTA is not
+affected: both codes used the same grid.
+
+**Gate M6, item 2** ("GOCE/CHAMP agree with the references within defined
+tolerances"): met against SPARTA as the reference. Published coefficient
+tables were not available.

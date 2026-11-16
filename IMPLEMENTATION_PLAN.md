@@ -903,8 +903,8 @@ Reale Satelliten:
 
 - [x] **M6.8** Lagewinkel-Sweep (mehrere Anströmrichtungen pro Lauf bzw. Skript, Ergebnistabelle). → `--attitude α β`, `scripts/attitude_sweep.py` (JSON/CSV/Markdown), `docs/satellites.md` §2
 - [x] **M6.9** GOCE- und CHAMP-Geometrien (March et al. 2019) importieren, prüfen, Referenzgrößen festlegen. → geschlossene Netze (CATIA, mm), +x Flugrichtung, A_ref = 1 m², L_ref = 1 m, Momente um CAD-Ursprung; Stirnflächen 1,027 / 0,770 m²
-- [ ] **M6.10** TPMC (freimolekular) gegen die veröffentlichten Koeffizienten (diffus und CLL, Lagewinkel). → keine veröffentlichten Tabellen verfügbar: Vergleich gegen SPARTA mit identischen Eingaben (`validation/satellites/run_sat.py`, Toleranz 3σ + 1 %)
-- [ ] **M6.11** DSMC bei niedriger Höhe gegen SPARTA mit identischen Eingaben; Zellgrößen- und Pilotregel-Prüfung an realer Geometrie.
+- [x] **M6.10** TPMC (freimolekular) gegen die veröffentlichten Koeffizienten (diffus und CLL, Lagewinkel). → keine veröffentlichten Tabellen verfügbar: Vergleich gegen SPARTA mit identischen Eingaben (`validation/satellites/run_sat.py`, Toleranz 3σ + 1 %): 12 Lagen GOCE/CHAMP bestanden, Kräfte ≤ 0,15 % (F_z CHAMP β = 15°: 0,39 %), Q ≤ 0,06 %, |z| ≤ 2,33 (`docs/satellites.md` §4)
+- [x] **M6.11** DSMC bei niedriger Höhe gegen SPARTA mit identischen Eingaben; Zellgrößen- und Pilotregel-Prüfung an realer Geometrie. → n = 3·10¹⁷ m⁻³ (Kn ≈ 1,5): GOCE F_x +0,41 %, CHAMP +0,17 %, bestanden (3σ + 3 %); Pilotregel erfüllt 3σ + 1 %, aber halbe Zelle −1,0 … −1,3 % in C_D und Q (systematisch, `docs/satellites.md` §4)
 
 Performance und Plattformen:
 
@@ -914,7 +914,7 @@ Performance und Plattformen:
 **Gate M6 – Release v1.0**
 
 - [ ] Mehrere GPUs liefern dieselben Ergebnisse wie eine GPU (Zähler exakt, Größen bis auf Rundung).
-- [ ] GOCE/CHAMP stimmen innerhalb definierter Toleranzen mit den Referenzen überein.
+- [x] GOCE/CHAMP stimmen innerhalb definierter Toleranzen mit den Referenzen überein. → Referenz SPARTA (keine veröffentlichten Tabellen verfügbar): 14/14 Vergleiche bestanden
 - [ ] Performancebericht gegen SPARTA liegt vor und ist reproduzierbar.
 - [ ] CPU-, CUDA- und HIP-Regressionstests bestehen; Release-Checkliste (`docs/development.md`) erfüllt.
 
