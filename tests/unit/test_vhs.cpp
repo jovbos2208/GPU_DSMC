@@ -23,24 +23,25 @@ struct Pair {
   Vec3 a, b;
 };
 
+// Pre- and post-collision velocities, both from the device: the pre-collision
+// sample must not be recomputed on the host. With CUDA (FMA contraction,
+// device libm) host and device normal deviates can differ in the last bits.
+struct Collision {
+  Pair pre, post;
+};
+
 struct CollideBatch {
   double m_p, m_q;
-  KOKKOS_INLINE_FUNCTION Pair operator()(int i) const {
+  KOKKOS_INLINE_FUNCTION Collision operator()(int i) const {
     RandomStream pre(5, static_cast<std::uint64_t>(i), 0, RngStream::Test);
     Vec3 a(3000 * pre.normal(), 500 * pre.normal(), -800 * pre.normal());
     Vec3 b(-200 * pre.normal(), 1200 * pre.normal(), 90 * pre.normal());
+    const Pair before{a, b};
     RandomStream rng(5, static_cast<std::uint64_t>(i), 1, RngStream::GasCollision);
     vhs_collide(a, b, m_p, m_q, rng);
-    return {a, b};
+    return {before, {a, b}};
   }
 };
-
-Pair pre_collision(int i) {
-  RandomStream pre(5, static_cast<std::uint64_t>(i), 0, RngStream::Test);
-  Vec3 a(3000 * pre.normal(), 500 * pre.normal(), -800 * pre.normal());
-  Vec3 b(-200 * pre.normal(), 1200 * pre.normal(), 90 * pre.normal());
-  return {a, b};
-}
 
 }  // namespace
 
@@ -88,10 +89,10 @@ TEST_CASE("Binary collisions conserve momentum and energy exactly (equal and une
   const double mHe = find_species("He")->mass_kg, mAr = find_species("Ar")->mass_kg;
   for (const auto& [mp, mq] : {std::pair{mAr, mAr}, std::pair{mHe, mAr}, std::pair{mAr, mHe}}) {
     constexpr int n = 100000;
-    const auto post = test::eval_on_device<Pair>("collide", n, CollideBatch{mp, mq});
+    const auto res = test::eval_on_device<Collision>("collide", n, CollideBatch{mp, mq});
     for (int i = 0; i < n; ++i) {
-      const Pair a = pre_collision(i);
-      const Pair b = post(i);
+      const Pair a = res(i).pre;
+      const Pair b = res(i).post;
       const Vec3 P0 = mp * a.a + mq * a.b, P1 = mp * b.a + mq * b.b;
       const double E0 = 0.5 * (mp * norm2(a.a) + mq * norm2(a.b)), E1 = 0.5 * (mp * norm2(b.a) + mq * norm2(b.b));
       const double pscale = mp * norm(a.a) + mq * norm(a.b);
@@ -105,12 +106,12 @@ TEST_CASE("Binary collisions conserve momentum and energy exactly (equal and une
 TEST_CASE("Post-collision relative velocities are isotropic", "[vhs][statistics][device]") {
   const double m = find_species("Ar")->mass_kg;
   constexpr int n = 200000;
-  const auto post = test::eval_on_device<Pair>("isotropy", n, CollideBatch{m, m});
+  const auto res = test::eval_on_device<Collision>("isotropy", n, CollideBatch{m, m});
   std::vector<double> cz(n);
   double mean_dot = 0.0;
   for (int i = 0; i < n; ++i) {
-    const Vec3 g_new = normalized(post(i).a - post(i).b);
-    const Pair pre = pre_collision(i);
+    const Vec3 g_new = normalized(res(i).post.a - res(i).post.b);
+    const Pair pre = res(i).pre;
     const Vec3 g_old = normalized(pre.a - pre.b);
     cz[static_cast<std::size_t>(i)] = g_new.z;
     mean_dot += dot(g_new, g_old);
