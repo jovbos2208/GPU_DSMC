@@ -1,0 +1,195 @@
+{
+  "schema": "vleo-results/1",
+  "simulation": {
+    "name": "G-DSMC",
+    "mode": "dsmc",
+    "backend": "hip",
+    "gsi_model": "maxwell",
+    "random_seed": 2026
+  },
+  "reference": {
+    "area_m2": 1.0,
+    "length_m": 1.0,
+    "moment_center_m": [0.0, 0.0, 0.0],
+    "dynamic_pressure_Pa": 0.2362732993468309,
+    "mass_density_kg_m3": 7.970089369095325e-09,
+    "freestream_speed_mps": 7700.0,
+    "drag_axis_e_D": [-1.0, -0.0, -0.0],
+    "lift_axis_e_L": [0.0, 0.0, 1.0],
+    "side_axis_e_Y": [0.0, -1.0, 0.0]
+  },
+  "results": {
+    "force_N": [-0.95149971828533, -0.0016729985880469527, 0.0011804704265504795],
+    "moment_Nm": [-0.0006218448875573228, 0.002840020154779317, -0.005444184143797429],
+    "C_D": 4.027114874663015,
+    "C_L": 0.004996207484357512,
+    "C_Y": 0.007080777187570063,
+    "C_M": [-0.002631888111252481, 0.012020063894779696, -0.023041893260252775],
+    "heat_rate_W": 3610.1276898770893,
+    "heat_rate_positive_W": 3618.5775788115434,
+    "heat_rate_negative_W": -8.449888934464552,
+    "drag_force_N": 0.95149971828533,
+    "lift_force_N": 0.0011804704265504795,
+    "side_force_N": 0.0016729985880469527
+  },
+  "std_error": {
+    "force_N": [0.0036081941213904787, 0.0005895355277848048, 0.0005816961469792543],
+    "moment_Nm": [0.00037208346050123886, 0.001889450893295056, 0.001575849335127677],
+    "C_D": 0.015271273272795542,
+    "C_L": 0.002461963110462894,
+    "C_Y": 0.0024951424025251886,
+    "C_M": [0.0015748011371993801, 0.00799688707322569, 0.006669603969149524],
+    "heat_rate_W": 13.784700391645533,
+    "heat_rate_positive_W": 13.784620610815805,
+    "heat_rate_negative_W": 0.13704882756306733,
+    "drag_force_N": 0.0036081941213904787,
+    "lift_force_N": 0.0005816961469792543,
+    "side_force_N": 0.0005895355277848048
+  },
+  "confidence_interval": {
+    "low": {
+      "force_N": [-0.9585716488124845, -0.002828466990111982, 4.0366928525423446e-05],
+      "moment_Nm": [-0.0013511150693827825, -0.000863235546636025, -0.008532792085709066],
+      "C_D": 3.9971837290502665,
+      "C_L": 0.0001708484565840331,
+      "C_Y": 0.0021903879423219507,
+      "C_M": [-0.005718441622975986, -0.003653546757176579, -0.036114076830931235],
+      "heat_rate_W": 3583.110173571789,
+      "heat_rate_positive_W": 3591.5602188737957,
+      "heat_rate_negative_W": -8.718499700611604,
+      "drag_force_N": 0.9444277877581755,
+      "lift_force_N": 4.0366928525423446e-05,
+      "side_force_N": 0.0005175301859819232
+    },
+    "high": {
+      "force_N": [-0.9444277877581755, -0.0005175301859819232, 0.0023205739245755353],
+      "moment_Nm": [0.00010742529426813706, 0.006543275856194659, -0.0023555762018857927],
+      "C_D": 4.057046020275763,
+      "C_L": 0.00982156651213099,
+      "C_Y": 0.011971166432818175,
+      "C_M": [0.00045466540047102433, 0.02769367454673597, -0.009969709689574315],
+      "heat_rate_W": 3637.1452061823898,
+      "heat_rate_positive_W": 3645.594938749291,
+      "heat_rate_negative_W": -8.1812781683175,
+      "drag_force_N": 0.9585716488124845,
+      "lift_force_N": 0.0023205739245755353,
+      "side_force_N": 0.002828466990111982
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "critical_value": 1.9599639845400538,
+    "method": "block averaging over the sampling phase: std_error = sd(block means) / sqrt(blocks)",
+    "warmup_steps": 354,
+    "sample_steps": 2000,
+    "blocks": 20,
+    "block_length_steps": 100,
+    "tau_int_steps_drag": 0.5,
+    "tau_int_steps_heat": 0.5,
+    "std_error_naive_C_D": 0.014714545518818607,
+    "blocks_long_enough": true,
+    "converged": false
+  },
+  "diagnostics": {
+    "timestep_s": 1.04607468984275e-05,
+    "timestep_automatic": true,
+    "cell_size_m": [0.45703125, 0.4555555555555555, 0.4436],
+    "cell_size_automatic": true,
+    "cell_size_pilot": {
+      "pilots": 1,
+      "initial_cell_size_m": 0.45703125,
+      "min_local_mean_free_path_m": 0.4023030889213998,
+      "cell_size_m": 0.45703125,
+      "limited_by_max_cells": false,
+      "steps": 377,
+      "wall_time_s": 0.3490597
+    },
+    "particle_weight": 1385383593749999.8,
+    "mean_free_path_inf_m": 11.921303830314017,
+    "collision_time_inf_s": 0.010923498961343042,
+    "cell_over_lambda_inf": 0.03833735441234547,
+    "dt_over_tau_inf": 0.0009576370113135758,
+    "max_cfl": 0.2659918777348467,
+    "min_local_mean_free_path_m": 0.41724465968107666,
+    "min_local_mean_free_path_resolved_cells_m": 0.41724465968107666,
+    "fraction_cells_dx_gt_local_lambda": 0.001388888888888889,
+    "mean_particles_per_gas_cell": 25.24335590277778,
+    "fraction_cells_below_5_particles": 0.018055555555555554,
+    "particles_mean": 36350.4325,
+    "particles_min": 35009.0,
+    "particles_max": 36783.0,
+    "grid": {
+      "cells": 1440,
+      "gas_cells": 1440,
+      "solid_cells": 0,
+      "cut_cells": 130,
+      "small_cut_cells": 18,
+      "min_positive_gas_fraction": 0.00390625,
+      "gas_volume_m3": 128.8105267925628,
+      "domain_volume_m3": 132.99682499999997
+    },
+    "collisions": {
+      "candidates": 155457,
+      "accepted": 87894,
+      "rejected": 67563,
+      "sigma_g_max_updates": 4911,
+      "acceptance_ratio_sampling": 0.5604201662803802,
+      "collisions_per_particle_per_step": 0.002175159814123257,
+      "free_stream_collisions_per_particle_per_step": 0.0009576370113135758
+    },
+    "steps": 2354,
+    "injected": 928486,
+    "exited": 920055,
+    "truncated": 0,
+    "lost_inside_body": 0,
+    "invalid": 0,
+    "removed_inside_at_fill": 893,
+    "surface_interactions": 134911,
+    "particle_balance_ok": true,
+    "species": [
+      {
+        "name": "O",
+        "mean_particles": 36350.4325,
+        "injected": 928486,
+        "force_N": [-0.95149971828533, -0.0016729985880469527, 0.0011804704265504795],
+        "heat_rate_W": 3610.1276898770893,
+        "collisions_with": {
+          "O": 87894
+        }
+      }
+    ],
+    "wall_time_s": 1.911261061,
+    "particle_steps": 84909286.0,
+    "particle_steps_per_s": 44425791.81494662,
+    "parallel": {
+      "ranks": 1,
+      "decomposition": "z planes",
+      "initial_plane_bounds": [
+        0,
+        10
+      ],
+      "plane_bounds": [
+        0,
+        10
+      ],
+      "load_balanced": false,
+      "imbalance_before": 1.0,
+      "imbalance_after": 1.0,
+      "migrated_particles": 0,
+      "rank_mean_particles": []
+    }
+  },
+  "provenance": {
+    "solver_version": "0.9.0",
+    "git_commit": "a632a4c96e7fc30baf9f054ab1eab9cb7cdb6e35",
+    "git_dirty": false,
+    "build_type": "Release",
+    "kokkos_version": "5.2.2",
+    "execution_space": "HIP",
+    "timestamp_utc": "2026-11-16T14:49:24Z"
+  },
+  "warnings": [
+    "18 cut cells have a gas fraction below 0.050000; their collision volume is limited",
+    "cell size exceeds the local mean free path in 0.138889 % of the gas cells (min local lambda 0.417245 m)"
+  ]
+}

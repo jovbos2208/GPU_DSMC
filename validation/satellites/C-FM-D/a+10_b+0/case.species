@@ -1,0 +1,4 @@
+# species data written by run_sat.py from vleo_solver's database
+# ID molwt mass rotdof rotrel vibdof vibrel vibtemp specwt charge
+O 15.999 2.656696456365108e-26 0 0.0 0 0.0 0.0 1.0 0.0
+N2 28.014 4.6518341476724875e-26 2 0.2 2 1.90114e-05 3371.0 1.0 0.0

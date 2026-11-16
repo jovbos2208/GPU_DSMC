@@ -1,0 +1,8 @@
+simulation: {name: C-FM-C, mode: tpmc, random_seed: 2026}
+geometry: {file: /home/iagbosko/workspace/GPU_DSMC/examples/geometry/champ_march2019.stl, units: mm}
+domain: {box_min_m: [-2.0789999999999997, -1.139, -1.205], box_max_m: [6.854, 1.139, 0.7844576]}
+reference: {area_m2: 1.0, length_m: 1.0, moment_center_m: [0, 0, 0], lift_axis_body: [0, 0, 1]}
+gas: {number_density_m3: 1000000000000.0, translational_temperature_K: 900.0, bulk_velocity_body_mps: [-7700.0, 0, 0], species: {O: 1.0}}
+surface: {model: cll, temperature_K: 300.0, cll: {alpha_n: 0.85, sigma_t: 0.65, alpha_rot: 0.85, alpha_vib: 0.85}}
+output: {save_surface_fields: true}
+tpmc: {particle_histories: 20000000}

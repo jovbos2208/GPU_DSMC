@@ -1,0 +1,183 @@
+{
+  "schema": "vleo-results/1",
+  "simulation": {
+    "name": "C-DSMC",
+    "mode": "dsmc",
+    "backend": "hip",
+    "gsi_model": "maxwell",
+    "random_seed": 2026
+  },
+  "reference": {
+    "area_m2": 1.0,
+    "length_m": 1.0,
+    "moment_center_m": [0.0, 0.0, 0.0],
+    "dynamic_pressure_Pa": 0.2362732993468309,
+    "mass_density_kg_m3": 7.970089369095325e-09,
+    "freestream_speed_mps": 7700.0,
+    "drag_axis_e_D": [-1.0, -0.0, -0.0],
+    "lift_axis_e_L": [0.0, 0.0, 1.0],
+    "side_axis_e_Y": [0.0, -1.0, 0.0]
+  },
+  "results": {
+    "force_N": [-0.5852239121532088, -0.0003510105564086018, 0.027161648679520162],
+    "moment_Nm": [0.00013379889979848512, -0.03635362234780726, 2.6347822093522e-05],
+    "C_D": 2.4768939773179595,
+    "C_L": 0.11495860410214599,
+    "C_Y": 0.001485612455486752,
+    "C_M": [0.0005662887011285973, -0.15386259238054215, 0.00011151417517916588],
+    "heat_rate_W": 2247.6239654326146,
+    "heat_rate_positive_W": 2248.7786426963626,
+    "heat_rate_negative_W": -1.1546772637399134,
+    "drag_force_N": 0.5852239121532088,
+    "lift_force_N": 0.027161648679520162,
+    "side_force_N": 0.0003510105564086018
+  },
+  "std_error": {
+    "force_N": [0.0035178086389820165, 0.0005817062342680447, 0.0008015121859416503],
+    "moment_Nm": [0.0004540808836225635, 0.0018860447168895153, 0.002129124127432293],
+    "C_D": 0.014888726947593625,
+    "C_L": 0.0033923096183843125,
+    "C_Y": 0.0024620058037711024,
+    "C_M": [0.0019218459507606399, 0.007982470817072512, 0.009011276912449188],
+    "heat_rate_W": 13.841239362300668,
+    "heat_rate_positive_W": 13.857792216964185,
+    "heat_rate_negative_W": 0.0440598637769043,
+    "drag_force_N": 0.0035178086389820165,
+    "lift_force_N": 0.0008015121859416503,
+    "side_force_N": 0.0005817062342680447
+  },
+  "confidence_interval": {
+    "low": {
+      "force_N": [-0.5921186903901174, -0.0014911338251563887, 0.025590713661904557],
+      "moment_Nm": [-0.0007561832781698629, -0.04005020206614275, -0.00414665878628904],
+      "C_D": 2.447712608725025,
+      "C_L": 0.10830979942570393,
+      "C_Y": -0.003339830249633196,
+      "C_M": [-0.0032004601461963944, -0.16950794768964628, -0.017550264027938536],
+      "heat_rate_W": 2220.495634781107,
+      "heat_rate_positive_W": 2221.6178690458732,
+      "heat_rate_negative_W": -1.2410330099063867,
+      "drag_force_N": 0.5783291339163001,
+      "lift_force_N": 0.025590713661904557,
+      "side_force_N": -0.000789112712339185
+    },
+    "high": {
+      "force_N": [-0.5783291339163001, 0.000789112712339185, 0.02873258369713577],
+      "moment_Nm": [0.0010237810777668332, -0.032657042629471764, 0.004199354430476084],
+      "C_D": 2.5060753459108938,
+      "C_L": 0.12160740877858806,
+      "C_Y": 0.006311055160606699,
+      "C_M": [0.0043330375484535895, -0.13821723707143801, 0.01777329237829687],
+      "heat_rate_W": 2274.752296084122,
+      "heat_rate_positive_W": 2275.939416346852,
+      "heat_rate_negative_W": -1.0683215175734402,
+      "drag_force_N": 0.5921186903901174,
+      "lift_force_N": 0.02873258369713577,
+      "side_force_N": 0.0014911338251563887
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "critical_value": 1.9599639845400538,
+    "method": "block averaging over the sampling phase: std_error = sd(block means) / sqrt(blocks)",
+    "warmup_steps": 336,
+    "sample_steps": 2000,
+    "blocks": 20,
+    "block_length_steps": 100,
+    "tau_int_steps_drag": 0.505083948827437,
+    "tau_int_steps_heat": 0.5104169381589796,
+    "std_error_naive_C_D": 0.016375686732059018,
+    "blocks_long_enough": true,
+    "converged": false
+  },
+  "diagnostics": {
+    "timestep_s": 1.3321407452867268e-05,
+    "timestep_automatic": true,
+    "cell_size_m": [0.6458125, 0.613, 0.5649096],
+    "cell_size_automatic": true,
+    "particle_weight": 3354572137254750.0,
+    "mean_free_path_inf_m": 11.921303830314017,
+    "collision_time_inf_s": 0.010923498961343042,
+    "cell_over_lambda_inf": 0.05417297547251497,
+    "dt_over_tau_inf": 0.0012195183521333355,
+    "max_cfl": 0.2682797208719325,
+    "min_local_mean_free_path_m": 2.592053879295399,
+    "min_local_mean_free_path_resolved_cells_m": 2.592053879295399,
+    "fraction_cells_dx_gt_local_lambda": 0.0,
+    "mean_particles_per_gas_cell": 23.473151909722212,
+    "fraction_cells_below_5_particles": 0.003472222222222222,
+    "particles_mean": 13520.5355,
+    "particles_min": 13272.0,
+    "particles_max": 13783.0,
+    "grid": {
+      "cells": 576,
+      "gas_cells": 576,
+      "solid_cells": 0,
+      "cut_cells": 90,
+      "small_cut_cells": 0,
+      "min_positive_gas_fraction": 0.265625,
+      "gas_volume_m3": 126.67375438373004,
+      "domain_volume_m3": 128.8155700705824
+    },
+    "collisions": {
+      "candidates": 48214,
+      "accepted": 30046,
+      "rejected": 18168,
+      "sigma_g_max_updates": 1873,
+      "acceptance_ratio_sampling": 0.6118161825345918,
+      "collisions_per_particle_per_step": 0.0019752915851594783,
+      "free_stream_collisions_per_particle_per_step": 0.0012195183521333355
+    },
+    "steps": 2336,
+    "injected": 378105,
+    "exited": 376040,
+    "truncated": 0,
+    "lost_inside_body": 0,
+    "invalid": 0,
+    "removed_inside_at_fill": 169,
+    "surface_interactions": 31205,
+    "particle_balance_ok": true,
+    "species": [
+      {
+        "name": "O",
+        "mean_particles": 13520.5355,
+        "injected": 378105,
+        "force_N": [-0.5852239121532088, -0.0003510105564086018, 0.027161648679520162],
+        "heat_rate_W": 2247.6239654326146,
+        "collisions_with": {
+          "O": 30046
+        }
+      }
+    ],
+    "wall_time_s": 1.706423472,
+    "particle_steps": 31621177.0,
+    "particle_steps_per_s": 18530673.96156867,
+    "parallel": {
+      "ranks": 1,
+      "decomposition": "z planes",
+      "initial_plane_bounds": [
+        0,
+        6
+      ],
+      "plane_bounds": [
+        0,
+        6
+      ],
+      "load_balanced": false,
+      "imbalance_before": 1.0,
+      "imbalance_after": 1.0,
+      "migrated_particles": 0,
+      "rank_mean_particles": []
+    }
+  },
+  "provenance": {
+    "solver_version": "0.9.0",
+    "git_commit": "a632a4c96e7fc30baf9f054ab1eab9cb7cdb6e35",
+    "git_dirty": false,
+    "build_type": "Release",
+    "kokkos_version": "5.2.2",
+    "execution_space": "HIP",
+    "timestamp_utc": "2026-11-16T14:49:41Z"
+  },
+  "warnings": []
+}

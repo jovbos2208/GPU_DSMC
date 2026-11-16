@@ -1,0 +1,2 @@
+warning: tpmc: 4 histories reached tpmc.max_reflections = 100 and were truncated (their remaining interactions are missing)
+vleo_solver: backend hip (HIP), 20000000 histories in 0.449222 s, wrote /home/iagbosko/workspace/GPU_DSMC/validation/satellites/C-FM-D/a+0_b+15/vleo_out

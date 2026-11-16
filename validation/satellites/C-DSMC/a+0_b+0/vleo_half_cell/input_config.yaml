@@ -1,0 +1,8 @@
+simulation: {name: C-DSMC, mode: dsmc, random_seed: 2026}
+geometry: {file: /home/iagbosko/workspace/GPU_DSMC/examples/geometry/champ_march2019.stl, units: mm}
+domain: {box_min_m: [-2.779, -1.839, -1.905], box_max_m: [7.554, 1.839, 1.4844576]}
+reference: {area_m2: 1.0, length_m: 1.0, moment_center_m: [0, 0, 0], lift_axis_body: [0, 0, 1]}
+gas: {number_density_m3: 3e+17, translational_temperature_K: 900.0, bulk_velocity_body_mps: [-7700.0, 0, 0], species: {O: 1.0}}
+surface: {model: maxwell, temperature_K: 300.0, maxwell: {diffuse_fraction: 1.0}}
+output: {save_surface_fields: true}
+dsmc: {collision_model: VHS, cell_size_mode: fixed, cell_size_m: 0.32290625, particles_per_cell_target: 20, sample_steps: 2000, blocks: 20}

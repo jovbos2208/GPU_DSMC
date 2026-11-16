@@ -1,0 +1,119 @@
+{
+  "schema": "vleo-results/1",
+  "simulation": {
+    "name": "G-FM-C",
+    "mode": "tpmc",
+    "backend": "hip",
+    "gsi_model": "cll",
+    "random_seed": 2026
+  },
+  "reference": {
+    "area_m2": 1.0,
+    "length_m": 1.0,
+    "moment_center_m": [0.0, 0.0, 0.0],
+    "dynamic_pressure_Pa": 7.875776644894362e-07,
+    "mass_density_kg_m3": 2.656696456365108e-14,
+    "freestream_speed_mps": 7700.0,
+    "drag_axis_e_D": [-1.0, -0.0, -0.0],
+    "lift_axis_e_L": [0.0, 0.0, 1.0],
+    "side_axis_e_Y": [0.0, -1.0, 0.0]
+  },
+  "results": {
+    "force_N": [-3.0788308808660656e-06, -1.2040638755496413e-09, -1.5249422119929222e-10],
+    "moment_Nm": [2.726226171686326e-10, -1.5006271711587152e-09, -1.9823048412203522e-08],
+    "C_D": 3.909240979887339,
+    "C_L": -0.00019362435995204334,
+    "C_Y": 0.001528819226139686,
+    "C_M": [0.00034615331218841247, -0.0019053704019546165, -0.02516964269810042],
+    "heat_rate_W": 0.010412565534406485,
+    "heat_rate_positive_W": 0.010415868136405028,
+    "heat_rate_negative_W": -3.302601998541763e-06,
+    "drag_force_N": 3.0788308808660656e-06,
+    "lift_force_N": -1.5249422119929222e-10,
+    "side_force_N": 1.2040638755496413e-09
+  },
+  "std_error": {
+    "force_N": [1.5772043381934636e-09, 2.394107372879556e-10, 1.9851759894185338e-10],
+    "moment_Nm": [1.574588459953181e-10, 7.729031037859748e-10, 7.185929294571907e-10],
+    "C_D": 0.0020026016598831803,
+    "C_L": 0.00025206098127547404,
+    "C_Y": 0.00030398365530484995,
+    "C_M": [0.00019992802373007125, 0.0009813674747709172, 0.0009124089748317502],
+    "heat_rate_W": 5.0729250480979115e-06,
+    "heat_rate_positive_W": 5.074739688803363e-06,
+    "heat_rate_negative_W": 2.1598114419374525e-08,
+    "drag_force_N": 1.5772043381934636e-09,
+    "lift_force_N": 1.9851759894185338e-10,
+    "side_force_N": 2.394107372879556e-10
+  },
+  "confidence_interval": {
+    "low": {
+      "force_N": [-3.0819221445651852e-06, -1.6733002981462147e-09, -5.415815654226915e-10],
+      "moment_Nm": [-3.5991050029429763e-11, -3.015489418118449e-09, -2.1231464673484746e-08],
+      "C_D": 3.905315952758588,
+      "C_L": -0.0006876548051597973,
+      "C_Y": 0.000933022209853342,
+      "C_M": [-4.5698413822796446e-05, -0.003828815308104634, -0.026957931427941763],
+      "heat_rate_W": 0.010402622784015941,
+      "heat_rate_positive_W": 0.010405921829384056,
+      "heat_rate_negative_W": -3.344933524937712e-06,
+      "drag_force_N": 3.075739617166946e-06,
+      "lift_force_N": -5.415815654226915e-10,
+      "side_force_N": 7.348274529530678e-10
+    },
+    "high": {
+      "force_N": [-3.075739617166946e-06, -7.348274529530678e-10, 2.3659312302410713e-10],
+      "moment_Nm": [5.81236284366695e-10, 1.4235075801018571e-11, -1.8414632150922297e-08],
+      "C_D": 3.91316600701609,
+      "C_L": 0.0003004060852557107,
+      "C_Y": 0.00212461624242603,
+      "C_M": [0.0007380050381996213, 1.807450419540101e-05, -0.023381353968259078],
+      "heat_rate_W": 0.010422508284797028,
+      "heat_rate_positive_W": 0.010425814443426,
+      "heat_rate_negative_W": -3.2602704721458137e-06,
+      "drag_force_N": 3.0819221445651852e-06,
+      "lift_force_N": 2.3659312302410713e-10,
+      "side_force_N": 1.6733002981462147e-09
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "critical_value": 1.9599639845400538,
+    "method": "independent histories: std_error = R * sqrt(var(x_h) / N)",
+    "histories": 20000000,
+    "batches": 20,
+    "converged": false,
+    "convergence": null
+  },
+  "diagnostics": {
+    "inflow_rate_per_s": 81624428404558992.0,
+    "event_rate_factor_per_s": 4081221420.2279496,
+    "injected": 20000000,
+    "exited": 19999994,
+    "truncated": 6,
+    "lost_inside_body": 0,
+    "invalid": 0,
+    "surface_interactions": 4393000,
+    "histories_with_hits": 3598810,
+    "max_interactions_per_history": 100,
+    "particle_balance_ok": true,
+    "wall_time_s": 0.669325114,
+    "histories_per_s": 29880845.020854842,
+    "parallel": {
+      "ranks": 1,
+      "decomposition": "history ids"
+    }
+  },
+  "provenance": {
+    "solver_version": "0.9.0",
+    "git_commit": "a632a4c96e7fc30baf9f054ab1eab9cb7cdb6e35",
+    "git_dirty": false,
+    "build_type": "Release",
+    "kokkos_version": "5.2.2",
+    "execution_space": "HIP",
+    "timestamp_utc": "2026-11-16T14:24:45Z"
+  },
+  "warnings": [
+    "6 histories reached tpmc.max_reflections = 100 and were truncated (their remaining interactions are missing)"
+  ]
+}

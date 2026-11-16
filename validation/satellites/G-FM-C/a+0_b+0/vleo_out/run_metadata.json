@@ -1,0 +1,250 @@
+{
+  "schema": "vleo-run-metadata/1",
+  "status": "completed",
+  "simulation": {
+    "name": "G-FM-C",
+    "mode": "tpmc",
+    "backend": "hip",
+    "gsi_model": "cll",
+    "random_seed": 2026
+  },
+  "build": {
+    "solver_version": "0.9.0",
+    "git": {
+      "available": true,
+      "commit": "a632a4c96e7fc30baf9f054ab1eab9cb7cdb6e35",
+      "describe": "a632a4c",
+      "dirty": false
+    },
+    "build_type": "Release",
+    "compiler": {
+      "id": "Clang",
+      "version": "18.0.0",
+      "detail": "clang 18.0.0git ; hip 6.3.42133",
+      "path": "/mnt/software/stack/gpu/amd/2025_01/opt/spack/linux-opensuse15-zen3/clang-18.0.0/hip-6.3.1-gds4de4mkb7lrizebodbyk5usrkeigsx/bin/hipcc",
+      "flags": "-O3 -DNDEBUG",
+      "cxx_standard": 202002
+    },
+    "kokkos": {
+      "version": "5.2.2",
+      "enabled_backends": [
+        "Serial",
+        "HIP"
+      ],
+      "default_execution_space": "HIP",
+      "default_host_execution_space": "Serial",
+      "arch": "AMD_GFX1101"
+    },
+    "backend": "hip",
+    "cmake_version": "3.31.5",
+    "system": "Linux x86_64"
+  },
+  "runtime": {
+    "timestamp_utc": "2026-11-16T14:24:45Z",
+    "command_line": [
+      "/home/iagbosko/workspace/GPU_DSMC/build/hip-gfx1101-mpi/vleo_solver",
+      "-q",
+      "-c",
+      "vleo.yaml",
+      "-o",
+      "vleo_out",
+      "--attitude",
+      "0.0",
+      "0.0"
+    ],
+    "working_directory": "/home/iagbosko/workspace/GPU_DSMC/validation/satellites/G-FM-C/a+0_b+0",
+    "execution_space": "HIP",
+    "concurrency": 49152,
+    "device_id": 0,
+    "mpi": {
+      "enabled": true,
+      "ranks": 1,
+      "library": "Open MPI v5.0.6, package: Open MPI root@hagen Distribution, ident: 5.0.6, repo rev: v5.0.6, Nov 15, 2024",
+      "rank_device_ids": [
+        0
+      ]
+    }
+  },
+  "platform": null,
+  "input": {
+    "config_file": "/home/iagbosko/workspace/GPU_DSMC/validation/satellites/G-FM-C/a+0_b+0/vleo.yaml"
+  },
+  "resolved_config": {
+    "simulation": {
+      "name": "G-FM-C",
+      "mode": "tpmc",
+      "random_seed": 2026
+    },
+    "geometry": {
+      "file": "/home/iagbosko/workspace/GPU_DSMC/examples/geometry/goce_march2019.stl",
+      "units": "mm",
+      "require_closed": true
+    },
+    "domain": {
+      "box_min_m": [-3.117, -1.35, -1.518],
+      "box_max_m": [2.7954999999999997, 1.35, 1.518]
+    },
+    "reference": {
+      "area_m2": 1.0,
+      "length_m": 1.0,
+      "moment_center_m": [0.0, 0.0, 0.0],
+      "lift_axis_body": [0.0, 0.0, 1.0]
+    },
+    "gas": {
+      "number_density_m3": 1e+12,
+      "translational_temperature_K": 900.0,
+      "bulk_velocity_body_mps": [-7700.0, -0.0, -0.0],
+      "species": {
+        "O": 1.0
+      }
+    },
+    "surface": {
+      "model": "cll",
+      "temperature_K": 300.0,
+      "cll": {
+        "alpha_n": 0.85,
+        "sigma_t": 0.65,
+        "alpha_rot": 0.85,
+        "alpha_vib": 0.85
+      }
+    },
+    "tpmc": {
+      "particle_histories": 20000000,
+      "max_reflections": 100,
+      "batch_size": 1048576
+    },
+    "dsmc": {
+      "collision_model": "VHS",
+      "timestep_mode": "automatic",
+      "cell_size_mode": "automatic",
+      "cell_size_pilot": true,
+      "particles_per_cell_target": 30,
+      "sample_steps": 1000,
+      "blocks": 20
+    },
+    "statistics": {
+      "confidence_level": 0.95,
+      "report_uncertainty": true
+    },
+    "output": {
+      "directory": "results/",
+      "format": "json",
+      "save_surface_fields": true
+    }
+  },
+  "derived": {
+    "mole_fraction_sum": 1.0,
+    "mean_molecular_mass_kg": 2.656696456365108e-26,
+    "mass_density_kg_m3": 2.656696456365108e-14,
+    "freestream_speed_mps": 7700.0,
+    "dynamic_pressure_Pa": 7.875776644894362e-07,
+    "geometry_scale_to_m": 0.001,
+    "aero_axes_body": {
+      "drag_e_D": [-1.0, -0.0, -0.0],
+      "side_e_Y": [0.0, -1.0, 0.0],
+      "lift_e_L": [0.0, 0.0, 1.0]
+    },
+    "lift_axis_was_projected": false,
+    "species": [
+      {
+        "name": "O",
+        "mole_fraction": 1.0,
+        "normalised_mole_fraction": 1.0,
+        "mass_kg": 2.656696456365108e-26
+      }
+    ]
+  },
+  "geometry": {
+    "file": "/home/iagbosko/workspace/GPU_DSMC/examples/geometry/goce_march2019.stl",
+    "input_triangles": 2480,
+    "degenerate_removed": 0,
+    "triangles": 2480,
+    "vertices": 1242,
+    "edges": 3720,
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "inconsistent_edges": 0,
+    "stored_normal_disagreements": 0,
+    "closed": true,
+    "total_area_m2": 34.60193147916056,
+    "bbox_min_m": [-2.817, -1.05, -1.218],
+    "bbox_max_m": [2.4955000000000003, 1.05, 1.218],
+    "surface_offset_m": 5.3125000000000004e-09,
+    "materials": [
+      "CATIA STL"
+    ],
+    "components": [
+      {
+        "triangles": 2480,
+        "closed": true,
+        "flipped": false,
+        "area_m2": 34.60193147916056,
+        "volume_m3": 4.2323715824358175
+      }
+    ],
+    "bvh": {
+      "nodes": 1533,
+      "leaves": 767,
+      "max_depth": 15,
+      "max_leaf_triangles": 8,
+      "sah_cost": 21.10902299046949
+    },
+    "warnings": []
+  },
+  "inflow": {
+    "domain_min_m": [-3.117, -1.35, -1.518],
+    "domain_max_m": [2.7954999999999997, 1.35, 1.518],
+    "total_rate_per_s": 81624428404558992.0,
+    "tpmc_event_rate_factor_per_s": 4081221420.2279496,
+    "channels": [
+      {
+        "face": "-x",
+        "species": "O",
+        "speed_ratio": -7.961296518496754,
+        "rate_per_s": 5.128660209339376e-15
+      },
+      {
+        "face": "+x",
+        "species": "O",
+        "speed_ratio": 7.961296518496754,
+        "rate_per_s": 63118440000000008.0
+      },
+      {
+        "face": "-y",
+        "species": "O",
+        "speed_ratio": -0.0,
+        "rate_per_s": 4897505299532865.0
+      },
+      {
+        "face": "+y",
+        "species": "O",
+        "speed_ratio": 0.0,
+        "rate_per_s": 4897505299532865.0
+      },
+      {
+        "face": "-z",
+        "species": "O",
+        "speed_ratio": -0.0,
+        "rate_per_s": 4355488902746619.0
+      },
+      {
+        "face": "+z",
+        "species": "O",
+        "speed_ratio": 0.0,
+        "rate_per_s": 4355488902746619.0
+      }
+    ]
+  },
+  "output_files": [
+    "run_metadata.json",
+    "resolved_config.yaml",
+    "input_config.yaml",
+    "kokkos_configuration.txt",
+    "results.json",
+    "surface_fields.csv"
+  ],
+  "notes": [
+    "backend self-test on HIP: 4096x16 Philox words, host checksum 141149291671522, device checksum 141149291671522 (passed)",
+    "tpmc: 6 histories reached tpmc.max_reflections = 100 and were truncated (their remaining interactions are missing)"
+  ]
+}

@@ -1,0 +1,3 @@
+warning: dsmc: 18 cut cells have a gas fraction below 0.050000; their collision volume is limited
+warning: dsmc: cell size exceeds the local mean free path in 0.138889 % of the gas cells (min local lambda 0.417245 m)
+vleo_solver: backend hip (HIP), 2354 steps in 1.956544 s, wrote /home/iagbosko/workspace/GPU_DSMC/validation/satellites/G-DSMC/a+0_b+0/vleo_freestream_rule

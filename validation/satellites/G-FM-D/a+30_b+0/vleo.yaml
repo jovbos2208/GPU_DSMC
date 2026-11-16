@@ -1,0 +1,8 @@
+simulation: {name: G-FM-D, mode: tpmc, random_seed: 2026}
+geometry: {file: /home/iagbosko/workspace/GPU_DSMC/examples/geometry/goce_march2019.stl, units: mm}
+domain: {box_min_m: [-3.117, -1.35, -1.518], box_max_m: [2.7954999999999997, 1.35, 1.518]}
+reference: {area_m2: 1.0, length_m: 1.0, moment_center_m: [0, 0, 0], lift_axis_body: [0, 0, 1]}
+gas: {number_density_m3: 1000000000000.0, translational_temperature_K: 900.0, bulk_velocity_body_mps: [-7700.0, 0, 0], species: {O: 0.7, N2: 0.3}}
+surface: {model: maxwell, temperature_K: 300.0, maxwell: {diffuse_fraction: 1.0}}
+output: {save_surface_fields: true}
+tpmc: {particle_histories: 20000000}

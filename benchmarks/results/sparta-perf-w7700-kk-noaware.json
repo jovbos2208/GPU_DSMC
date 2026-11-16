@@ -1,0 +1,37 @@
+{
+  "label": "w7700-kk-noaware",
+  "method": "E = SE(F_x)^2 * t, 20 blocks",
+  "sparta_kk_args": "-pk kokkos gpu/aware no",
+  "cases": {
+    "P1": {
+      "description": "cube, Ar, Kn ~ 1, 26^3 cells, ~0.8 M particles",
+      "numerics": {
+        "dx": 0.03076923076923077,
+        "dt": 8.187373196503512e-07,
+        "fnum": 4369594902139.2812,
+        "warmup": 400,
+        "sample": 500
+      },
+      "runs": [
+        {
+          "code": "SPARTA Kokkos HIP",
+          "ranks": 1,
+          "t": 8.49377,
+          "fx": -3.4706587553999997,
+          "se": 0.005850797757910928,
+          "particles": 777212.0,
+          "E": 0.00029075732810545534
+        },
+        {
+          "code": "SPARTA Kokkos HIP",
+          "ranks": 2,
+          "t": 31.23794,
+          "fx": -3.4688350502,
+          "se": 0.0070124778399652645,
+          "particles": 773732.0,
+          "E": 0.0015361208718639224
+        }
+      ]
+    }
+  }
+}

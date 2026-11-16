@@ -1,0 +1,2 @@
+warning: dsmc: 20 cut cells have a gas fraction below 0.050000; their collision volume is limited
+vleo_solver: backend hip (HIP), 2619 steps in 2.135465 s, wrote /home/iagbosko/workspace/GPU_DSMC/validation/satellites/C-DSMC/a+0_b+0/vleo_half_cell

@@ -1,0 +1,61 @@
+  Kokkos Version: 5.2.2
+Compiler:
+  KOKKOS_COMPILER_CLANG: 1800
+Architecture:
+  CPU architecture: none
+  Default Device: HIP
+  GPU architecture: AMD_GFX1101
+  platform: 64bit
+Atomics:
+  desul atomics version: 83d26f34db50b4fefe30ed4db38b10e04c7a9384
+View:
+  mdspan: enabled
+  mdspan version: 5d4eb209c77f4744980c0b0c2af44636cc81b08b
+Vectorization:
+  KOKKOS_ENABLE_PRAGMA_IVDEP: no
+  KOKKOS_ENABLE_PRAGMA_LOOPCOUNT: no
+  KOKKOS_ENABLE_PRAGMA_UNROLL: no
+  KOKKOS_ENABLE_PRAGMA_VECTOR: no
+Memory:
+Options:
+  KOKKOS_ENABLE_ASM: no
+  KOKKOS_ENABLE_CXX20: yes
+  KOKKOS_ENABLE_CXX23: no
+  KOKKOS_ENABLE_CXX26: no
+  KOKKOS_ENABLE_DEBUG_BOUNDS_CHECK: no
+  KOKKOS_ENABLE_HWLOC: no
+  KOKKOS_ENABLE_LIBDL: yes
+Host Serial Execution Space:
+  KOKKOS_ENABLE_SERIAL: yes
+
+Serial Runtime Configuration:
+Device Execution Space:
+  KOKKOS_ENABLE_HIP: yes
+HIP Options:
+  KOKKOS_ENABLE_HIP_RELOCATABLE_DEVICE_CODE: no
+
+Runtime Configuration:
+  XNACK environment variable set: no
+  Kernel reports HMM module via `CONFIG_HMM_MIRROR=y` in `/boot/config`: yes
+macro  KOKKOS_ENABLE_HIP : defined
+macro  HIP_VERSION : 60342133 = version 6.3.42133
+macro KOKKOS_ENABLE_ROCTHRUST : undefined
+macro KOKKOS_ENABLE_IMPL_HIP_MALLOC_ASYNC: yes
+Kokkos::HIP[ 0 ] gcnArch gfx1101 : Selected
+  Total Global Memory: 14.98 GiB
+  Shared Memory per Block: 64 KiB
+  APU or dGPU: dGPU
+  Is Large Bar: 1
+  Supports Managed Memory: 1
+  Architecture capable of accessing system allocated memory: 0
+  System allows accessing system allocated memory on GPU: 0
+  Wavefront Size: 32
+Kokkos::HIP[ 1 ] gcnArch gfx1101 : Not Selected
+  Total Global Memory: 14.98 GiB
+  Shared Memory per Block: 64 KiB
+  APU or dGPU: dGPU
+  Is Large Bar: 1
+  Supports Managed Memory: 1
+  Architecture capable of accessing system allocated memory: 0
+  System allows accessing system allocated memory on GPU: 0
+  Wavefront Size: 32

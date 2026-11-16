@@ -1,0 +1,117 @@
+{
+  "schema": "vleo-results/1",
+  "simulation": {
+    "name": "C-FM-C",
+    "mode": "tpmc",
+    "backend": "hip",
+    "gsi_model": "cll",
+    "random_seed": 2026
+  },
+  "reference": {
+    "area_m2": 1.0,
+    "length_m": 1.0,
+    "moment_center_m": [0.0, 0.0, 0.0],
+    "dynamic_pressure_Pa": 7.875776644894361e-07,
+    "mass_density_kg_m3": 2.656696456365108e-14,
+    "freestream_speed_mps": 7699.999999999999,
+    "drag_axis_e_D": [-0.9848077530122081, -0.0, -0.17364817766693036],
+    "lift_axis_e_L": [-0.1736481776669304, 0.0, 0.9848077530122081],
+    "side_axis_e_Y": [0.0, -1.0000000000000002, 0.0]
+  },
+  "results": {
+    "force_N": [-1.927122123860123e-06, -4.58323354671014e-10, -5.098222608527814e-07],
+    "moment_Nm": [4.81220592796808e-11, 2.2193825008230775e-07, 2.8806796331966257e-10],
+    "C_D": 2.5221316000595717,
+    "C_L": -0.21259575753032608,
+    "C_Y": 0.0005819405188034782,
+    "C_M": [6.110135095168926e-05, 0.2817985578935684, 0.0003657645160701818],
+    "heat_rate_W": 0.008866905238467698,
+    "heat_rate_positive_W": 0.008867905926146087,
+    "heat_rate_negative_W": -1.0006876783920543e-06,
+    "drag_force_N": 1.986374515109922e-06,
+    "lift_force_N": -1.6743567019609666e-07,
+    "side_force_N": 4.583233546710141e-10
+  },
+  "std_error": {
+    "force_N": [9.983225994985213e-10, 1.9998522291753238e-10, 3.32102096550166e-10],
+    "moment_Nm": [1.3823317621105107e-10, 7.171541373497901e-10, 4.96824945845038e-10],
+    "C_D": 0.0012971539095977158,
+    "C_L": 0.00031933788706300096,
+    "C_Y": 0.0002539244469904782,
+    "C_M": [0.0001755168822628606, 0.0009105821174026064, 0.0006308266070078503],
+    "heat_rate_W": 4.417287673827376e-06,
+    "heat_rate_positive_W": 4.4178428988058534e-06,
+    "heat_rate_negative_W": 7.997615211620043e-09,
+    "drag_force_N": 1.02160944660431e-09,
+    "lift_force_N": 2.515033872760696e-10,
+    "side_force_N": 1.9998522291753243e-10
+  },
+  "confidence_interval": {
+    "low": {
+      "force_N": [-1.9290788002000925e-06, -8.502871890295917e-10, -5.1047316900121e-07],
+      "moment_Nm": [-2.2280998756255825e-10, 2.2053265380173828e-07, -6.856910371576747e-10],
+      "C_D": 2.519589225114355,
+      "C_L": -0.2132216482878687,
+      "C_Y": 8.425774790789091e-05,
+      "C_M": [-0.0002829054169622745, 0.2800138497384931, -0.0008706329141548071],
+      "heat_rate_W": 0.008858247513717644,
+      "heat_rate_positive_W": 0.008859247113175072,
+      "heat_rate_negative_W": -1.0163627161690392e-06,
+      "drag_force_N": 1.984372197388312e-06,
+      "lift_force_N": -1.679286077771476e-07,
+      "side_force_N": 6.635952031243635e-11
+    },
+    "high": {
+      "force_N": [-1.9251654475201535e-06, -6.635952031243635e-11, -5.091713527043528e-07],
+      "moment_Nm": [3.1905410612191984e-10, 2.2334384636287721e-07, 1.2618269637969998e-09],
+      "C_D": 2.5246739750047884,
+      "C_L": -0.21196986677278348,
+      "C_Y": 0.0010796232896990656,
+      "C_M": [0.000405108118865653, 0.2835832660486437, 0.0016021619462951706],
+      "heat_rate_W": 0.008875562963217752,
+      "heat_rate_positive_W": 0.008876564739117103,
+      "heat_rate_negative_W": -9.850126406150694e-07,
+      "drag_force_N": 1.9883768328315324e-06,
+      "lift_force_N": -1.6694273261504573e-07,
+      "side_force_N": 8.502871890295919e-10
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "critical_value": 1.9599639845400538,
+    "method": "independent histories: std_error = R * sqrt(var(x_h) / N)",
+    "histories": 20000000,
+    "batches": 20,
+    "converged": false,
+    "convergence": null
+  },
+  "diagnostics": {
+    "inflow_rate_per_s": 71539006803215888.0,
+    "event_rate_factor_per_s": 3576950340.1607943,
+    "injected": 20000000,
+    "exited": 20000000,
+    "truncated": 0,
+    "lost_inside_body": 0,
+    "invalid": 0,
+    "surface_interactions": 3931461,
+    "histories_with_hits": 3465384,
+    "max_interactions_per_history": 52,
+    "particle_balance_ok": true,
+    "wall_time_s": 0.503282623,
+    "histories_per_s": 39739103.01290096,
+    "parallel": {
+      "ranks": 1,
+      "decomposition": "history ids"
+    }
+  },
+  "provenance": {
+    "solver_version": "0.9.0",
+    "git_commit": "a632a4c96e7fc30baf9f054ab1eab9cb7cdb6e35",
+    "git_dirty": false,
+    "build_type": "Release",
+    "kokkos_version": "5.2.2",
+    "execution_space": "HIP",
+    "timestamp_utc": "2026-11-16T14:42:08Z"
+  },
+  "warnings": []
+}

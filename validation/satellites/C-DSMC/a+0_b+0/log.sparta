@@ -1,0 +1,180 @@
+SPARTA (27 Aug 2026)
+Running on 24 MPI task(s)
+Created orthogonal box = (-2.779 -1.839 -1.905) to (7.554 1.839 1.48446)
+WARNING: Could not acquire nearby ghost cells b/c grid partition is not clumped (/home/iagbosko/workspace/sparta/src/grid.cpp:486)
+Created 576 child grid cells
+  CPU time = 0.00856231 secs
+  create/ghost percent = 97.5762 2.42375
+Balance grid migrated 552 cells
+  CPU time = 0.00132565 secs
+  reassign/sort/migrate/ghost percent = 60.6213 0.90899 14.3566 24.1131
+  2224 triangles
+  -1.779 6.554 xlo xhi
+  -0.839 0.839 ylo yhi
+  -0.905 0.484458 zlo zhi
+  0.00177 min triangle edge length
+  5.64955e-06 min triangle area
+  94 0 = cells overlapping surfs, overlap cells with unmarked corner pts
+  262 tiny edges removed
+WARNING: Surface check found 242 points nearly on triangles (/home/iagbosko/workspace/sparta/src/surf.cpp:1821)
+  482 0 94 = cells outside/inside/overlapping surfs
+  94 = surf cells with 1,2,etc splits
+  126.671 126.671 = cell-wise and global flow volume
+  CPU time = 0.073876 secs
+  read/check/sort/surf2grid/ghost/inout/particle percent = 1.65934 72.7322 0.0167998 1.75271 23.8389 0.257605 0.00300503
+  surf2grid time = 0.00129484 secs
+  map/comm1/comm2/comm3/comm4/split percent = 10.3083 22.1551 2.82754 3.06302 8.27403 50.234
+Created 11328 particles
+  CPU time = 0.00824766 secs
+WARNING: One or more fix inflow faces oppose streaming velocity (/home/iagbosko/workspace/sparta/src/fix_emit_face.cpp:210)
+Memory usage per proc in Mbytes:
+  particles (ave,min,max) = 1.5625 1.5625 1.5625
+  grid      (ave,min,max) = 2.20044 2.20044 2.20044
+  surf      (ave,min,max) = 0.279968 0.279968 0.279968
+  modify    (ave,min,max) = 0 0 0
+  total     (ave,min,max) = 4.04291 4.04291 4.04291
+Step CPU Np 
+       0            0    11328 
+     100    0.2415979    12150 
+     200   0.61105722    12790 
+     300   0.68933988    13326 
+     400   0.73162679    13475 
+Loop time of 0.73165 on 24 procs for 400 steps with 13475 particles
+Performance: 546.710 timesteps/s, 7.367 Mparticle-step/s
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Move    | 0.0047032  | 0.018027   | 0.05768    |  11.2 |  2.46
+Coll    | 0.00047699 | 0.00055363 | 0.00077611 |   0.0 |  0.08
+Sort    | 0.0002465  | 0.00030975 | 0.00044848 |   0.0 |  0.04
+Comm    | 0.36303    | 0.43942    | 0.49505    |   4.7 | 60.06
+Modify  | 0.00028394 | 0.00072941 | 0.0033638  |   0.0 |  0.10
+Output  | 5.2362e-05 | 6.2989e-05 | 0.00010285 |   0.0 |  0.01
+MPI Sync| 0.20557    | 0.27252    | 0.35965    |   7.3 | 37.25
+Other   |            | 2.189e-05  |            |       |  0.00
+
+Particle moves    = 5070352 (5.07M)
+Cells touched     = 5899087 (5.9M)
+Particle comms    = 268705 (0.269M)
+Boundary collides = 0 (0K)
+Boundary exits    = 62499 (62.5K)
+SurfColl checks   = 41079722 (41.1M)
+SurfColl occurs   = 5150 (5.15K)
+Surf reactions    = 0 (0K)
+Collide attempts  = 5957 (5.96K)
+Collide occurs    = 3731 (3.73K)
+Reactions         = 0 (0K)
+Particles stuck   = 0
+Axisymm bad moves = 0
+
+Particle-moves/CPUsec/proc: 288751
+Particle-moves/step: 12675.9
+Cell-touches/particle/step: 1.16345
+Particle comm iterations/step: 2.8825
+Particle fraction communicated: 0.0529953
+Particle fraction colliding with boundary: 0
+Particle fraction exiting boundary: 0.0123264
+Surface-checks/particle/step: 8.10195
+Surface-collisions/particle/step: 0.00101571
+Surf-reactions/particle/step: 0
+Collision-attempts/particle/step: 0.00117487
+Collisions/particle/step: 0.000735846
+Reactions/particle/step: 0
+
+Particles: 561.458 ave 901 max 420 min
+Histogram: 2 7 7 4 1 1 0 0 1 1
+Cells:      24 ave 24 max 24 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
+GhostCell: 48 ave 56 max 36 min
+Histogram: 8 0 0 0 0 0 4 0 0 12
+EmptyCell: 48 ave 56 max 36 min
+Histogram: 8 0 0 0 0 0 4 0 0 12
+Surfs:    2224 ave 2224 max 2224 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
+GhostSurf: 0 ave 0 max 0 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
+WARNING: One or more fix inflow faces oppose streaming velocity (/home/iagbosko/workspace/sparta/src/fix_emit_face.cpp:210)
+Memory usage per proc in Mbytes:
+  particles (ave,min,max) = 1.5625 1.5625 1.5625
+  grid      (ave,min,max) = 2.20044 2.20044 2.20044
+  surf      (ave,min,max) = 0.279968 0.279968 0.279968
+  modify    (ave,min,max) = 0.00282796 0.00280762 0.00283813
+  total     (ave,min,max) = 4.04574 4.04572 4.04575
+Step CPU Np 
+     400            0    13475 
+     500   0.02191452    13419 
+     600   0.04502913    13512 
+     700  0.066880607    13746 
+     800  0.090367914    13525 
+     900   0.11373289    13605 
+    1000   0.13722299    13513 
+    1100   0.16008437    13494 
+    1200   0.18296786    13559 
+    1300   0.20498344    13603 
+    1400   0.22818325    13660 
+    1500   0.25137926    13608 
+    1600   0.27436526    13754 
+    1700   0.29598979    13476 
+    1800   0.31831142    13524 
+    1900   0.34069676    13495 
+    2000   0.36275189    13641 
+    2100   0.38639304    13637 
+    2200   0.40988811    13666 
+    2300   0.43214436    13719 
+    2400   0.45480593    13634 
+Loop time of 0.454829 on 24 procs for 2000 steps with 13634 particles
+Performance: 4397.252 timesteps/s, 59.952 Mparticle-step/s
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Move    | 0.02314    | 0.085505   | 0.30961    |  26.0 | 18.80
+Coll    | 0.0022411  | 0.0027808  | 0.0042436  |   0.9 |  0.61
+Sort    | 0.0011185  | 0.0014477  | 0.0021818  |   0.7 |  0.32
+Comm    | 0.090738   | 0.10073    | 0.11222    |   1.4 | 22.15
+Modify  | 0.0029409  | 0.0051071  | 0.017767   |   6.1 |  1.12
+Output  | 0.0062271  | 0.0063068  | 0.0065458  |   0.1 |  1.39
+MPI Sync| 0.025753   | 0.25283    | 0.31234    |  15.2 | 55.59
+Other   |            | 0.0001208  |            |       |  0.03
+
+Particle moves    = 27199616 (27.2M)
+Cells touched     = 31385672 (31.4M)
+Particle comms    = 1350555 (1.35M)
+Boundary collides = 0 (0K)
+Boundary exits    = 323369 (0.323M)
+SurfColl checks   = 222207338 (222M)
+SurfColl occurs   = 26590 (26.6K)
+Surf reactions    = 0 (0K)
+Collide attempts  = 35395 (35.4K)
+Collide occurs    = 23025 (23K)
+Reactions         = 0 (0K)
+Particles stuck   = 0
+Axisymm bad moves = 0
+
+Particle-moves/CPUsec/proc: 2.49174e+06
+Particle-moves/step: 13599.8
+Cell-touches/particle/step: 1.1539
+Particle comm iterations/step: 2.907
+Particle fraction communicated: 0.0496535
+Particle fraction colliding with boundary: 0
+Particle fraction exiting boundary: 0.0118887
+Surface-checks/particle/step: 8.1695
+Surface-collisions/particle/step: 0.000977587
+Surf-reactions/particle/step: 0
+Collision-attempts/particle/step: 0.00130131
+Collisions/particle/step: 0.000846519
+Reactions/particle/step: 0
+
+Particles: 568.083 ave 903 max 418 min
+Histogram: 2 6 7 4 3 0 0 0 0 2
+Cells:      24 ave 24 max 24 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
+GhostCell: 48 ave 56 max 36 min
+Histogram: 8 0 0 0 0 0 4 0 0 12
+EmptyCell: 48 ave 56 max 36 min
+Histogram: 8 0 0 0 0 0 4 0 0 12
+Surfs:    2224 ave 2224 max 2224 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
+GhostSurf: 0 ave 0 max 0 min
+Histogram: 24 0 0 0 0 0 0 0 0 0
