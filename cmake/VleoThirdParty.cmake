@@ -31,3 +31,15 @@ if(VLEO_BUILD_TESTS)
   set(CATCH_INSTALL_EXTRAS OFF CACHE BOOL "" FORCE)
   add_subdirectory("${_vleo_tp}/catch2" "${PROJECT_BINARY_DIR}/third_party/catch2" EXCLUDE_FROM_ALL SYSTEM)
 endif()
+
+# --- CUDA: host-only libraries -------------------------------------------------
+# With nvcc_wrapper as the project compiler every .cpp goes through nvcc. Its
+# front end rejects yaml-cpp's contrib/dragonbox.h (CUDA 12.8, M6.13), and
+# neither library contains device code: compile them with the host compiler.
+if(CMAKE_CXX_COMPILER MATCHES "nvcc_wrapper$")
+  foreach(_t yaml-cpp Catch2 Catch2WithMain)
+    if(TARGET ${_t})
+      target_compile_options(${_t} PRIVATE --host-only)
+    endif()
+  endforeach()
+endif()
