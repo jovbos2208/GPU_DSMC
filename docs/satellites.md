@@ -51,12 +51,20 @@ T_wall = 300 K. Domain: body bounding box + 0.3 m (free-molecular) or
 
 | Case | Satellite | Flow | Gas | Wall | Attitudes (α, β) [deg] |
 | ---- | --------- | ---- | --- | ---- | ---------------------- |
-| G-FM-D | GOCE | free-molecular (TPMC vs. SPARTA without collisions), n = 10¹⁵ m⁻³ | O 0.7, N2 0.3 | diffuse | (0,0) (10,0) (30,0) (0,15) |
+| G-FM-D | GOCE | free-molecular (TPMC vs. SPARTA), n = 10¹² m⁻³ (λ∞ ≈ 750 km) | O 0.7, N2 0.3 | diffuse | (0,0) (10,0) (30,0) (0,15) |
 | G-FM-C | GOCE | free-molecular | O | CLL α_n = 0.85, σ_t = 0.65 | (0,0) (10,0) |
 | C-FM-D | CHAMP | free-molecular | O 0.7, N2 0.3 | diffuse | (0,0) (10,0) (30,0) (0,15) |
 | C-FM-C | CHAMP | free-molecular | O | CLL | (0,0) (10,0) |
 | G-DSMC | GOCE | DSMC, n = 3·10¹⁸ m⁻³ (λ∞ ≈ 0.8 m) | O | diffuse | (0,0) |
 | C-DSMC | CHAMP | DSMC, n = 3·10¹⁸ m⁻³ | O | diffuse | (0,0) |
+
+**Free-molecular SPARTA runs need a `collide` command.** Without one,
+SPARTA gives molecules no internal energy (emission and re-emission). The
+first G-FM-D run (n = 10¹⁵ m⁻³, no `collide`) therefore had a heat rate
+0.19–0.29 % below vleo_solver (z = 4–6, within the 1 % limit). That matches
+the missing rotational energy of N2 (Γ_N2 k (900 − 300 K)). With O alone
+(CLL) Q agreed to 0.01–0.03 %. All free-molecular runs therefore use
+`collide vss` at n = 10¹² m⁻³, where collisions are negligible.
 
 **Numerics.** Free-molecular SPARTA runs use 0.2 m cells (irrelevant
 without collisions), a time step dx / (4 (V + 3 c_mp)), about 10⁶

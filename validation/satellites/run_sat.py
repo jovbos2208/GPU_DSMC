@@ -57,7 +57,11 @@ CASES = {
     "G-DSMC": dict(sat="GOCE", dsmc=True, gas={"O": 1.0}, wall="diffuse", att=[(0.0, 0.0)]),
     "C-DSMC": dict(sat="CHAMP", dsmc=True, gas={"O": 1.0}, wall="diffuse", att=[(0.0, 0.0)]),
 }
-N_FM, N_DSMC = 1.0e15, 3.0e18     # DSMC: lambda_inf ~ 0.8 m (Kn ~ 0.15 on GOCE, 0.1 on CHAMP)
+# Free-molecular: SPARTA needs a collide command for internal energy (without
+# one, N2 is emitted and re-emitted without rotational energy, which gave a
+# 0.25 % lower heat rate in the first G-FM-D run); at n = 1e12 m^-3 the mean
+# free path is ~750 km, so collisions are negligible. Forces scale with n.
+N_FM, N_DSMC = 1.0e12, 3.0e18     # DSMC: lambda_inf ~ 0.8 m (Kn ~ 0.15 on GOCE, 0.1 on CHAMP)
 SYS = {False: 0.01, True: 0.03}
 BLOCKS = 20
 
@@ -150,8 +154,7 @@ def sparta_input(case, lo, hi, num, att, n):
              "mixture gas %s vstream %r %r %r temp %r" % (" ".join(gas), v[0], v[1], v[2], T_GAS)]
     lines += ["mixture gas %s frac %r" % (s, x / sum(gas.values())) for s, x in gas.items()]
     lines += ["read_surf body.surf", sc, "surf_modify all collide 1"]
-    if case["dsmc"]:
-        lines += ["collide vss gas case.vss", "collide_modify vremax 100 yes rotate smooth vibrate discrete"]
+    lines += ["collide vss gas case.vss", "collide_modify vremax 100 yes rotate smooth vibrate discrete"]
     b = num["block"]
     # warm-up rounded up to whole blocks, so that every sampling block is complete
     num["sparta_warmup"] = int(math.ceil(num["warmup"] / float(b))) * b
