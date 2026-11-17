@@ -1,7 +1,7 @@
 # Verifies that vleo_solver wrote complete run metadata (Gate M0).
 # Usage: cmake -DOUT_DIR=<dir> -DEXPECTED_BACKEND=<cpu|cuda|hip> -P check_metadata.cmake
 
-foreach(f run_metadata.json resolved_config.yaml input_config.yaml kokkos_configuration.txt)
+foreach(f run_metadata.json resolved_config.yaml input_config.yaml kokkos_configuration.txt simulation.out)
   if(NOT EXISTS "${OUT_DIR}/${f}")
     message(FATAL_ERROR "missing output file ${OUT_DIR}/${f}")
   endif()
@@ -73,3 +73,12 @@ if(NOT n_components EQUAL 3)
 endif()
 
 message(STATUS "run metadata complete (backend ${EXPECTED_BACKEND})")
+
+# simulation.out (human-readable run log) is complete
+file(READ "${OUT_DIR}/simulation.out" L)
+foreach(m "Free stream (body frame)" "Geometry" "Progress" "Results (body frame" "status                            : completed")
+  string(FIND "${L}" "${m}" pos)
+  if(pos EQUAL -1)
+    message(FATAL_ERROR "simulation.out: missing '${m}'")
+  endif()
+endforeach()

@@ -39,6 +39,7 @@
 #include "vleo/dsmc/DsmcResults.hpp"
 #include "vleo/tpmc/Results.hpp"
 #include "vleo/tpmc/Tpmc.hpp"
+#include "RunLog.hpp"
 
 namespace fs = std::filesystem;
 
@@ -253,8 +254,13 @@ void write_inflow_json(vleo::JsonWriter& w, const vleo::InflowModel& inflow, con
 // Runtime error on one rank: the other ranks may be waiting in a collective
 // operation, so with several ranks the whole job is aborted.
 std::streambuf* g_stderr = nullptr;  // real stderr (std::cerr is silenced on ranks > 0)
+vleo::RunLog* g_log = nullptr;       // simulation.out (rank 0, once the run has started)
 
 int runtime_failure(const std::string& message) {
+  if (g_log) {
+    g_log->message("error", message);
+    g_log->finish("failed", {});
+  }
   std::ostream err(g_stderr ? g_stderr : std::cerr.rdbuf());
   err << "error";
   if (vleo::comm::size() > 1) err << " (rank " << vleo::comm::rank() << ")";
@@ -380,6 +386,25 @@ int run(const Options& opt, int argc, char** argv) {
   notes.push_back(self_test.detail);
   if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
+  // --- Run log simulation.out (rank 0), written while the run progresses ------------
+  const fs::path out_dir = opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory);
+  const fs::path f_log = out_dir / "simulation.out";
+  std::optional<vleo::RunLog> run_log;
+  if (vleo::comm::root()) {
+    try {
+      fs::create_directories(out_dir);
+      run_log.emplace(f_log);
+    } catch (const std::exception& e) {
+      return runtime_failure(e.what());
+    }
+    g_log = &*run_log;
+    run_log->header(cfg, geometry, inflow, rt, out_dir);
+    for (const auto& n : notes) run_log->message("note", n);
+  }
+  struct LogReset {
+    ~LogReset() { g_log = nullptr; }
+  } const log_reset;
+
   // --- Solver ----------------------------------------------------------------
   const bool dsmc = cfg.simulation.mode == vleo::SolverMode::DSMC;
   vleo::TpmcResult result;
@@ -390,6 +415,10 @@ int run(const Options& opt, int argc, char** argv) {
       if (!opt.quiet)
         std::cerr << "  dsmc: pilot runs for the cell size (free-stream rule: " << dsmc_settings.cell_size_m
                   << " m)\n";
+      if (g_log)
+        g_log->message("note", "DSMC pilot runs for the cell size (free-stream rule: " +
+                                   std::to_string(dsmc_settings.cell_size_m) + " m), started " +
+                                   vleo::utc_timestamp_now());
       try {
         dsmc_settings = vleo::refine_cell_size_with_pilot(cfg, geometry, inflow, dsmc_settings, pilot);
       } catch (const std::exception& e) {
@@ -400,12 +429,21 @@ int run(const Options& opt, int argc, char** argv) {
                   << " s: min local lambda " << pilot.min_local_lambda_m << " m -> cell size " << pilot.cell_size_m
                   << " m" << (pilot.limited_by_max_cells ? " (limited by the maximum cell count)" : "") << "\n";
     }
+    if (g_log) g_log->dsmc_parameters(cfg, inflow, dsmc_settings, pilot);
     vleo::DsmcProgressCallback progress;
-    if (!opt.quiet) {
-      progress = [](const vleo::DsmcProgress& p) {
+    if (vleo::comm::root()) {
+      // run_dsmc reports every 1 %; the terminal shows every 5 %
+      progress = [quiet = opt.quiet, dt = dsmc_settings.timestep_s,
+                  shown = std::uint64_t{0}](const vleo::DsmcProgress& p) mutable {
+        if (g_log) g_log->progress(p, dt);
+        const std::uint64_t twentieth = 20 * p.step / std::max<std::uint64_t>(1, p.total_steps);
+        if (quiet || (twentieth == shown && p.step != p.total_steps)) return;
+        shown = twentieth;
         std::cerr << "  dsmc: step " << p.step << " / " << p.total_steps << (p.sampling ? " (sampling)" : " (warm-up)")
                   << ", " << p.particles << " particles, " << p.elapsed_s << " s\n";
       };
+    }
+    if (!opt.quiet) {
       std::cerr << "  dsmc: dt = " << dsmc_settings.timestep_s << " s, cell = " << dsmc_settings.cell_size_m
                 << " m, W = " << dsmc_settings.particle_weight << ", lambda_inf = " << dsmc_settings.lambda_inf_m
                 << " m, warm-up " << dsmc_settings.warmup_steps << " + sampling " << dsmc_settings.sample_steps
@@ -424,14 +462,21 @@ int run(const Options& opt, int argc, char** argv) {
     for (const auto& w : dresult.warnings) {
       notes.push_back("dsmc: " + w);
       std::cerr << "warning: dsmc: " << w << "\n";
+      if (g_log) g_log->message("warning", "dsmc: " + w);
     }
+    if (g_log) g_log->dsmc_summary(dresult);
   }
   if (self_test_ok && !dsmc) {
+    if (g_log) g_log->tpmc_parameters(cfg, inflow);
     vleo::TpmcProgressCallback progress;
-    if (!opt.quiet) {
-      progress = [](const vleo::TpmcProgress& p) {
-        std::cerr << "  tpmc: " << p.histories << " / " << p.target << " histories, " << p.elapsed_s << " s, "
-                  << "monitored = " << p.monitored.value << " +- " << p.monitored.std_error << "\n";
+    if (vleo::comm::root()) {
+      const std::string monitored =
+          cfg.tpmc.convergence ? std::string(vleo::to_string(cfg.tpmc.convergence->quantity)) : "C_D";
+      progress = [quiet = opt.quiet, monitored](const vleo::TpmcProgress& p) {
+        if (g_log) g_log->progress(p, monitored);
+        if (!quiet)
+          std::cerr << "  tpmc: " << p.histories << " / " << p.target << " histories, " << p.elapsed_s << " s, "
+                    << "monitored = " << p.monitored.value << " +- " << p.monitored.std_error << "\n";
       };
     }
     try {
@@ -442,15 +487,14 @@ int run(const Options& opt, int argc, char** argv) {
     for (const auto& w : result.warnings) {
       notes.push_back("tpmc: " + w);
       std::cerr << "warning: tpmc: " << w << "\n";
+      if (g_log) g_log->message("warning", "tpmc: " + w);
     }
+    if (g_log) g_log->tpmc_summary(result);
   }
 
   // --- Outputs (rank 0 only) ------------------------------------------------------
   if (!vleo::comm::root()) return self_test_ok ? kExitOk : kExitRuntimeError;
-  const fs::path out_dir = opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory);
   try {
-    fs::create_directories(out_dir);
-
     const fs::path f_resolved = out_dir / "resolved_config.yaml";
     const fs::path f_input = out_dir / "input_config.yaml";
     const fs::path f_kokkos = out_dir / "kokkos_configuration.txt";
@@ -459,7 +503,8 @@ int run(const Options& opt, int argc, char** argv) {
     const fs::path f_csv = out_dir / "results.csv";
     const fs::path f_surface = out_dir / "surface_fields.csv";
     std::vector<std::string> files = {f_meta.filename().string(), f_resolved.filename().string(),
-                                      f_input.filename().string(), f_kokkos.filename().string()};
+                                      f_input.filename().string(), f_kokkos.filename().string(),
+                                      f_log.filename().string()};
     const vleo::TpmcEstimates& est = dsmc ? dresult.estimates : result.estimates;
     const std::optional<vleo::SurfaceFields>& surface = dsmc ? dresult.surface : result.surface;
     if (self_test_ok) {
@@ -494,6 +539,8 @@ int run(const Options& opt, int argc, char** argv) {
     meta.sections.emplace_back("inflow", [&](vleo::JsonWriter& w) { write_inflow_json(w, inflow, cfg); });
     meta.output_files = files;
     write_text_file(f_meta, vleo::make_run_metadata_json(meta));
+    if (!self_test_ok) run_log->message("error", self_test.detail);
+    run_log->finish(meta.status, files);
 
     std::cerr << "vleo_solver: backend " << vleo::to_string(vleo::compiled_backend()) << " ("
               << rt.execution_space << (nranks > 1 ? ", " + std::to_string(nranks) + " MPI ranks" : std::string())
@@ -508,6 +555,8 @@ int run(const Options& opt, int argc, char** argv) {
                 << " W\n";
     }
   } catch (const std::exception& e) {
+    run_log->message("error", e.what());
+    run_log->finish("failed", {});
     std::cerr << "error: " << e.what() << "\n";
     return kExitRuntimeError;
   }

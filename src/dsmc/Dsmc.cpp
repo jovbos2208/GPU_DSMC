@@ -1979,7 +1979,7 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   if (settings.initial_fill) sim.fill_freestream();
   sim.record_phase("run.fill", lap());
   const std::uint64_t total = settings.warmup_steps + settings.sample_steps;
-  const std::uint64_t report = std::max<std::uint64_t>(1, total / 20);
+  const std::uint64_t report = std::max<std::uint64_t>(1, total / 100);  // progress every 1 % (simulation.out)
   for (std::uint64_t k = 0; k < total; ++k) {
     const bool sample = k >= settings.warmup_steps;
     sim.step(sample);

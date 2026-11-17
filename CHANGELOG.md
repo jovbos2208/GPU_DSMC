@@ -7,6 +7,11 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- `simulation.out` in every output directory: human-readable run log written
+  while the run progresses (conditions, geometry, reference values, domain and
+  inflow, numerical parameters incl. the DSMC particle weight W and the TPMC
+  weight per history, progress with remaining time, results with SE/CI,
+  diagnostics, status). DSMC progress is reported every 1 % (terminal: 5 %).
 - MPI parallelisation (M6.1–M6.6, [docs/parallel.md](docs/parallel.md)):
   `VLEO_ENABLE_MPI`, presets `cpu-mpi`, `hip-gfx1101-mpi`, `hip-gfx1103-mpi`,
   one rank per GPU. TPMC splits the histories by id. DSMC decomposes the domain

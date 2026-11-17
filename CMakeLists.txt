@@ -50,7 +50,7 @@ add_subdirectory(src/dsmc)
 add_subdirectory(src/tally)
 add_subdirectory(src/io)
 
-add_executable(vleo_solver src/main.cpp)
+add_executable(vleo_solver src/main.cpp src/RunLog.cpp)
 target_link_libraries(vleo_solver PRIVATE
   vleo_core
   vleo_geometry
