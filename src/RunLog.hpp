@@ -47,10 +47,11 @@ class RunLog {
  private:
   void section(const std::string& title);
   void kv(const std::string& key, const std::string& value);
-  void estimates(const TpmcEstimates& e, double critical_value);
+  void estimates(const TpmcEstimates& e, double critical_value, const AeroAxes& axes);
   void flush() { out_.flush(); }
 
   std::ofstream out_;
+  AeroAxes axes_;  // set by header()
   bool progress_header_ = false;
   double last_logged_fraction_ = -1.0, last_logged_wall_s_ = 0.0;
   double final_wall_s_ = 0.0;

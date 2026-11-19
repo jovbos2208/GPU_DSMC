@@ -95,6 +95,7 @@ void RunLog::header(const SimulationConfig& cfg, const Geometry& geometry, const
   // --- free stream ---------------------------------------------------------
   const GasSection& g = cfg.gas;
   const DerivedQuantities& dq = cfg.derived;
+  axes_ = dq.aero_axes;
   section("Free stream (body frame)");
   for (std::size_t i = 0; i < g.species.size(); ++i) {
     const SpeciesFraction& s = g.species[i];
@@ -302,8 +303,10 @@ void RunLog::progress(const TpmcProgress& p, const std::string& monitored_name) 
   flush();
 }
 
-void RunLog::estimates(const TpmcEstimates& e, double critical_value) {
-  section("Results (body frame; SE = standard error, CI at z = " + num(critical_value, 4) + ")");
+void RunLog::estimates(const TpmcEstimates& e, double critical_value, const AeroAxes& axes) {
+  section("Results (SE = standard error, CI at z = " + num(critical_value, 4) + ")");
+  out_ << "  aerodynamic frame: e_D along V_inf, e_L lift axis, e_Y = e_L x e_D (axes under Reference values)\n"
+          "  body frame: F_x .. M_z and C_Mx .. C_Mz\n";
   out_ << "  " << std::left << std::setw(14) << "quantity" << std::right << std::setw(16) << "value" << std::setw(14)
        << "SE" << std::setw(10) << "SE/|v|" << std::setw(16) << "CI low" << std::setw(16) << "CI high" << "\n";
   auto row = [&](const std::string& name, const Estimate& x) {
@@ -317,6 +320,21 @@ void RunLog::estimates(const TpmcEstimates& e, double critical_value) {
   row("C_D", e.C_D);
   row("C_L", e.C_L);
   row("C_Y", e.C_Y);
+  // moment coefficients about the aerodynamic axes: projection of the body
+  // components (SE without the covariance of the components, which is not tallied)
+  auto project = [&](const Vec3& a) {
+    Estimate x;
+    x.value = a.x * e.C_M[0].value + a.y * e.C_M[1].value + a.z * e.C_M[2].value;
+    x.std_error = std::sqrt(a.x * a.x * e.C_M[0].std_error * e.C_M[0].std_error +
+                            a.y * a.y * e.C_M[1].std_error * e.C_M[1].std_error +
+                            a.z * a.z * e.C_M[2].std_error * e.C_M[2].std_error);
+    x.ci_low = x.value - critical_value * x.std_error;
+    x.ci_high = x.value + critical_value * x.std_error;
+    return x;
+  };
+  row("C_M,D (e_D)", project(axes.drag));
+  row("C_M,Y (e_Y)", project(axes.side));
+  row("C_M,L (e_L)", project(axes.lift));
   row("C_Mx", e.C_M[0]);
   row("C_My", e.C_M[1]);
   row("C_Mz", e.C_M[2]);
@@ -335,7 +353,7 @@ void RunLog::estimates(const TpmcEstimates& e, double critical_value) {
 }
 
 void RunLog::dsmc_summary(const DsmcResult& r) {
-  estimates(r.estimates, r.critical_value);
+  estimates(r.estimates, r.critical_value, axes_);
   const DsmcDiagnostics& d = r.diagnostics;
   const GridReport& g = r.grid;
   const DsmcCounters& c = r.counters;
@@ -380,7 +398,7 @@ void RunLog::dsmc_summary(const DsmcResult& r) {
 }
 
 void RunLog::tpmc_summary(const TpmcResult& r) {
-  estimates(r.estimates, r.critical_value);
+  estimates(r.estimates, r.critical_value, axes_);
   const TransportCounters& c = r.counters;
   section("TPMC diagnostics");
   kv("histories / batches", count(r.histories) + " / " + count(r.batches));

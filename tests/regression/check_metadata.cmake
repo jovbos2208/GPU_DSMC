@@ -76,7 +76,7 @@ message(STATUS "run metadata complete (backend ${EXPECTED_BACKEND})")
 
 # simulation.out (human-readable run log) is complete
 file(READ "${OUT_DIR}/simulation.out" L)
-foreach(m "Free stream (body frame)" "Geometry" "Progress" "Results (body frame" "status                            : completed")
+foreach(m "Free stream (body frame)" "Geometry" "Progress" "Results (SE" "C_M,L (e_L)" "status                            : completed")
   string(FIND "${L}" "${m}" pos)
   if(pos EQUAL -1)
     message(FATAL_ERROR "simulation.out: missing '${m}'")
