@@ -164,3 +164,27 @@ add_test(NAME smoke_attitude_rejects_parallel_lift
   COMMAND vleo_solver --check --attitude 90 0 --config "${_cfg}/simulations/tpmc_cll.yaml")
 set_tests_properties(smoke_attitude_rejects_parallel_lift PROPERTIES
   PASS_REGULAR_EXPRESSION "invalid attitude" LABELS smoke)
+
+# Batch mode: several cases in one process; results equal to single runs, resume skips finished cases.
+set(_batch_dir "${CMAKE_CURRENT_BINARY_DIR}/batch_out")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/batch_smoke.txt"
+     "# smoke test of --batch\n${_cfg}/simulations/tpmc_cll.yaml batch_out/a\n${_cfg}/simulations/tpmc_maxwell.yaml batch_out/b\n")
+add_test(NAME smoke_batch_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${_batch_dir}")
+set_tests_properties(smoke_batch_clean PROPERTIES FIXTURES_SETUP batch_clean LABELS smoke)
+add_test(NAME smoke_batch
+  COMMAND vleo_solver --batch "${CMAKE_CURRENT_BINARY_DIR}/batch_smoke.txt" --histories 200000 --quiet
+                      --platform "${_cfg}/platforms/${_platform}.yaml")
+set_tests_properties(smoke_batch PROPERTIES FIXTURES_REQUIRED batch_clean FIXTURES_SETUP batch_output
+  PASS_REGULAR_EXPRESSION "batch finished: 2 completed, 0 failed" LABELS smoke TIMEOUT ${_t120})
+add_test(NAME smoke_batch_metadata
+  COMMAND ${CMAKE_COMMAND} -DOUT_DIR=${_batch_dir}/a -DEXPECTED_BACKEND=${VLEO_BACKEND}
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/check_metadata.cmake")
+set_tests_properties(smoke_batch_metadata PROPERTIES FIXTURES_REQUIRED batch_output LABELS smoke)
+add_test(NAME smoke_batch_equals_single
+  COMMAND ${CMAKE_COMMAND} -DA=${_batch_dir}/a/results.json -DB=${_out}/results.json
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/compare_results.cmake")
+set_tests_properties(smoke_batch_equals_single PROPERTIES FIXTURES_REQUIRED "batch_output;smoke_output" LABELS smoke)
+add_test(NAME smoke_batch_resume
+  COMMAND vleo_solver --batch "${CMAKE_CURRENT_BINARY_DIR}/batch_smoke.txt" --histories 200000 --quiet --skip-existing)
+set_tests_properties(smoke_batch_resume PROPERTIES FIXTURES_REQUIRED batch_output
+  PASS_REGULAR_EXPRESSION "2 already finished" LABELS smoke)

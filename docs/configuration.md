@@ -21,6 +21,8 @@ vleo_solver --config configs/simulations/tpmc_cll.yaml \
 | `--warmup-steps N`, `--sample-steps N` | override `dsmc.warmup_steps` / `dsmc.sample_steps` |
 | `-q, --quiet` | no progress output |
 | `--version` | build provenance (git commit, compiler, build type, Kokkos, backend) |
+| `--batch FILE` | run several cases in one process (instead of `--config`): Kokkos, the backend self-test and each geometry (STL, BVH, upload) are set up once. One case per line, `<config.yaml> [<output dir>]`, `#` starts a comment, relative paths are relative to the batch file; without an output directory the case's `output.directory` is used. The overrides above apply to every case; `--output-dir` is not allowed. Results are identical to separate runs. A failing case does not stop the batch (exit code 1 at the end) |
+| `--skip-existing` | skip cases whose output directory already contains `results.json` (written last, so it marks a finished case); resumes an interrupted batch |
 
 Exit codes: 0 success, 1 runtime error, 2 invalid configuration, 64 usage error.
 

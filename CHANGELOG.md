@@ -7,6 +7,9 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- `--batch <file>`: several cases in one process (Kokkos, self-test and geometries
+  set up once; results identical to separate runs) and `--skip-existing` to
+  resume. `results.json` is now written last and marks a finished case.
 - `simulation.out` in every output directory: human-readable run log written
   while the run progresses (conditions, geometry, reference values, domain and
   inflow, numerical parameters incl. the DSMC particle weight W and the TPMC

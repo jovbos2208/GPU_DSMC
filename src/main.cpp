@@ -19,7 +19,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -52,12 +54,14 @@ constexpr int kExitUsage = 64;
 
 struct Options {
   std::optional<fs::path> config;
+  std::optional<fs::path> batch;   // batch file: several cases in one process
   std::optional<fs::path> platform;
   std::optional<fs::path> output_dir;
   std::uint64_t histories = 0;  // 0: use tpmc.particle_histories
   std::optional<std::uint64_t> sample_steps, warmup_steps;
   std::optional<std::pair<double, double>> attitude_deg;  // (alpha, beta), M6.8
   bool check_only = false;
+  bool skip_existing = false;  // batch/single: skip cases whose results.json exists
   bool quiet = false;
   bool profile = false;
   bool print_config = false;
@@ -67,9 +71,14 @@ struct Options {
 
 void print_usage(std::ostream& os) {
   os << "Usage: vleo_solver --config <simulation.yaml> [options]\n"
+        "       vleo_solver --batch <cases.txt> [options]\n"
         "\n"
         "Options:\n"
-        "  -c, --config <file>      Simulation configuration (required)\n"
+        "  -c, --config <file>      Simulation configuration\n"
+        "      --batch <file>       Run several cases in one process (Kokkos, self-test and geometries set up once).\n"
+        "                           One case per line: <config.yaml> [<output dir>]; '#' comments; paths relative\n"
+        "                           to the batch file. Overrides below apply to every case.\n"
+        "      --skip-existing      Skip cases whose output directory already contains results.json\n"
         "  -p, --platform <file>    Platform configuration; its backend must match this build\n"
         "  -o, --output-dir <dir>   Override output.directory from the configuration\n"
         "  -n, --histories <N>      Override tpmc.particle_histories (recorded in the resolved config)\n"
@@ -102,6 +111,12 @@ std::optional<Options> parse_args(int argc, char** argv) {
       auto v = need_value("--config");
       if (!v) return std::nullopt;
       o.config = *v;
+    } else if (a == "--batch") {
+      auto v = need_value("--batch");
+      if (!v) return std::nullopt;
+      o.batch = *v;
+    } else if (a == "--skip-existing") {
+      o.skip_existing = true;
     } else if (a == "-p" || a == "--platform") {
       auto v = need_value("--platform");
       if (!v) return std::nullopt;
@@ -269,125 +284,155 @@ int runtime_failure(const std::string& message) {
   return kExitRuntimeError;
 }
 
-// Releases device memory before Kokkos::finalize (declared after the ScopeGuard).
-struct DeviceGeometryReset {
-  vleo::Geometry& g;
-  ~DeviceGeometryReset() { g.device = vleo::DeviceGeometry{}; }
+// One case of a run: a configuration and its output directory. Without
+// --batch there is exactly one case (--config / --output-dir).
+struct CaseInput {
+  fs::path config;
+  std::optional<fs::path> output_dir;
 };
 
-int run(const Options& opt, int argc, char** argv) {
-  // --- Configuration (before touching any device) ---------------------------
-  std::optional<vleo::PlatformConfig> platform;
-  vleo::SimulationConfig cfg;
-  try {
-    if (opt.platform) {
-      platform = vleo::load_platform_config(*opt.platform);
-      vleo::check_platform_matches_build(*platform);
-    }
-    cfg = vleo::load_simulation_config(*opt.config);
-    if (opt.attitude_deg) vleo::set_attitude(cfg, opt.attitude_deg->first, opt.attitude_deg->second);
-  } catch (const vleo::ConfigError& e) {
-    std::cerr << "error: " << e.what() << "\n";
-    return kExitConfigError;
-  }
+// Geometries are read and their BVH built once per (file, scale, require_closed)
+// and uploaded once; cases of a batch share them.
+struct GeometryCache {
+  struct Entry {
+    std::string key;
+    std::unique_ptr<vleo::Geometry> geometry;
+    std::vector<std::string> warnings;
+  };
+  std::vector<Entry> entries;
 
-  // --- Geometry, domain and inflow (host side) --------------------------------
-  std::vector<std::string> notes;
-  vleo::Geometry geometry;
-  vleo::InflowModel inflow;
-  try {
+  // Throws StlError / GeometryError.
+  const Entry& get(const vleo::SimulationConfig& cfg) {
+    std::ostringstream k;
+    k << cfg.geometry.resolved_file.string() << '|' << std::setprecision(17) << cfg.derived.geometry_scale_to_m << '|'
+      << cfg.geometry.require_closed;
+    for (const Entry& e : entries)
+      if (e.key == k.str()) return e;
     vleo::MeshOptions mopt;
     mopt.require_closed = cfg.geometry.require_closed;
-    geometry = vleo::make_host_geometry(
-        vleo::read_stl(cfg.geometry.resolved_file, cfg.derived.geometry_scale_to_m), mopt);
-    for (const auto& w : geometry.report.warnings) {
-      notes.push_back("geometry: " + w);
+    Entry e;
+    e.key = k.str();
+    e.geometry = std::make_unique<vleo::Geometry>(vleo::make_host_geometry(
+        vleo::read_stl(cfg.geometry.resolved_file, cfg.derived.geometry_scale_to_m), mopt));
+    for (const auto& w : e.geometry->report.warnings) {
+      e.warnings.push_back("geometry: " + w);
       std::cerr << "warning: geometry: " << w << "\n";
     }
-    const vleo::Domain domain =
-        vleo::make_domain(cfg.domain, geometry.host.bbox, 1.0e3 * geometry.device.surface_offset_m);
-    inflow = vleo::InflowModel::create(domain, cfg.gas);
-  } catch (const std::exception& e) {  // StlError, GeometryError
-    std::cerr << "error: " << e.what() << "\n";
+    entries.push_back(std::move(e));
+    return entries.back();
+  }
+  void upload() {
+    for (Entry& e : entries) vleo::upload_geometry(*e.geometry);
+  }
+  // Releases device memory before Kokkos::finalize.
+  void release_device() {
+    for (Entry& e : entries) e.geometry->device = vleo::DeviceGeometry{};
+  }
+};
+
+struct DeviceGeometryRelease {  // declared after the ScopeGuard
+  GeometryCache& cache;
+  ~DeviceGeometryRelease() { cache.release_device(); }
+};
+
+// A case prepared on the host (configuration, geometry, inflow, DSMC settings).
+struct PreparedCase {
+  vleo::SimulationConfig cfg;
+  const vleo::Geometry* geometry = nullptr;
+  vleo::InflowModel inflow;
+  vleo::DsmcSettings dsmc_settings;
+  std::vector<std::string> notes;
+  fs::path out_dir;
+};
+
+// Reads a batch file: one case per line, "<config.yaml> [<output dir>]";
+// blank lines and lines starting with '#' are ignored. Relative paths are
+// resolved against the directory of the batch file.
+std::vector<CaseInput> read_batch_file(const fs::path& path) {
+  std::ifstream in(path);
+  if (!in) throw std::runtime_error("cannot read batch file '" + path.string() + "'");
+  const fs::path base = fs::absolute(path).parent_path();
+  std::vector<CaseInput> cases;
+  std::string line;
+  int n = 0;
+  while (std::getline(in, line)) {
+    ++n;
+    std::istringstream ls(line);
+    std::string a, b, extra;
+    if (!(ls >> a) || a[0] == '#') continue;
+    ls >> b >> extra;
+    if (!extra.empty())
+      throw std::runtime_error(path.string() + ":" + std::to_string(n) + ": expected '<config> [<output dir>]'");
+    CaseInput c;
+    c.config = fs::path(a).is_absolute() ? fs::path(a) : base / a;
+    if (!b.empty()) c.output_dir = fs::path(b).is_absolute() ? fs::path(b) : base / b;
+    cases.push_back(std::move(c));
+  }
+  if (cases.empty()) throw std::runtime_error("batch file '" + path.string() + "' lists no cases");
+  return cases;
+}
+
+// Host-side preparation of one case. Returns an exit code (kExitOk on success).
+int prepare_case(const Options& opt, const CaseInput& in, GeometryCache& cache, PreparedCase& pc,
+                 const std::string& ctx) {
+  vleo::SimulationConfig& cfg = pc.cfg;
+  try {
+    cfg = vleo::load_simulation_config(in.config);
+    if (opt.attitude_deg) vleo::set_attitude(cfg, opt.attitude_deg->first, opt.attitude_deg->second);
+  } catch (const vleo::ConfigError& e) {
+    std::cerr << "error: " << ctx << e.what() << "\n";
     return kExitConfigError;
   }
-
+  try {
+    const GeometryCache::Entry& g = cache.get(cfg);
+    pc.geometry = g.geometry.get();
+    pc.notes = g.warnings;
+    const vleo::Domain domain =
+        vleo::make_domain(cfg.domain, pc.geometry->host.bbox, 1.0e3 * pc.geometry->device.surface_offset_m);
+    pc.inflow = vleo::InflowModel::create(domain, cfg.gas);
+  } catch (const std::exception& e) {  // StlError, GeometryError
+    std::cerr << "error: " << ctx << e.what() << "\n";
+    return kExitConfigError;
+  }
   if (cfg.output.format == vleo::OutputFormat::HDF5) {
-    std::cerr << "error: output.format: hdf5 is not available in this build (use json or csv)\n";
+    std::cerr << "error: " << ctx << "output.format: hdf5 is not available in this build (use json or csv)\n";
     return kExitConfigError;
   }
   if (opt.histories > 0) cfg.tpmc.particle_histories = opt.histories;
   if (opt.sample_steps) {
     if (*opt.sample_steps < 2 || *opt.sample_steps < cfg.dsmc.blocks) {
-      std::cerr << "error: --sample-steps must be at least 2 and at least dsmc.blocks\n";
+      std::cerr << "error: " << ctx << "--sample-steps must be at least 2 and at least dsmc.blocks\n";
       return kExitUsage;
     }
     cfg.dsmc.sample_steps = *opt.sample_steps;
   }
   if (opt.warmup_steps) cfg.dsmc.warmup_steps = *opt.warmup_steps;
-
-  vleo::DsmcSettings dsmc_settings;
   if (cfg.simulation.mode == vleo::SolverMode::DSMC) {
     try {
-      dsmc_settings = vleo::resolve_dsmc_settings(cfg, inflow.domain);
+      pc.dsmc_settings = vleo::resolve_dsmc_settings(cfg, pc.inflow.domain);
     } catch (const std::exception& e) {
-      std::cerr << "error: DSMC setup: " << e.what() << "\n";
+      std::cerr << "error: " << ctx << "DSMC setup: " << e.what() << "\n";
       return kExitConfigError;
     }
   }
+  pc.out_dir = in.output_dir ? *in.output_dir : (opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory));
+  return kExitOk;
+}
 
-  if (opt.print_config) std::cout << vleo::to_resolved_yaml(cfg);
-  if (opt.check_only) {
-    std::cerr << "configuration valid: " << cfg.source_file.string() << " (" << geometry.report.triangles
-              << " triangles, " << geometry.report.components.size() << " component(s))\n";
-    return kExitOk;
-  }
-
-  // --- Kokkos ----------------------------------------------------------------
-  Kokkos::InitializationSettings settings;
+// Runs one prepared case on the initialised device and writes its outputs.
+int run_case(const Options& opt, PreparedCase& pc, const std::optional<vleo::PlatformConfig>& platform,
+             vleo::RuntimeInfo rt, const vleo::SelfTestResult& self_test, bool self_test_ok) {
+  const vleo::SimulationConfig& cfg = pc.cfg;
+  const vleo::Geometry& geometry = *pc.geometry;
+  const vleo::InflowModel& inflow = pc.inflow;
+  vleo::DsmcSettings& dsmc_settings = pc.dsmc_settings;
+  std::vector<std::string>& notes = pc.notes;
+  const fs::path& out_dir = pc.out_dir;
   const int nranks = vleo::comm::size();
-  if (platform) {
-    // Several ranks: Kokkos assigns GPU (local rank mod visible devices) from
-    // the launcher's local-rank variable; the platform's device_id is ignored.
-    if (platform->backend != vleo::Backend::CPU && nranks == 1) settings.set_device_id(platform->device_id);
-    if (platform->num_threads > 0) settings.set_num_threads(platform->num_threads);
-  }
-  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) settings.set_map_device_id_by("mpi_rank");
-  Kokkos::ScopeGuard guard(settings);
-  vleo::upload_geometry(geometry);
-  const DeviceGeometryReset release_device_geometry{geometry};
-
-  vleo::RuntimeInfo rt;
   rt.timestamp_utc = vleo::utc_timestamp_now();
-  for (int i = 0; i < argc; ++i) rt.command_line.emplace_back(argv[i]);
-  rt.working_directory = fs::current_path().string();
-  rt.execution_space = Kokkos::DefaultExecutionSpace::name();
-  rt.concurrency = Kokkos::DefaultExecutionSpace().concurrency();
-  rt.device_id = vleo::compiled_backend() == vleo::Backend::CPU ? -1 : Kokkos::device_id();
-  rt.mpi_ranks = nranks;
-  rt.mpi_library = vleo::comm::library_version();
-  rt.rank_device_ids = vleo::comm::allgather(rt.device_id);
-  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) {
-    for (int a = 0; a < nranks; ++a)
-      for (int b = 0; b < a; ++b)
-        if (rt.rank_device_ids[static_cast<std::size_t>(a)] == rt.rank_device_ids[static_cast<std::size_t>(b)]) {
-          const std::string w = "several MPI ranks share one GPU (device " +
-                                std::to_string(rt.rank_device_ids[static_cast<std::size_t>(a)]) +
-                                "); start one rank per GPU";
-          notes.push_back(w);
-          if (vleo::comm::root()) std::cerr << "warning: " << w << "\n";
-          a = nranks;
-          break;
-        }
-  }
-
-  const vleo::SelfTestResult self_test = vleo::backend_self_test(cfg.simulation.random_seed);
-  const bool self_test_ok = vleo::comm::all(self_test.passed);
   notes.push_back(self_test.detail);
-  if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
   // --- Run log simulation.out (rank 0), written while the run progresses ------------
-  const fs::path out_dir = opt.output_dir ? *opt.output_dir : fs::path(cfg.output.directory);
   const fs::path f_log = out_dir / "simulation.out";
   std::optional<vleo::RunLog> run_log;
   if (vleo::comm::root()) {
@@ -507,10 +552,12 @@ int run(const Options& opt, int argc, char** argv) {
                                       f_log.filename().string()};
     const vleo::TpmcEstimates& est = dsmc ? dresult.estimates : result.estimates;
     const std::optional<vleo::SurfaceFields>& surface = dsmc ? dresult.surface : result.surface;
+    write_text_file(f_resolved, vleo::to_resolved_yaml(cfg));
+    write_text_file(f_input, read_text_file(cfg.source_file));
+    std::ostringstream kc;
+    Kokkos::print_configuration(kc, true);
+    write_text_file(f_kokkos, kc.str());
     if (self_test_ok) {
-      write_text_file(f_results, dsmc ? vleo::dsmc_results_json(dresult, cfg, rt.timestamp_utc)
-                                      : vleo::results_json(result, cfg, rt.timestamp_utc));
-      files.push_back(f_results.filename().string());
       if (cfg.output.format == vleo::OutputFormat::CSV) {
         write_text_file(f_csv, vleo::estimates_csv(est));
         files.push_back(f_csv.filename().string());
@@ -519,13 +566,8 @@ int run(const Options& opt, int argc, char** argv) {
         write_text_file(f_surface, vleo::surface_fields_csv(*surface, geometry));
         files.push_back(f_surface.filename().string());
       }
+      files.push_back(f_results.filename().string());
     }
-
-    write_text_file(f_resolved, vleo::to_resolved_yaml(cfg));
-    write_text_file(f_input, read_text_file(cfg.source_file));
-    std::ostringstream kc;
-    Kokkos::print_configuration(kc, true);
-    write_text_file(f_kokkos, kc.str());
 
     vleo::RunMetadataInput meta;
     meta.config = &cfg;
@@ -539,6 +581,10 @@ int run(const Options& opt, int argc, char** argv) {
     meta.sections.emplace_back("inflow", [&](vleo::JsonWriter& w) { write_inflow_json(w, inflow, cfg); });
     meta.output_files = files;
     write_text_file(f_meta, vleo::make_run_metadata_json(meta));
+    // results.json last: its presence marks a finished case (--skip-existing)
+    if (self_test_ok)
+      write_text_file(f_results, dsmc ? vleo::dsmc_results_json(dresult, cfg, rt.timestamp_utc)
+                                      : vleo::results_json(result, cfg, rt.timestamp_utc));
     if (!self_test_ok) run_log->message("error", self_test.detail);
     run_log->finish(meta.status, files);
 
@@ -563,6 +609,126 @@ int run(const Options& opt, int argc, char** argv) {
   return self_test_ok ? kExitOk : kExitRuntimeError;
 }
 
+int run(const Options& opt, int argc, char** argv) {
+  // --- Configuration (before touching any device) ---------------------------
+  std::optional<vleo::PlatformConfig> platform;
+  std::vector<CaseInput> inputs;
+  try {
+    if (opt.platform) {
+      platform = vleo::load_platform_config(*opt.platform);
+      vleo::check_platform_matches_build(*platform);
+    }
+  } catch (const vleo::ConfigError& e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return kExitConfigError;
+  }
+  const bool batch = opt.batch.has_value();
+  if (batch) {
+    try {
+      inputs = read_batch_file(*opt.batch);
+    } catch (const std::exception& e) {
+      std::cerr << "error: " << e.what() << "\n";
+      return kExitConfigError;
+    }
+  } else {
+    inputs.push_back({*opt.config, opt.output_dir});
+  }
+
+  // --- Geometry, domain and inflow of every case (host side) ------------------
+  GeometryCache cache;
+  std::vector<PreparedCase> cases(inputs.size());
+  for (std::size_t i = 0; i < inputs.size(); ++i) {
+    const std::string ctx = batch ? inputs[i].config.string() + ": " : std::string();
+    const int rc = prepare_case(opt, inputs[i], cache, cases[i], ctx);
+    if (rc != kExitOk) return rc;
+    if (opt.print_config) std::cout << vleo::to_resolved_yaml(cases[i].cfg);
+  }
+  if (opt.check_only) {
+    for (const PreparedCase& pc : cases)
+      std::cerr << "configuration valid: " << pc.cfg.source_file.string() << " (" << pc.geometry->report.triangles
+                << " triangles, " << pc.geometry->report.components.size() << " component(s))\n";
+    return kExitOk;
+  }
+  std::vector<bool> skip(cases.size(), false);
+  std::size_t to_run = cases.size();
+  if (opt.skip_existing)
+    for (std::size_t i = 0; i < cases.size(); ++i)
+      if (fs::exists(cases[i].out_dir / "results.json")) {
+        skip[i] = true;
+        --to_run;
+      }
+  if (batch)
+    std::cerr << "vleo_solver: batch of " << cases.size() << " case(s), " << cache.entries.size() << " geometr"
+              << (cache.entries.size() == 1 ? "y" : "ies") << ", " << cases.size() - to_run
+              << " already finished\n";
+  if (to_run == 0) return kExitOk;
+
+  // --- Kokkos ----------------------------------------------------------------
+  Kokkos::InitializationSettings settings;
+  const int nranks = vleo::comm::size();
+  if (platform) {
+    // Several ranks: Kokkos assigns GPU (local rank mod visible devices) from
+    // the launcher's local-rank variable; the platform's device_id is ignored.
+    if (platform->backend != vleo::Backend::CPU && nranks == 1) settings.set_device_id(platform->device_id);
+    if (platform->num_threads > 0) settings.set_num_threads(platform->num_threads);
+  }
+  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) settings.set_map_device_id_by("mpi_rank");
+  Kokkos::ScopeGuard guard(settings);
+  cache.upload();
+  const DeviceGeometryRelease release_device_geometry{cache};
+
+  vleo::RuntimeInfo rt;
+  for (int i = 0; i < argc; ++i) rt.command_line.emplace_back(argv[i]);
+  rt.working_directory = fs::current_path().string();
+  rt.execution_space = Kokkos::DefaultExecutionSpace::name();
+  rt.concurrency = Kokkos::DefaultExecutionSpace().concurrency();
+  rt.device_id = vleo::compiled_backend() == vleo::Backend::CPU ? -1 : Kokkos::device_id();
+  rt.mpi_ranks = nranks;
+  rt.mpi_library = vleo::comm::library_version();
+  rt.rank_device_ids = vleo::comm::allgather(rt.device_id);
+  std::vector<std::string> run_notes;
+  if (nranks > 1 && vleo::compiled_backend() != vleo::Backend::CPU) {
+    for (int a = 0; a < nranks; ++a)
+      for (int b = 0; b < a; ++b)
+        if (rt.rank_device_ids[static_cast<std::size_t>(a)] == rt.rank_device_ids[static_cast<std::size_t>(b)]) {
+          const std::string w = "several MPI ranks share one GPU (device " +
+                                std::to_string(rt.rank_device_ids[static_cast<std::size_t>(a)]) +
+                                "); start one rank per GPU";
+          run_notes.push_back(w);
+          if (vleo::comm::root()) std::cerr << "warning: " << w << "\n";
+          a = nranks;
+          break;
+        }
+  }
+
+  const vleo::SelfTestResult self_test = vleo::backend_self_test(cases.front().cfg.simulation.random_seed);
+  const bool self_test_ok = vleo::comm::all(self_test.passed);
+  if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
+
+  // --- Cases -------------------------------------------------------------------
+  int rc = kExitOk;
+  std::size_t done = 0, failed = 0;
+  for (std::size_t i = 0; i < cases.size(); ++i) {
+    if (skip[i]) continue;
+    PreparedCase& pc = cases[i];
+    pc.notes.insert(pc.notes.end(), run_notes.begin(), run_notes.end());
+    if (batch && !opt.quiet)
+      std::cerr << "[" << done + failed + 1 << "/" << to_run << "] " << pc.cfg.source_file.string() << "\n";
+    const int case_rc = run_case(opt, pc, platform, rt, self_test, self_test_ok);
+    if (case_rc == kExitOk) {
+      ++done;
+    } else {
+      ++failed;
+      rc = case_rc;
+      if (!self_test_ok) break;  // every case would fail
+    }
+  }
+  if (batch)
+    std::cerr << "vleo_solver: batch finished: " << done << " completed, " << failed << " failed, "
+              << cases.size() - to_run << " skipped\n";
+  return rc;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -580,8 +746,16 @@ int main(int argc, char** argv) {
     std::cout << vleo::build_info_string();
     return kExitOk;
   }
-  if (!opt->config) {
-    std::cerr << "error: --config is required\n";
+  if (opt->config && opt->batch) {
+    std::cerr << "error: use either --config or --batch\n";
+    return kExitUsage;
+  }
+  if (opt->batch && opt->output_dir) {
+    std::cerr << "error: --output-dir cannot be combined with --batch (give the directory per case)\n";
+    return kExitUsage;
+  }
+  if (!opt->config && !opt->batch) {
+    std::cerr << "error: --config or --batch is required\n";
     print_usage(std::cerr);
     return kExitUsage;
   }
