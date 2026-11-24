@@ -43,6 +43,8 @@ dsmc:
   particles_per_cell_target: 30
   sample_steps: 1000
   blocks: 20
+  # dt_DSMCState_out: 2.0e-5   # flow field per cell every 2e-5 s for ParaView
+  #                            # (needs HDF5, docs/dsmc.md section 10)
 
 statistics:
   confidence_level: 0.95

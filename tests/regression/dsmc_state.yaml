@@ -1,0 +1,37 @@
+# DSMC cell-state output (dsmc.dt_DSMCState_out, smoke test): molecular mixture
+# around a flat plate, fixed time step 1e-6 s, a cell-state file every 2.5e-6 s.
+simulation:
+  name: dsmc_state
+  mode: dsmc
+  random_seed: 7
+geometry:
+  file: open_plate.stl
+  require_closed: false
+reference:
+  area_m2: 1.0
+  length_m: 1.0
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+gas:
+  number_density_m3: 1.0e19
+  translational_temperature_K: 900.0
+  bulk_velocity_body_mps: [-7800.0, 0.0, 0.0]
+  species:
+    N2: 0.8
+    O: 0.2
+surface:
+  model: maxwell
+  temperature_K: 300.0
+  maxwell:
+    diffuse_fraction: 1.0
+dsmc:
+  timestep_mode: fixed
+  timestep_s: 1.0e-6
+  cell_size_pilot: false
+  particles_per_cell_target: 5
+  warmup_steps: 2
+  sample_steps: 6
+  blocks: 2
+  dt_DSMCState_out: 2.5e-6
+output:
+  format: json

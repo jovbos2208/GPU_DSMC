@@ -92,6 +92,7 @@ void walk(const SimulationConfig& c, Sink& s) {
   s.u64("sample_steps", c.dsmc.sample_steps);
   s.u64("blocks", c.dsmc.blocks);
   if (c.dsmc.max_particles) s.u64("max_particles", *c.dsmc.max_particles);
+  if (c.dsmc.dt_DSMCState_out) s.dbl("dt_DSMCState_out", *c.dsmc.dt_DSMCState_out);
   s.end();
 
   s.begin("statistics");

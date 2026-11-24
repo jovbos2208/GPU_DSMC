@@ -134,6 +134,10 @@ struct DSMCSection {
   std::uint64_t sample_steps = 1000;
   std::uint32_t blocks = 20;                  // blocks for the block-averaged standard error
   std::optional<std::uint64_t> max_particles; // unset: automatic
+  // Interval [s] of physical (simulated) time between two cell-state files
+  // (time-averaged macroscopic fields per cell, VTKHDF / HDF5, docs/dsmc.md
+  // section 10). Unset: no cell-state output.
+  std::optional<double> dt_DSMCState_out;
 };
 
 struct StatisticsSection {

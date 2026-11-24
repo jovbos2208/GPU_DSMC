@@ -34,6 +34,7 @@
 // the rounding of the sums over ranks.
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -207,6 +208,41 @@ struct DsmcProgress {
 };
 using DsmcProgressCallback = std::function<void(const DsmcProgress&)>;
 
+// Macroscopic state per grid cell, averaged over the time steps of one output
+// window (dsmc.dt_DSMCState_out, docs/dsmc.md section 10). All per-cell vectors
+// have grid.num_cells() entries, index c = ix + nx (iy + ny iz); velocities are
+// in the body frame. Solid cells (gas_fraction 0) and cells without particles
+// in the window have zero densities and NaN for the intensive quantities;
+// temperatures, pressure and Mach number need at least two particle samples
+// with a velocity spread in the window (NaN otherwise).
+struct DsmcCellState {
+  std::uint64_t index = 0;          // 0, 1, 2, ... (output number)
+  double time_s = 0.0;              // physical time at the end of the window
+  double window_s = 0.0;            // averaging window = steps * dt
+  std::uint64_t first_step = 0;     // first and last time step of the window (0-based)
+  std::uint64_t last_step = 0;
+  std::uint64_t steps = 0;
+  bool sampling = false;            // window ends in the sampling phase
+  DeviceGrid grid;
+  std::vector<std::string> species;
+  std::vector<double> gas_fraction;
+  std::vector<double> particles;               // mean simulator particles per cell
+  std::vector<double> number_density_m3;
+  std::vector<double> mass_density_kg_m3;
+  std::vector<Vec3> velocity_mps;              // mass-averaged (body frame)
+  std::vector<double> temperature_trans_K;
+  std::vector<double> temperature_rot_K;       // NaN without rotating molecules
+  std::vector<double> temperature_vib_K;       // NaN without vibrating molecules
+  std::vector<double> temperature_K;           // overall, (3 T_tr + z_rot T_rot + z_vib T_vib) / (3 + z_rot + z_vib)
+  std::vector<double> pressure_Pa;             // n k T_trans
+  std::vector<double> mach;
+  std::vector<double> mean_free_path_m;        // lambda_inf n_inf / n
+  std::vector<double> cell_size_over_lambda;   // largest cell edge / local mean free path
+  std::vector<double> collision_frequency_per_s;  // accepted collisions per molecule and second
+  std::vector<std::vector<double>> species_number_density_m3;  // [species][cell]
+};
+using DsmcStateCallback = std::function<void(const DsmcCellState&)>;
+
 class DsmcSimulation {
  public:
   DsmcSimulation(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
@@ -257,14 +293,31 @@ class DsmcSimulation {
   // Statistics of the sampling phase (collective with several ranks).
   DsmcResult result() const;
 
+  // Cell-state sampling (dsmc.dt_DSMCState_out): after enable, every step adds
+  // the particle moments of each cell; take_cell_state() returns the average
+  // over the steps since the previous call (or since enable) and resets it.
+  void enable_cell_state_sampling();
+  std::uint64_t cell_state_steps() const;
+  DsmcCellState take_cell_state();
+
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
 
 // Complete run: warm-up, sampling, statistics.
+// With cfg.dsmc.dt_DSMCState_out set and `on_state` given, the cell state is
+// averaged over windows of that physical time (whole run: warm-up and
+// sampling) and passed to `on_state` at the end of every window; a last,
+// shorter window ends with the run. Windows shorter than dt hold one step.
 DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
-                    const DsmcSettings& settings, const DsmcProgressCallback& progress = {});
+                    const DsmcSettings& settings, const DsmcProgressCallback& progress = {},
+                    const DsmcStateCallback& on_state = {});
+
+// Cell-state file: VTKHDF unstructured grid of the gas cells (gas_fraction > 0)
+// with all fields of `state` as cell data and TimeValue / Step as field data.
+// Requires HDF5 support (vtkhdf_available()).
+void write_dsmc_cell_state(const std::filesystem::path& path, const DsmcCellState& state);
 
 // Automatic cell size from the local mean free path (M5, open item of M3.17):
 // starting from the free-stream rule, short pilot runs with few particles per

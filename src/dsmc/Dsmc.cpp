@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
@@ -878,6 +879,44 @@ std::vector<int> split_planes(const std::vector<double>& w, int parts) {
   return b;
 }
 
+
+// Cell-state moments (dsmc.dt_DSMCState_out): one thread per cell sums its
+// particles in list order (deterministic, no atomics) and adds the sums to
+// the window accumulator. Columns: kCellMom global moments, then per species
+// (count, sum e_vib).
+inline constexpr int kCellN = 0, kCellM = 1, kCellMV = 2, kCellMV2 = 5, kCellErot = 6, kCellRotDof = 7,
+                     kCellColl = 8, kCellMom = 9;
+struct CellMoments {
+  ParticleStorage p;
+  Kokkos::View<const int*> offset, list;
+  Kokkos::View<const double*> mass;
+  Kokkos::View<const SpeciesModes*> modes;
+  Kokkos::View<const std::uint64_t*> acc;
+  Kokkos::View<double**, Kokkos::LayoutLeft> sum;
+  int nsp;
+  KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
+    double s[kCellMom + 2 * kMaxDsmcSpecies] = {};
+    for (int j = offset(c); j < offset(c + 1); ++j) {
+      const int i = list(j);
+      const auto sp = static_cast<int>(p.species(i));
+      const double m = mass(sp);
+      const Vec3 v = p.velocity(i);
+      s[kCellN] += 1.0;
+      s[kCellM] += m;
+      s[kCellMV + 0] += m * v.x;
+      s[kCellMV + 1] += m * v.y;
+      s[kCellMV + 2] += m * v.z;
+      s[kCellMV2] += m * norm2(v);
+      s[kCellErot] += p.e_rot(i);
+      s[kCellRotDof] += modes(sp).rot_dof;
+      s[kCellMom + 2 * sp] += 1.0;
+      s[kCellMom + 2 * sp + 1] += p.e_vib(i);
+    }
+    s[kCellColl] = static_cast<double>(acc(c));
+    for (int k = 0; k < kCellMom + 2 * nsp; ++k) sum(c, k) += s[k];
+  }
+};
+
 struct MaxSpeed {
   ParticleStorage p;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, double& m) const {
@@ -989,6 +1028,11 @@ struct DsmcSimulation::Impl {
   std::vector<double> species_count_sum, species_E_sum;
   std::vector<Vec3> species_P_sum;
   std::vector<std::uint64_t> species_injected;
+
+  // cell-state sampling (dsmc.dt_DSMCState_out)
+  bool state_sampling = false, last_sample = false;
+  std::uint64_t state_steps = 0, state_first_step = 0, state_index = 0;
+  Kokkos::View<double**, Kokkos::LayoutLeft> state_sum;
 
   DsmcCounters counters;
   std::array<std::vector<double>, kHistoryQuantities> series;
@@ -1524,6 +1568,15 @@ struct DsmcSimulation::Impl {
       collide();
     }
 
+    if (state_sampling) {
+      Profiler::Scope ps(prof, "dsmc.cell_state");
+      if (c_hi > c_lo)  // owned cells (several ranks: the other cells have no particles here)
+        Kokkos::parallel_for("vleo::dsmc_cell_state", IntPolicy(c_lo, c_hi),
+                             CellMoments{cur, offset, list, mass, modes, acc, state_sum, nsp});
+      ++state_steps;
+    }
+    last_sample = sample;
+
     if (sample) {
       Profiler::Scope ps(prof, "dsmc.sample");
       if (c_hi > c_lo)
@@ -1962,8 +2015,134 @@ DsmcResult DsmcSimulation::result() const {
   return r;
 }
 
+void DsmcSimulation::enable_cell_state_sampling() {
+  Impl& s = *impl_;
+  if (s.state_sampling) return;
+  s.state_sum = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_cell_state", s.grid.grid.num_cells(),
+                                                          kCellMom + 2 * s.nsp);
+  s.state_sampling = true;
+  s.state_steps = 0;
+  s.state_first_step = s.step_index;
+}
+
+std::uint64_t DsmcSimulation::cell_state_steps() const { return impl_->state_steps; }
+
+DsmcCellState DsmcSimulation::take_cell_state() {
+  Impl& s = *impl_;
+  if (!s.state_sampling) throw std::logic_error("take_cell_state: cell-state sampling is not enabled");
+  Kokkos::fence();
+  const auto h = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.state_sum);
+  // Several ranks: every cell has a single owner (zero elsewhere), so the sum is exact.
+  if (s.decomposed) comm::sum(h.data(), h.size());
+  const auto f = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), s.grid.gas_fraction);
+  const int nc = s.grid.grid.num_cells(), nsp = s.nsp;
+  const auto ncs = static_cast<std::size_t>(nc);
+  const double steps = static_cast<double>(s.state_steps);
+  const double dt = s.set.timestep_s, W = s.set.particle_weight, kB = constants::k_B;
+  const double v_cell = s.grid.grid.cell_volume();
+  const Vec3 cs = s.grid.grid.cell_size;
+  const double edge = std::max({cs.x, cs.y, cs.z});
+  const double n_inf = s.cfg.gas.number_density_m3, lambda_inf = s.set.lambda_inf_m;
+  const std::vector<SpeciesModes> modes = make_species_modes(s.cfg.gas);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+
+  DsmcCellState st;
+  st.index = s.state_index;
+  st.steps = s.state_steps;
+  st.first_step = s.state_first_step;
+  st.last_step = s.step_index > 0 ? s.step_index - 1 : 0;
+  st.time_s = static_cast<double>(s.step_index) * dt;
+  st.window_s = steps * dt;
+  st.sampling = s.last_sample;
+  st.grid = s.grid.grid;
+  for (const auto& sp : s.cfg.gas.species) st.species.push_back(sp.name);
+  auto vec = [&](double init) { return std::vector<double>(ncs, init); };
+  st.gas_fraction = vec(0.0);
+  st.particles = vec(0.0);
+  st.number_density_m3 = vec(0.0);
+  st.mass_density_kg_m3 = vec(0.0);
+  st.velocity_mps.assign(ncs, Vec3(nan, nan, nan));
+  st.temperature_trans_K = vec(nan);
+  st.temperature_rot_K = vec(nan);
+  st.temperature_vib_K = vec(nan);
+  st.temperature_K = vec(nan);
+  st.pressure_Pa = vec(0.0);
+  st.mach = vec(nan);
+  st.mean_free_path_m = vec(nan);
+  st.cell_size_over_lambda = vec(0.0);
+  st.collision_frequency_per_s = vec(nan);
+  st.species_number_density_m3.assign(static_cast<std::size_t>(nsp), vec(0.0));
+
+  for (int c = 0; c < nc; ++c) {
+    const auto u = static_cast<std::size_t>(c);
+    const double frac = f(c);
+    st.gas_fraction[u] = frac;
+    const double N = h(c, kCellN);
+    if (!(steps > 0.0) || !(frac > 0.0) || !(N > 0.0)) continue;
+    const double v_gas = frac * v_cell;
+    const double M = h(c, kCellM);
+    st.particles[u] = N / steps;
+    const double n = N / steps * W / v_gas;
+    st.number_density_m3[u] = n;
+    st.mass_density_kg_m3[u] = M / steps * W / v_gas;
+    for (int q = 0; q < nsp; ++q)
+      st.species_number_density_m3[static_cast<std::size_t>(q)][u] = h(c, kCellMom + 2 * q) / steps * W / v_gas;
+    const Vec3 mv(h(c, kCellMV), h(c, kCellMV + 1), h(c, kCellMV + 2));
+    const Vec3 vel = mv / M;
+    st.velocity_mps[u] = vel;
+    const double lambda = lambda_inf * n_inf / n;
+    st.mean_free_path_m[u] = lambda;
+    st.cell_size_over_lambda[u] = edge / lambda;
+    st.collision_frequency_per_s[u] = 2.0 * h(c, kCellColl) / (N * dt);
+    // Translational temperature from the second moment about the window mean
+    // velocity. It needs a velocity spread: with fewer than two samples, or
+    // samples of one molecule that did not collide (spread at round-off level),
+    // the temperature is undefined (NaN).
+    const double mv2 = h(c, kCellMV2);
+    const double spread = mv2 - M * norm2(vel);
+    if (N < 2.0 || !(spread > 1e-9 * mv2)) {
+      st.pressure_Pa[u] = nan;
+      continue;
+    }
+    const double t_tr = spread / (3.0 * kB * N);
+    st.temperature_trans_K[u] = t_tr;
+    st.pressure_Pa[u] = n * kB * t_tr;
+    const double rot_dof = h(c, kCellRotDof);
+    const double z_rot = rot_dof / N;
+    if (rot_dof > 0.0) st.temperature_rot_K[u] = 2.0 * h(c, kCellErot) / (kB * rot_dof);
+    // vibration: harmonic oscillator per species, T_v = theta_v / ln(1 + k theta_v / <e_vib>)
+    double nv = 0.0, tv_sum = 0.0, zv_t = 0.0, z_vib = 0.0;
+    for (int q = 0; q < nsp; ++q) {
+      const SpeciesModes& md = modes[static_cast<std::size_t>(q)];
+      const double nq = h(c, kCellMom + 2 * q);
+      if (!md.vib || !(nq > 0.0) || !(md.theta_v > 0.0)) continue;
+      const double e = h(c, kCellMom + 2 * q + 1) / nq;
+      const double tv = e > 0.0 ? md.theta_v / std::log1p(kB * md.theta_v / e) : 0.0;
+      const double x = tv > 0.0 ? md.theta_v / tv : 0.0;
+      const double zv = x > 0.0 ? 2.0 * x / std::expm1(x) : 0.0;
+      nv += nq;
+      tv_sum += nq * tv;
+      z_vib += nq / N * zv;
+      zv_t += nq / N * zv * tv;
+    }
+    if (nv > 0.0) st.temperature_vib_K[u] = tv_sum / nv;
+    const double t_rot = rot_dof > 0.0 ? st.temperature_rot_K[u] : 0.0;
+    st.temperature_K[u] = (3.0 * t_tr + z_rot * t_rot + zv_t) / (3.0 + z_rot + z_vib);
+    const double m_mean = M / N;
+    const double gamma = (5.0 + z_rot) / (3.0 + z_rot);
+    if (t_tr > 0.0) st.mach[u] = norm(vel) / std::sqrt(gamma * kB * t_tr / m_mean);
+  }
+
+  Kokkos::deep_copy(s.state_sum, 0.0);
+  s.state_steps = 0;
+  s.state_first_step = s.step_index;
+  ++s.state_index;
+  return st;
+}
+
 DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const InflowModel& inflow,
-                    const DsmcSettings& settings, const DsmcProgressCallback& progress) {
+                    const DsmcSettings& settings, const DsmcProgressCallback& progress,
+                    const DsmcStateCallback& on_state) {
   const auto t0 = std::chrono::steady_clock::now();
   const bool profile = settings.profile || profiling_requested_by_environment();
   auto lap = [profile, last = t0]() mutable {  // fenced interval since the previous lap (profiling only)
@@ -1980,10 +2159,24 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   sim.record_phase("run.fill", lap());
   const std::uint64_t total = settings.warmup_steps + settings.sample_steps;
   const std::uint64_t report = std::max<std::uint64_t>(1, total / 100);  // progress every 1 % (simulation.out)
+  const bool states = on_state && cfg.dsmc.dt_DSMCState_out.has_value();
+  const double interval = states ? *cfg.dsmc.dt_DSMCState_out : 0.0;
+  std::uint64_t windows_done = 0;
+  if (states) sim.enable_cell_state_sampling();
   for (std::uint64_t k = 0; k < total; ++k) {
     const bool sample = k >= settings.warmup_steps;
     sim.step(sample);
     if (k + 1 == settings.warmup_steps && settings.load_balance) sim.rebalance();
+    if (states) {
+      // window m ends with the first step whose end time reaches (m + 1) * interval
+      const double t_end = static_cast<double>(k + 1) * settings.timestep_s;
+      const double t_next = static_cast<double>(windows_done + 1) * interval;
+      if (t_end >= t_next * (1.0 - 1e-12) || k + 1 == total) {
+        DsmcCellState st = sim.take_cell_state();  // collective with several ranks
+        if (comm::root()) on_state(st);
+        windows_done = static_cast<std::uint64_t>(std::floor(t_end / interval * (1.0 + 1e-12)));
+      }
+    }
     // report steps are the same on every rank (num_particles() is collective)
     if ((k + 1) % report == 0 || k + 1 == total) {
       const std::size_t np = progress || comm::size() > 1 ? sim.num_particles() : 0;
@@ -2020,6 +2213,7 @@ DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geom
   pc.dsmc.sample_steps = options.sample_steps;
   pc.dsmc.blocks = std::min<std::uint32_t>(cfg.dsmc.blocks, 10);
   pc.output.save_surface_fields = false;
+  pc.dsmc.dt_DSMCState_out.reset();
 
   double dx = settings.cell_size_m;
   double lambda_min = settings.lambda_inf_m;

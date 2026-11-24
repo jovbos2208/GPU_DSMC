@@ -384,3 +384,113 @@ TEST_CASE("Block averaging of correlated series", "[statistics]") {
   CHECK(w.tau_int < 0.6);
   CHECK_THAT(w.std_error_blocks, WithinRel(w.std_error_naive, 0.5));
 }
+
+TEST_CASE("Cell state: time-averaged fields of an equilibrium gas", "[dsmc][physics]") {
+  const double n = 1e21, T = 300.0;
+  Case c = argon_box(n, T, 50);
+  DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  s.boundary = DsmcBoundary::Specular;
+  s.timestep_s = 0.1 * s.tau_inf_s;
+  DsmcSimulation sim(c.cfg, c.geometry, c.inflow, s);
+  sim.fill_freestream();
+  for (int k = 0; k < 20; ++k) sim.step(false);  // (sigma g)_max bounds settle
+  sim.enable_cell_state_sampling();
+  const int steps = 200;
+  for (int k = 0; k < steps; ++k) sim.step(true);
+  REQUIRE(sim.cell_state_steps() == static_cast<std::uint64_t>(steps));
+  const DsmcCellState st = sim.take_cell_state();
+  CHECK(sim.cell_state_steps() == 0);
+  CHECK(st.index == 0);
+  CHECK(st.steps == static_cast<std::uint64_t>(steps));
+  CHECK(st.first_step == 20);
+  CHECK(st.last_step == static_cast<std::uint64_t>(20 + steps - 1));
+  CHECK_THAT(st.time_s, WithinRel((20.0 + steps) * s.timestep_s, 1e-12));
+  CHECK_THAT(st.window_s, WithinRel(steps * s.timestep_s, 1e-12));
+  CHECK(st.sampling);
+  const auto nc = static_cast<std::size_t>(st.grid.num_cells());
+  REQUIRE(nc == 64);
+  REQUIRE(st.number_density_m3.size() == nc);
+
+  // Closed box: the molecules in all cells add up exactly to N W.
+  const double v_cell = st.grid.cell_volume();
+  double molecules = 0.0, sum_p = 0.0, sum_pt = 0.0, sum_pnu = 0.0;
+  Vec3 sum_pu;
+  for (std::size_t k = 0; k < nc; ++k) {
+    molecules += st.number_density_m3[k] * st.gas_fraction[k] * v_cell;
+    const double p = st.particles[k];
+    if (!(p > 0.0)) continue;
+    sum_p += p;
+    sum_pt += p * st.temperature_trans_K[k];
+    sum_pu += p * st.velocity_mps[k];
+    sum_pnu += p * st.collision_frequency_per_s[k];
+    CHECK_THAT(st.pressure_Pa[k], WithinRel(st.number_density_m3[k] * constants::k_B * st.temperature_trans_K[k], 1e-12));
+    CHECK_THAT(st.temperature_K[k], WithinRel(st.temperature_trans_K[k], 1e-12));  // atoms: no internal modes
+    CHECK(std::isnan(st.temperature_rot_K[k]));
+    CHECK(std::isnan(st.temperature_vib_K[k]));
+    CHECK(st.mach[k] < 0.3);
+    CHECK_THAT(st.mean_free_path_m[k], WithinRel(s.lambda_inf_m * n / st.number_density_m3[k], 1e-12));
+  }
+  CHECK_THAT(molecules, WithinRel(static_cast<double>(sim.num_particles()) * s.particle_weight, 1e-12));
+  CHECK_THAT(sum_p, WithinRel(static_cast<double>(sim.num_particles()), 1e-12));
+  // Averages over the box: the temperature of the simulated gas (the closed box
+  // conserves the energy of the initial fill, whose 3200 molecules deviate
+  // from T by ~1.4 % rms), gas at rest, collision frequency 1 / tau.
+  const std::vector<Vec3> v = sim.velocities();
+  Vec3 v_mean;
+  for (const Vec3& x : v) v_mean += x;
+  v_mean = v_mean / static_cast<double>(v.size());
+  double spread = 0.0;
+  for (const Vec3& x : v) spread += norm2(x - v_mean);
+  const double m_ar = find_species("Ar")->mass_kg;
+  const double t_gas = m_ar * spread / (3.0 * constants::k_B * static_cast<double>(v.size()));
+  CHECK_THAT(t_gas, WithinRel(T, 0.06));
+  CHECK_THAT(sum_pt / sum_p, WithinRel(t_gas, 0.01));
+  const double c_thermal = std::sqrt(constants::k_B * T / m_ar);
+  CHECK(norm(sum_pu / sum_p) < 0.05 * c_thermal);
+  CHECK_THAT(sum_pnu / sum_p, WithinRel(1.0 / s.tau_inf_s, 0.05));
+
+  // The next window starts empty.
+  for (int k = 0; k < 3; ++k) sim.step(true);
+  const DsmcCellState st2 = sim.take_cell_state();
+  CHECK(st2.index == 1);
+  CHECK(st2.steps == 3);
+  CHECK(st2.first_step == static_cast<std::uint64_t>(20 + steps));
+}
+
+TEST_CASE("Cell-state windows of run_dsmc follow dsmc.dt_DSMCState_out", "[dsmc]") {
+  Case c = argon_box(1e21, 300.0, 5);
+  DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  s.boundary = DsmcBoundary::Specular;
+  s.warmup_steps = 5;
+  s.sample_steps = 20;
+  s.blocks = 4;
+  const double dt = s.timestep_s;
+  auto run = [&](double interval) {
+    c.cfg.dsmc.dt_DSMCState_out = interval;
+    std::vector<DsmcCellState> out;
+    run_dsmc(c.cfg, c.geometry, c.inflow, s, {}, [&](const DsmcCellState& st) { out.push_back(st); });
+    return out;
+  };
+  // windows end at steps 8, 15, 23 (first step reaching m * 7.5 dt) and at the end of the run (25)
+  const std::vector<DsmcCellState> a = run(7.5 * dt);
+  REQUIRE(a.size() == 4);
+  const std::uint64_t expected_steps[] = {8, 7, 8, 2};
+  std::uint64_t total = 0;
+  for (std::size_t k = 0; k < a.size(); ++k) {
+    INFO("window " << k);
+    CHECK(a[k].index == k);
+    CHECK(a[k].steps == expected_steps[k]);
+    CHECK(a[k].first_step == total);
+    total += a[k].steps;
+    CHECK_THAT(a[k].time_s, WithinRel(static_cast<double>(total) * dt, 1e-12));
+    CHECK(a[k].sampling == (a[k].last_step >= s.warmup_steps));
+  }
+  CHECK(total == 25);
+  // an interval below the time step gives one window per step
+  CHECK(run(0.4 * dt).size() == 25);
+  // without a callback, or without the option, nothing is sampled
+  c.cfg.dsmc.dt_DSMCState_out.reset();
+  int calls = 0;
+  run_dsmc(c.cfg, c.geometry, c.inflow, s, {}, [&](const DsmcCellState&) { ++calls; });
+  CHECK(calls == 0);
+}

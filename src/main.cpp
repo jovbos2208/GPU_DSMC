@@ -15,6 +15,7 @@
 
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -35,8 +36,10 @@
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/io/ConfigParser.hpp"
 #include "vleo/io/ConfigWriter.hpp"
+#include "vleo/io/JsonWriter.hpp"
 #include "vleo/io/PlatformConfig.hpp"
 #include "vleo/io/RunMetadata.hpp"
+#include "vleo/io/VtkHdf.hpp"
 #include "vleo/particles/Inflow.hpp"
 #include "vleo/dsmc/DsmcResults.hpp"
 #include "vleo/tpmc/Results.hpp"
@@ -398,6 +401,12 @@ int prepare_case(const Options& opt, const CaseInput& in, GeometryCache& cache, 
     std::cerr << "error: " << ctx << "output.format: hdf5 is not available in this build (use json or csv)\n";
     return kExitConfigError;
   }
+  const bool write_states = cfg.simulation.mode == vleo::SolverMode::DSMC && cfg.dsmc.dt_DSMCState_out.has_value();
+  if (write_states && !vleo::vtkhdf_available()) {
+    std::cerr << "error: dsmc.dt_DSMCState_out: HDF5 output is not available in this build "
+                 "(install the HDF5 C library and configure with -DVLEO_HDF5=ON)\n";
+    return kExitConfigError;
+  }
   if (opt.histories > 0) cfg.tpmc.particle_histories = opt.histories;
   if (opt.sample_steps) {
     if (*opt.sample_steps < 2 || *opt.sample_steps < cfg.dsmc.blocks) {
@@ -452,6 +461,10 @@ int run_case(const Options& opt, PreparedCase& pc, const std::optional<vleo::Pla
 
   // --- Solver ----------------------------------------------------------------
   const bool dsmc = cfg.simulation.mode == vleo::SolverMode::DSMC;
+  const bool write_states = dsmc && cfg.dsmc.dt_DSMCState_out.has_value();
+  const fs::path state_dir = out_dir / "dsmc_state";
+  const fs::path state_series = state_dir / "dsmc_state.vtkhdf.series";
+  std::vector<std::pair<std::string, double>> state_files;  // (file name, physical time)
   vleo::TpmcResult result;
   vleo::DsmcResult dresult;
   if (self_test_ok && dsmc) {
@@ -494,9 +507,46 @@ int run_case(const Options& opt, PreparedCase& pc, const std::optional<vleo::Pla
                 << " m, warm-up " << dsmc_settings.warmup_steps << " + sampling " << dsmc_settings.sample_steps
                 << " steps\n";
     }
+    vleo::DsmcStateCallback on_state;
+    if (write_states) {
+      if (*cfg.dsmc.dt_DSMCState_out < dsmc_settings.timestep_s) {
+        const std::string w = "dsmc.dt_DSMCState_out is shorter than the time step; a cell-state file is written "
+                              "every step";
+        notes.push_back("dsmc: " + w);
+        std::cerr << "warning: dsmc: " << w << "\n";
+      }
+      on_state = [&](const vleo::DsmcCellState& st) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "dsmc_state_%06llu.vtkhdf", static_cast<unsigned long long>(st.index));
+        fs::create_directories(state_dir);
+        vleo::write_dsmc_cell_state(state_dir / name, st);
+        state_files.emplace_back(name, st.time_s);
+        // ParaView file series (physical times); rewritten after every file so
+        // that a running or aborted simulation can be inspected.
+        vleo::JsonWriter w;
+        w.begin_object();
+        w.key("file-series-version").value("1.0");
+        w.key("files").begin_array();
+        for (const auto& [f, t] : state_files) {
+          w.begin_object();
+          w.key("name").value(f);
+          w.key("time").value(t);
+          w.end_object();
+        }
+        w.end_array();
+        w.end_object();
+        write_text_file(state_series, w.str());
+        if (g_log)
+          g_log->message("note", std::string("cell state ") + name + " written (t = " + std::to_string(st.time_s) +
+                                     " s, " + std::to_string(st.steps) + " steps averaged)");
+        if (!opt.quiet)
+          std::cerr << "  dsmc: cell state " << name << " (t = " << st.time_s << " s, averaged over " << st.steps
+                    << " steps)\n";
+      };
+    }
     try {
       dsmc_settings.profile = opt.profile;
-      dresult = vleo::run_dsmc(cfg, geometry, inflow, dsmc_settings, progress);
+      dresult = vleo::run_dsmc(cfg, geometry, inflow, dsmc_settings, progress, on_state);
       dresult.pilot = pilot;
       if (pilot.limited_by_max_cells)
         dresult.warnings.push_back("automatic cell size limited by the maximum cell count; the grid does not resolve "
@@ -567,6 +617,10 @@ int run_case(const Options& opt, PreparedCase& pc, const std::optional<vleo::Pla
         files.push_back(f_surface.filename().string());
       }
       files.push_back(f_results.filename().string());
+    }
+    if (!state_files.empty()) {
+      files.push_back((fs::path("dsmc_state") / state_series.filename()).string());
+      for (const auto& [f, t] : state_files) files.push_back((fs::path("dsmc_state") / f).string());
     }
 
     vleo::RunMetadataInput meta;

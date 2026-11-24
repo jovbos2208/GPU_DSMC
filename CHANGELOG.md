@@ -7,6 +7,17 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- DSMC cell-state output `dsmc.dt_DSMCState_out` (seconds of simulated time):
+  per-cell averages over each output window – number and mass density,
+  velocity, translational / rotational / vibrational / overall temperature,
+  pressure, Mach number, local mean free path, cell size / λ, collision
+  frequency, particles per cell, species densities – written as VTKHDF
+  (HDF5, unstructured hexahedral grid of the gas cells) to
+  `dsmc_state/dsmc_state_NNNNNN.vtkhdf` with a ParaView file series
+  (`dsmc_state.vtkhdf.series`). `scripts/vtkhdf_to_vtu.py` converts to
+  `.vtu` + `.pvd`. Optional HDF5 dependency (`VLEO_HDF5=AUTO|ON|OFF`);
+  docs/dsmc.md §10. DSMC results are unchanged (sampling only reads the
+  particles).
 - `--batch <file>`: several cases in one process (Kokkos, self-test and geometries
   set up once; results identical to separate runs) and `--skip-existing` to
   resume. `results.json` is now written last and marks a finished case.

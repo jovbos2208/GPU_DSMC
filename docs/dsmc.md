@@ -251,7 +251,94 @@ when comparing with SPARTA (M4.10).
 `statistics` block (warm-up and sampled steps, blocks, block length, τ_int,
 naive SE for comparison) and `diagnostics` (section 5, collision statistics,
 grid report, particle balance). CLI overrides: `--warmup-steps N`,
-`--sample-steps N`.
+`--sample-steps N`. Flow fields per cell (density, velocity, temperatures,
+…) over time: `dsmc.dt_DSMCState_out`, section 10.
+
+## 10. Cell-state output for ParaView (`dsmc.dt_DSMCState_out`)
+
+With `dsmc.dt_DSMCState_out: Δt_out` (seconds of simulated time) the solver
+writes the macroscopic flow field per grid cell:
+
+```yaml
+dsmc:
+  dt_DSMCState_out: 2.0e-5   # one file per 2e-5 s of simulated time
+```
+
+**Averaging.** Every time step adds the particle moments of each cell to a
+window accumulator (kernel `vleo::dsmc_cell_state`, one thread per cell over
+the id-sorted cell list: deterministic, no atomics). A window ends with the
+first step whose end time reaches the next multiple of Δt_out; its average is
+written and the accumulator restarts. Windows cover the whole run, warm-up
+included (field `SamplingPhase` tells which phase a window ended in); the run
+end closes a last, shorter window. If Δt_out < Δt, every step is one window
+(warning). Single-step snapshots are very noisy with few particles per cell –
+choose Δt_out as long as the time resolution you need allows.
+
+**Fields** (cell data, SI units, velocities in the body frame):
+
+| Name | Definition (sums over the samples of the window, N samples, S steps) |
+| ---- | ------------------------------------------------------------------- |
+| `number_density_m3` | n = (N/S) W / (f V_cell), f = gas fraction |
+| `mass_density_kg_m3` | ρ = (Σm/S) W / (f V_cell) |
+| `velocity_mps` | u = Σ m v / Σ m (mass average) |
+| `temperature_trans_K` | T_tr = (Σ m v² − Σm \|u\|²) / (3 k N) |
+| `temperature_rot_K` | T_rot = 2 Σ e_rot / (k Σ ζ_rot) (NaN without molecules) |
+| `temperature_vib_K` | per species θ_v / ln(1 + k θ_v / ⟨e_vib⟩) (harmonic oscillator), number-weighted over the vibrating species (NaN without) |
+| `temperature_K` | (3 T_tr + ζ_rot T_rot + Σ_s x_s ζ_v,s T_v,s) / (3 + ζ_rot + Σ_s x_s ζ_v,s), ζ_v = 2 (θ_v/T_v)/(exp(θ_v/T_v) − 1) |
+| `pressure_Pa` | n k T_tr |
+| `mach` | \|u\| / √(γ k T_tr / m̄), γ = (5 + ζ_rot)/(3 + ζ_rot) |
+| `mean_free_path_m` | λ∞ n∞ / n (as in the resolution diagnostics) |
+| `cell_size_over_lambda` | largest cell edge / local λ (should stay ≲ 1) |
+| `collision_frequency_per_s` | 2 · accepted collisions / (N Δt) per molecule |
+| `particles_per_cell` | N / S simulator particles |
+| `gas_fraction` | f (cut cells < 1) |
+| `number_density_<species>_m3` | per species (mixtures only) |
+| `cell_index` | c = ix + nx (iy + ny iz) of the DSMC grid |
+
+Cells without particles in the window have n = 0 and NaN for the intensive
+quantities. Temperatures, pressure and Mach number also stay NaN when the
+window has fewer than two samples or no velocity spread (one molecule seen in
+several steps without a collision): one sample carries no temperature. The
+temperature is measured about the window-mean velocity of the same samples,
+which lowers it by about 1/(number of distinct molecules in the window); with
+the usual ≥ 10 particles per cell and molecules passing through the cell this
+is below the statistical noise.
+
+Field data: `TimeValue` (end of the window, s), `AveragingWindow_s`,
+`FirstStep`, `LastStep`, `SamplingPhase` (0/1).
+
+**Files.** `<output-dir>/dsmc_state/dsmc_state_NNNNNN.vtkhdf`, one per window,
+plus `dsmc_state.vtkhdf.series` (JSON file series with the physical times,
+rewritten after every file, so a running simulation can already be opened).
+Each file is an HDF5 file in the VTKHDF 1.0 layout, type `UnstructuredGrid`
+– the data model of a `.vtu` file: hexahedra of the gas cells (f > 0; solid
+cells inside the body are left out), lattice points of the whole grid, large
+datasets deflate-compressed. Inspect with `h5dump -H` or `h5ls -r`.
+
+**ParaView.** Open `dsmc_state.vtkhdf.series` (ParaView ≥ 5.11, VTKHDF
+reader): the files appear as one time series with the simulated time.
+Typical pipeline: *Slice* or *Threshold* on `number_density_m3`, colour by
+`mach` or `temperature_K`, *Glyph* on `velocity_mps`; load the STL as well to
+see the body. For older ParaView versions, or tools that need `.vtu`:
+
+```bash
+scripts/vtkhdf_to_vtu.py results/run/dsmc_state/dsmc_state.vtkhdf.series
+# -> dsmc_state_NNNNNN.vtu + dsmc_state.pvd (time series), needs numpy + h5py
+```
+
+**Build.** The output needs the HDF5 C library (CMake option `VLEO_HDF5`:
+`AUTO` default – used if found, `ON` – required, `OFF`). Ubuntu/Debian:
+`apt install libhdf5-dev`. Without HDF5 a configuration with
+`dt_DSMCState_out` is rejected at start-up (`--check` included).
+
+**Verification** (`test_dsmc`, `test_vtkhdf`, smoke tests): in a closed
+equilibrium box the cell molecules add up exactly to N W, the box-averaged
+temperature matches the temperature of the simulated gas within 1 %, the gas
+is at rest, the collision frequency equals 1/τ∞ within 5 %, p = n k T_tr
+exactly; window boundaries for intervals above and below Δt; the VTKHDF
+layout is read back value by value with the HDF5 API; the solver writes the
+expected files and series. The files were also read with VTK 9.7
+(`vtkHDFReader`), and the `.vtu` conversion gives identical cell data.
 
 ## 8. Recorded study results
 
