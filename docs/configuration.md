@@ -133,9 +133,10 @@ Material files cannot reference other material files.
 | `sample_steps` | uint64 | 1000 | ≥ 2; sampled steps |
 | `blocks` | uint32 | 20 | 2 … 100000, ≤ `sample_steps`; blocks for the block-averaged SE |
 | `max_particles` | uint64 | automatic | hard limit of the particle arrays |
+| `dt_DSMCState_out` | real | – (off) | > 0 [s]; interval of simulated time between cell-state files: time-averaged density, velocity, temperatures, pressure, Mach number, … per grid cell as VTKHDF (HDF5) files for ParaView ([dsmc.md](dsmc.md) §10). Needs a build with HDF5 (`VLEO_HDF5`), otherwise the configuration is rejected |
 
 The automatic rules are in [dsmc.md](dsmc.md) §3; mixtures and internal
-energy in §9.
+energy in §9; cell-state output in §10.
 
 ### `statistics` (O)
 

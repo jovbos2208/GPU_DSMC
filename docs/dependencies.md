@@ -9,6 +9,12 @@ at configure time.
 | Kokkos     | 5.2.2            | Performance portability: Serial/OpenMP, CUDA, HIP | all targets |
 | yaml-cpp   | 0.9.0            | Parsing configuration files               | `vleo_io` (private) |
 | Catch2     | 3.8.1            | Unit/physics test framework               | tests only         |
+| HDF5 (C)   | system, ≥ 1.10, optional | DSMC cell-state files (VTKHDF), `dsmc.dt_DSMCState_out` | `vleo_io` (private), `test_vtkhdf` |
+
+HDF5 is the only dependency that is not vendored: it is taken from the system
+(`find_package(HDF5 COMPONENTS C)`, CMake option `VLEO_HDF5=AUTO|ON|OFF`,
+default `AUTO`). Builds without it reject `dsmc.dt_DSMCState_out`; everything
+else is unaffected. Verified with HDF5 1.10.10 (Ubuntu 24.04 `libhdf5-dev`).
 
 Exact upstream commits and licenses: [`third_party/VERSIONS.md`](../third_party/VERSIONS.md).
 

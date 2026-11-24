@@ -16,8 +16,11 @@ by Kokkos; a configuration file cannot switch it.
 
 Requirements: CMake ≥ 3.27, a C++20 compiler (GCC ≥ 10.4, Clang ≥ 14), for CUDA
 NVCC ≥ 12.2, for HIP ROCm ≥ 6.2 (minimums of Kokkos 5.2.2, see
-[dependencies.md](dependencies.md)). All libraries are vendored; no network
-access is needed.
+[dependencies.md](dependencies.md)). All required libraries are vendored; no
+network access is needed. Optional: the HDF5 C library for the DSMC
+cell-state output (`dsmc.dt_DSMCState_out`, [dsmc.md](dsmc.md) §10), found
+automatically (`-DVLEO_HDF5=AUTO|ON|OFF`; Ubuntu: `apt install libhdf5-dev`).
+The configure step prints `VLEO: HDF5 output ON|OFF`.
 
 ## Commands
 

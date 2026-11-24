@@ -30,6 +30,7 @@ include(VleoThirdParty)
 # ---------------------------------------------------------------------------
 include(VleoWarnings)
 include(VleoBackend)   # derives VLEO_BACKEND (cpu | cuda | hip) from Kokkos
+include(VleoHdf5)     # optional HDF5 for the DSMC cell-state output (VLEO_HAVE_HDF5)
 
 if(VLEO_BUILD_TESTS)
   enable_testing()

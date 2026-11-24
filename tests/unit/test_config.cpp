@@ -567,8 +567,12 @@ TEST_CASE("DSMC options and scope", "[config]") {
   CHECK(mix.gas.species.size() == 3);  // DSMC mixtures since M4.2
   const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
   const SimulationConfig c = parse_simulation_config(
-      he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n", kData);
+      he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n"
+           "  dt_DSMCState_out: 2.5e-5\n",
+      kData);
   CHECK(*c.dsmc.warmup_steps == 50);
+  REQUIRE(c.dsmc.dt_DSMCState_out.has_value());
+  CHECK(*c.dsmc.dt_DSMCState_out == 2.5e-5);
   CHECK(c.dsmc.sample_steps == 400);
   CHECK(c.dsmc.blocks == 10);
   CHECK(*c.dsmc.max_particles == 1000000);
@@ -578,6 +582,7 @@ TEST_CASE("DSMC options and scope", "[config]") {
   CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
   const SimulationConfig d = parse_simulation_config(he, kData);
   CHECK(!d.dsmc.warmup_steps);  // automatic
+  CHECK(!d.dsmc.dt_DSMCState_out);  // no cell-state output by default
   CHECK(d.dsmc.sample_steps == 1000);
   CHECK(d.dsmc.blocks == 20);
   // TPMC keeps accepting mixtures and species without VHS data.
@@ -593,6 +598,10 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
       {"dsmc:\n  sample_steps: 10\n  blocks: 20\n", "dsmc.blocks: must not exceed dsmc.sample_steps"},
       {"dsmc:\n  max_particles: 0\n", "dsmc.max_particles: must be at least 1"},
       {"dsmc:\n  warmup_steps: -3\n", "dsmc.warmup_steps: expected a non-negative integer"},
+      {"dsmc:\n  dt_DSMCState_out: 0\n", "dsmc.dt_DSMCState_out: value 0 is outside"},
+      {"dsmc:\n  dt_DSMCState_out: -1e-5\n", "dsmc.dt_DSMCState_out: value -1e-05 is outside"},
+      {"dsmc:\n  dt_DSMCState_out: often\n", "dsmc.dt_DSMCState_out: expected a finite real number"},
+      {"dsmc:\n  dt_dsmcstate_out: 1e-5\n", "dsmc.dt_dsmcstate_out: unknown key"},
   }));
   INFO(needle);
   expect_invalid(he + extra, needle);

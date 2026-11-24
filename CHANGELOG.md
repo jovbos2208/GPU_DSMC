@@ -6,6 +6,19 @@ scheme in [docs/development.md](docs/development.md#versioning).
 
 ## [Unreleased]
 
+### Added
+- DSMC cell-state output `dsmc.dt_DSMCState_out` (seconds of simulated time):
+  per-cell averages over each output window – number and mass density,
+  velocity, translational / rotational / vibrational / overall temperature,
+  pressure, Mach number, local mean free path, cell size / λ, collision
+  frequency, particles per cell, species densities – written as VTKHDF
+  (HDF5, unstructured hexahedral grid of the gas cells) to
+  `dsmc_state/dsmc_state_NNNNNN.vtkhdf` with a ParaView file series
+  (`dsmc_state.vtkhdf.series`). `scripts/vtkhdf_to_vtu.py` converts to
+  `.vtu` + `.pvd`. Optional HDF5 dependency (`VLEO_HDF5=AUTO|ON|OFF`);
+  docs/dsmc.md §10. DSMC results are unchanged (sampling only reads the
+  particles).
+
 ### Changed
 - DSMC cell sort on GPU backends: parallel rank sort (one thread per particle)
   instead of a serial insertion sort per cell, which dominated the time step

@@ -330,7 +330,8 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   if (!n.IsDefined()) return;
   if (!check_map(n, p,
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
-                  "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles"},
+                  "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles",
+                  "dt_DSMCState_out"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
@@ -367,6 +368,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
     else
       out.max_particles = *v;
   }
+  if (auto v = get_double_in(n, "dt_DSMCState_out", p, is, Need::Optional, kPositive)) out.dt_DSMCState_out = *v;
   if (out.blocks > out.sample_steps) is.add(p + ".blocks", "must not exceed dsmc.sample_steps");
 }
 

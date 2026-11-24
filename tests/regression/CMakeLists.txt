@@ -133,3 +133,21 @@ if(Python3_FOUND AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     COMMAND ${Python3_EXECUTABLE} "${PROJECT_SOURCE_DIR}/scripts/check_examples.py" $<TARGET_FILE:vleo_solver>)
   set_tests_properties(examples_fixed_seeds PROPERTIES LABELS "examples;smoke" TIMEOUT 1200)
 endif()
+
+# 11. DSMC cell-state output (dsmc.dt_DSMCState_out): VTKHDF files and the
+#     ParaView series file with HDF5; a clear configuration error without.
+if(VLEO_HAVE_HDF5)
+  add_test(NAME smoke_dsmc_state_run
+    COMMAND vleo_solver --config "${CMAKE_CURRENT_SOURCE_DIR}/dsmc_state.yaml" --quiet
+                        --output-dir "${CMAKE_CURRENT_BINARY_DIR}/dsmc_state_out")
+  set_tests_properties(smoke_dsmc_state_run PROPERTIES FIXTURES_SETUP dsmc_state LABELS smoke TIMEOUT ${_t300})
+  add_test(NAME smoke_dsmc_state_files
+    COMMAND ${CMAKE_COMMAND} -DOUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/dsmc_state_out
+                             -P "${CMAKE_CURRENT_SOURCE_DIR}/check_dsmc_state.cmake")
+  set_tests_properties(smoke_dsmc_state_files PROPERTIES FIXTURES_REQUIRED dsmc_state LABELS smoke)
+else()
+  add_test(NAME smoke_dsmc_state_rejected_without_hdf5
+    COMMAND vleo_solver --check --config "${CMAKE_CURRENT_SOURCE_DIR}/dsmc_state.yaml")
+  set_tests_properties(smoke_dsmc_state_rejected_without_hdf5 PROPERTIES
+    PASS_REGULAR_EXPRESSION "dsmc.dt_DSMCState_out: HDF5 output is not available" LABELS smoke)
+endif()
