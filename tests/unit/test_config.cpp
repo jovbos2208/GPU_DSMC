@@ -590,7 +590,7 @@ TEST_CASE("DSMC options and scope", "[config]") {
   CHECK(!d.dsmc.warmup_steps);  // automatic
   CHECK(!d.dsmc.dt_DSMCState_out);  // no cell-state output by default
   CHECK(d.dsmc.boundary == DomainBoundary::Open);
-  CHECK(d.dsmc.reorder_interval == 10);
+  CHECK(d.dsmc.reorder_interval == 20);
   CHECK(to_resolved_yaml(d).find("boundary") == std::string::npos);
   CHECK(d.dsmc.sample_steps == 1000);
   CHECK(d.dsmc.blocks == 20);

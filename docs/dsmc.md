@@ -163,9 +163,10 @@ Per cell with N particles and collision volume V_eff:
   appends ascending ids, compaction keeps the order), and the random streams
   are keyed by particle id (move) and by cell and candidate (collisions), so
   the physics is bitwise unchanged (`test_dsmc`); only the per-step force
-  sums are added in another order (round-off). Default n = 10 (W7700: 5–20
+  sums are added in another order (round-off). Default n = 20 (W7700: 5–20
   steps equally good; GOCE 244 km 73.1 → 48 ms per step, also the move gets
-  faster through coherent geometry access); 0 switches it off;
+  faster through coherent geometry access; RTX 4070 Ti SUPER: 20 is 2.4 %
+  faster than 10, the copy weighs more there); 0 switches it off;
 - post-collision velocities: v_cm is kept, g' = |g| · (isotropic unit vector),
   v_p' = v_cm + m_q/(m_p+m_q) g', v_q' = v_cm − m_p/(m_p+m_q) g'.
 - diagnostics: candidates, accepted, rejected, bound updates, acceptance ratio

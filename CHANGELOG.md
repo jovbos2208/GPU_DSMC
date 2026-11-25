@@ -7,7 +7,7 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
-- `dsmc.reorder_interval: n` (default 10): particles copied into cell order
+- `dsmc.reorder_interval: n` (default 20; RTX 4070 Ti SUPER 2.4 % faster than 10): particles copied into cell order
   every n steps (contiguous memory for binning, collisions, cell moments, and
   coherent geometry access in the move); cell lists then sorted by particle id;
   physics bitwise unchanged, force sums differ by round-off from the summation

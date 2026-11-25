@@ -98,7 +98,7 @@ void walk(const SimulationConfig& c, Sink& s) {
   if (c.dsmc.collision_kernel != CollisionKernelMode::Automatic)
     s.str("collision_kernel", to_string(c.dsmc.collision_kernel));
   if (c.dsmc.collision_team_size != 32) s.u64("collision_team_size", c.dsmc.collision_team_size);
-  if (c.dsmc.reorder_interval != 10) s.u64("reorder_interval", c.dsmc.reorder_interval);
+  if (c.dsmc.reorder_interval != 20) s.u64("reorder_interval", c.dsmc.reorder_interval);
   s.end();
 
   s.begin("statistics");

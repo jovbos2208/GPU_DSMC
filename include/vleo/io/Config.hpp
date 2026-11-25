@@ -156,8 +156,9 @@ struct DSMCSection {
   CollisionKernelMode collision_kernel = CollisionKernelMode::Automatic;
   std::uint32_t collision_team_size = 32;  // threads per cell of the waves kernel (8, 16, 32, 64)
   // Steps between reorders of the particle arrays into cell order (0: never).
-  // W7700: 5-20 steps equally good (GOCE 244 km step -34 %), 10 as default.
-  std::uint64_t reorder_interval = 10;
+  // W7700: 5-20 steps equally good (GOCE 244 km step -34 %); RTX 4070 Ti SUPER: 20 is
+  // 2.4 % faster than 10 (the copy weighs more there), 40 another 2.3 %. Default 20.
+  std::uint64_t reorder_interval = 20;
 };
 
 struct StatisticsSection {

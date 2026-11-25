@@ -298,7 +298,7 @@ timeline (kernel sums agree within 0.1 %).
 | 0 | start (waves collisions, moments every step) | 104 | 75.5 |
 | 1 | `collision_kernel: hybrid` (GPU default): per-cell for cells with ≤ 256 candidates | 60.6 | 68.4 |
 | 2 | cell-moments kernel without species-indexed array | (incl. in 1) | (incl. in 1) |
-| 3 | `reorder_interval: 10` (default): particles in cell order | 49.4 | 48.0 |
+| 3 | `reorder_interval: 10` (then the default; now 20): particles in cell order | 49.4 | 48.0 |
 | 4 | + `state_sample_every: 5` (config) | 42.9 | 42.2 |
 
 Collision kernels at 4–5 candidates per cell (`compare_collision_kernels.sh`):
@@ -370,3 +370,10 @@ per_cell 4.06, hybrid 4.07, waves with 32 threads (one warp) 19.73 ms per step �
 the hybrid default holds on NVIDIA. The GeForce card's low FP64 rate does not
 limit the solver (memory-bound); the reorder copy (2.1 ms, 12 % of the step)
 weighs more here than on the W7700.
+
+Reorder interval on the RTX 4070 Ti SUPER (P3, ms per step): 5 → 17.34, 10 →
+17.16, 20 → 16.75, 40 → 16.36 (one reorder costs ~12 ms after 5 steps, ~38 ms
+after 40; fill and collide slow down slightly). Default changed to 20 (W7700:
+±1 %). GOCE 244 km on the RTX without cell-state output: 12.06 ms per step;
+phases measured on both GPUs (move, collide, binning, reorder, reduce): 11.3 ms
+vs. 24.2 ms on the W7700 (2.15×).
