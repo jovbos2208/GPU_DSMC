@@ -333,11 +333,21 @@ def rocprof_summary(R, md, figdir, prefix=""):
 
 def timeline(R, rg, lo, hi, t0, png, title, overview=False):
     fig, ax = plt.subplots(figsize=(14, 5.5), constrained_layout=True)
+    ax.set_autoscale_on(False)
     sc = 1e-6 if (hi - lo) < 5e9 else 1e-9
     unit = "ms" if sc == 1e-6 else "s"
     x = lambda t: (t - t0) * sc
     rows = []
     sel = lambda items: [it for it in items if it[1] >= lo and it[0] <= hi]
+
+    def bars(items, y, color, edge="none"):
+        """One broken_barh per colour (per-event calls are quadratic in matplotlib)."""
+        by = defaultdict(list)
+        for it in items:
+            by[color(it)].append((x(it[0]), max(x(it[1]) - x(it[0]), 1e-9)))
+        for c, segs in by.items():
+            ax.broken_barh(segs, (y, 0.8), facecolor=c, edgecolor=edge, lw=0.3)
+
     y = 0
     if rg:
         depth_items = defaultdict(list)
@@ -347,9 +357,9 @@ def timeline(R, rg, lo, hi, t0, png, title, overview=False):
         for d in sorted(depth_items):
             if overview and d > 1:
                 continue
-            for s, e, n in depth_items[d]:
-                ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor=COLORS[group_of(n)],
-                               edgecolor="k" if d == 0 else "none", lw=0.3)
+            items = depth_items[d]
+            bars(items, y, lambda it: COLORS[group_of(it[2])], edge="k" if d == 0 and len(items) < 200 else "none")
+            for s, e, n in items:
                 if (x(e) - x(s)) > 0.06 * (x(hi) - x(lo)):
                     ax.text(x(s) + 0.002 * (x(hi) - x(lo)), y + 0.4, n.replace("vleo::", ""), fontsize=6,
                             va="center", clip_on=True)
@@ -357,17 +367,14 @@ def timeline(R, rg, lo, hi, t0, png, title, overview=False):
             y += 1
     if R["api"]:
         api_row = "CPU: fences / copies" if R.get("source") == "kp_trace" else "CPU HIP API"
-        for s, e, fn, tid in sel(R["api"]):
-            c = "#5a0000" if SYNC_CALLS.search(fn) else "0.55"
-            ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor=c, edgecolor="none")
+        bars(sel(R["api"]), y, lambda it: "#5a0000" if SYNC_CALLS.search(it[2]) else "0.55")
         rows.append(api_row); y += 1
-    for s, e, n in sel(R["kernels"]):
-        ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor=COLORS[group_of(n)], edgecolor="none")
+    bars(sel(R["kernels"]), y, lambda it: COLORS[group_of(it[2])])
     rows.append("GPU kernels"); y += 1
     if R["copies"]:
-        for s, e, d, b in sel(R["copies"]):
-            ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor="#000000", edgecolor="none")
+        bars(sel(R["copies"]), y, lambda it: "#000000")
         rows.append("GPU copies"); y += 1
+    ax.set_ylim(-0.2, y)
     ax.set_yticks(np.arange(len(rows)) + 0.4); ax.set_yticklabels(rows, fontsize=8)
     ax.set_xlim(x(lo), x(hi)); ax.set_xlabel(f"time [{unit}] since the first kernel")
     handles = [Patch(color=c, label=g) for g, c in COLORS.items()]
