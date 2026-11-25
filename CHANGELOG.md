@@ -7,6 +7,9 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- `dsmc.reorder_interval: n`: particles copied into cell order every n steps
+  (contiguous memory for binning, collisions, cell moments); cell lists then
+  sorted by particle id; physics bitwise unchanged.
 - `dsmc.state_sample_every: n`: cell-state moments summed every n-th step of
   an output window (default 1); `AveragingWindow_s` now counts all steps of
   the window. The moments kernel keeps its sums in registers (no array

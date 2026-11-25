@@ -61,6 +61,17 @@ profiler) with `per_cell` and `waves` at 8/16/32/64 threads per cell and prints
 `dsmc.collide` per step; the collision counters must agree for all variants.
 Table in `results/collide/summary.txt`.
 
+## Option variants
+
+```bash
+DEVICE=1 VARIANTS="reorder_interval=0 reorder_interval=5 reorder_interval=5,state_sample_every=5" \
+    ./compare_variants.sh p3_reservoir_air.yaml p1_goce_244km.yaml
+```
+
+Any `dsmc` options as comma-separated `key=value` lists; shortened runs
+(100 + 200 steps) with the fenced phase profiler; table of the phases per step
+and a check that collisions and surface interactions agree for all variants.
+
 ## What is marked in the code
 
 Every phase of the internal profiler (`Profiler::Scope`) is also a Kokkos

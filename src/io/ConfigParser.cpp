@@ -338,7 +338,8 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   if (!check_map(n, p,
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles",
-                  "dt_DSMCState_out", "state_sample_every", "boundary", "collision_kernel", "collision_team_size"},
+                  "dt_DSMCState_out", "state_sample_every", "boundary", "collision_kernel", "collision_team_size",
+                  "reorder_interval"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
@@ -386,6 +387,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   }
   if (auto v = get_enum(n, "boundary", p, is, Need::Optional, kBoundary)) out.boundary = *v;
   if (auto v = get_enum(n, "collision_kernel", p, is, Need::Optional, kCollKernel)) out.collision_kernel = *v;
+  if (auto v = get_uint64(n, "reorder_interval", p, is, Need::Optional)) out.reorder_interval = *v;
   if (auto v = get_uint64(n, "collision_team_size", p, is, Need::Optional)) {
     if (*v != 8 && *v != 16 && *v != 32 && *v != 64)
       is.add(p + ".collision_team_size", "must be 8, 16, 32 or 64");

@@ -375,6 +375,38 @@ struct AliveFlag {
   }
 };
 
+// Reorder (dsmc.reorder_interval): the binned particles are copied to the
+// order of the cell list, so the per-cell kernels (collisions, cell moments)
+// read contiguous memory instead of gathering; the list becomes the identity.
+// Inactive particles are dropped (a compaction). Random streams are keyed by
+// particle id (move) and by cell and candidate (collisions), and the list keeps
+// its order within each cell, so the physics is unchanged; only the summation
+// order of the per-step reductions differs (round-off). With reordering the
+// cell lists are sorted by particle id (sort_by_id), not by array index.
+struct ReorderCopy {
+  ParticleStorage src, dst;
+  Kokkos::View<const double*> dt_src;
+  Kokkos::View<double*> dt_dst;
+  Kokkos::View<int*> list;
+  KOKKOS_INLINE_FUNCTION void operator()(const int j) const {
+    const int i = list(j);
+    dst.x(j) = src.x(i);
+    dst.y(j) = src.y(i);
+    dst.z(j) = src.z(i);
+    dst.vx(j) = src.vx(i);
+    dst.vy(j) = src.vy(i);
+    dst.vz(j) = src.vz(i);
+    dst.weight(j) = src.weight(i);
+    dst.species(j) = src.species(i);
+    dst.particle_id(j) = src.particle_id(i);
+    dst.status(j) = src.status(i);
+    dst.interactions(j) = src.interactions(i);
+    dst.e_rot(j) = src.e_rot(i);
+    dst.e_vib(j) = src.e_vib(i);
+    dt_dst(j) = dt_src(i);
+    list(j) = j;
+  }
+};
 struct CompactCopy {
   ParticleStorage src, dst;
   Kokkos::View<const double*> dt_src;
@@ -1049,6 +1081,7 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
     default: s.collision_kernel = CollisionKernel::Automatic;
   }
   s.collision_team_size = static_cast<int>(cfg.dsmc.collision_team_size);
+  s.reorder_interval = cfg.dsmc.reorder_interval;
   const double expected = n * g.cell_volume() * g.num_cells() / s.particle_weight;
   s.max_particles = cfg.dsmc.max_particles ? *cfg.dsmc.max_particles
                                            : static_cast<std::uint64_t>(std::max(1.0e6, 6.0 * expected));
@@ -1423,7 +1456,7 @@ struct DsmcSimulation::Impl {
     list = Kokkos::View<int*>("dsmc_cell_list", cap);
     if constexpr (!kHostExecution) {
       list_unsorted = Kokkos::View<int*>("dsmc_cell_list_unsorted", cap);
-      if (comm::size() > 1)
+      if (sort_by_id())
         list_key = Kokkos::View<std::uint64_t*>(Kokkos::view_alloc(Kokkos::WithoutInitializing, "dsmc_cell_list_key"), cap);
     }
     capacity = cap;
@@ -1443,6 +1476,23 @@ struct DsmcSimulation::Impl {
     std::swap(dt_cur, dt_alt);
     n = alive;
     n_active = alive;
+  }
+
+  // Order of the particles within a cell list: by particle id where the array
+  // order is not reproducible (several ranks: migration; reordering: the array
+  // order changes with the reorders), else by array index (cheaper key).
+  bool sort_by_id() const { return comm::size() > 1 || set.reorder_interval > 0; }
+
+  // Particles in cell-list order (after bin(); every binned particle is active).
+  void reorder() {
+    if (offset_total <= 0 || static_cast<std::size_t>(offset_total) != n_active) return;  // unbinned active ones
+    Kokkos::parallel_for("vleo::dsmc_reorder", IntPolicy(0, offset_total),
+                         ReorderCopy{cur, alt, dt_cur, dt_alt, list});
+    Kokkos::fence();
+    std::swap(cur, alt);
+    std::swap(dt_cur, dt_alt);
+    n = static_cast<std::size_t>(offset_total);
+    n_active = n;
   }
 
   void inject() {
@@ -1504,10 +1554,10 @@ struct DsmcSimulation::Impl {
       Profiler::Scope ps(prof, "dsmc.bin.sort");
       if constexpr (kHostExecution) {
         Kokkos::parallel_for("vleo::dsmc_sort_cells", IntPolicy(c_lo, c_hi),
-                             SortCells{offset, list, cur.particle_id, decomposed});
+                             SortCells{offset, list, cur.particle_id, sort_by_id()});
       } else {
         Kokkos::parallel_for("vleo::dsmc_rank_sort", IntPolicy(0, offset_total),
-                             RankSortEntries{offset, cell_of_particle, list_unsorted, list, list_key, decomposed});
+                             RankSortEntries{offset, cell_of_particle, list_unsorted, list, list_key, sort_by_id()});
       }
     }
   }
@@ -1650,6 +1700,10 @@ struct DsmcSimulation::Impl {
       compact();
     }
     bin();
+    if (set.reorder_interval > 0 && step_index % set.reorder_interval == 0) {
+      Profiler::Scope ps(prof, "dsmc.reorder");
+      reorder();
+    }
     {
       Profiler::Scope ps(prof, "dsmc.collide");
       collide();
@@ -2349,6 +2403,7 @@ DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geom
   out.profile = settings.profile;
   out.collision_kernel = settings.collision_kernel;
   out.collision_team_size = settings.collision_team_size;
+  out.reorder_interval = settings.reorder_interval;
   out.initial_fill = settings.initial_fill;
   out.boundary = settings.boundary;
   out.max_interactions_per_step = settings.max_interactions_per_step;

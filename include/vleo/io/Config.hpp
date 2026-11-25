@@ -155,6 +155,8 @@ struct DSMCSection {
   DomainBoundary boundary = DomainBoundary::Open;
   CollisionKernelMode collision_kernel = CollisionKernelMode::Automatic;
   std::uint32_t collision_team_size = 32;  // threads per cell of the waves kernel (8, 16, 32, 64)
+  // Steps between reorders of the particle arrays into cell order (0: never).
+  std::uint64_t reorder_interval = 0;
 };
 
 struct StatisticsSection {

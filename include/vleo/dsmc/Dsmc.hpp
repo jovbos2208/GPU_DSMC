@@ -82,6 +82,7 @@ struct DsmcSettings {
   bool load_balance = true;            // several ranks: re-split the planes at the end of the warm-up (M6.5)
   CollisionKernel collision_kernel = CollisionKernel::Automatic;
   int collision_team_size = 32;        // threads per cell of the waves kernel on GPUs
+  std::uint64_t reorder_interval = 0;  // steps between particle reorders into cell order (0: never)
   GridOptions grid;
 
   // Free-stream reference values used for the automatic choices.

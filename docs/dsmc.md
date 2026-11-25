@@ -151,7 +151,16 @@ Per cell with N particles and collision volume V_eff:
   On the W7700 with 4–5 candidates per cell, `per_cell` is 4.5× faster than
   `waves` (team barriers and reductions per cell dominate;
   benchmarks/profiling, `compare_collision_kernels.sh`). All are tested to be
-  bitwise identical (`test_dsmc`); `dsmc.collision_kernel` selects one. Before M5 the candidates of a
+  bitwise identical (`test_dsmc`); `dsmc.collision_kernel` selects one;
+- **particle order (`dsmc.reorder_interval: n`):** every n steps, after the
+  binning, the particles are copied into the order of the cell lists (inactive
+  ones dropped), so the per-cell kernels read contiguous memory instead of
+  gathering. The cell lists are then sorted by particle id instead of array
+  index; on one rank both orders coincide without reordering (injection
+  appends ascending ids, compaction keeps the order), and the random streams
+  are keyed by particle id (move) and by cell and candidate (collisions), so
+  the physics is bitwise unchanged (`test_dsmc`); only the per-step force
+  sums are added in another order (round-off). Before M5 the candidates of a
   cell shared one random stream and the bound was raised immediately; the
   results of the two versions agree statistically, not bitwise;
 - post-collision velocities: v_cm is kept, g' = |g| · (isotropic unit vector),

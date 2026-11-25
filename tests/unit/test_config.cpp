@@ -568,11 +568,13 @@ TEST_CASE("DSMC options and scope", "[config]") {
   const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
   const SimulationConfig c = parse_simulation_config(
       he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n"
-           "  dt_DSMCState_out: 2.5e-5\n  state_sample_every: 4\n  boundary: specular\n  collision_kernel: waves\n  collision_team_size: 16\n",
+           "  dt_DSMCState_out: 2.5e-5\n  state_sample_every: 4\n  reorder_interval: 10\n  boundary: specular\n"
+           "  collision_kernel: waves\n  collision_team_size: 16\n",
       kData);
   CHECK(c.dsmc.collision_kernel == CollisionKernelMode::Waves);
   CHECK(c.dsmc.collision_team_size == 16);
   CHECK(c.dsmc.state_sample_every == 4);
+  CHECK(c.dsmc.reorder_interval == 10);
   CHECK(c.dsmc.boundary == DomainBoundary::Specular);
   CHECK(*c.dsmc.warmup_steps == 50);
   REQUIRE(c.dsmc.dt_DSMCState_out.has_value());

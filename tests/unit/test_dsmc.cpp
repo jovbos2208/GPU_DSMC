@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <random>
 #include <sstream>
 
@@ -292,6 +293,60 @@ TEST_CASE("Per-cell and wave-parallel collision kernels give identical results",
   std::size_t diff = 0;
   for (std::size_t i = 0; i < va.size(); ++i)
     if (!(va[i].x == vb[i].x && va[i].y == vb[i].y && va[i].z == vb[i].z && ea[i] == eb[i] && wa[i] == wb[i])) ++diff;
+  CHECK(diff == 0);
+}
+
+TEST_CASE("Reordering the particles into cell order leaves the physics unchanged", "[dsmc][gate]") {
+  // Open flow around a body with N2/O (internal energies, surface interactions,
+  // injection, exits): reorder every 2nd step vs. never. Same molecules with the
+  // same states (by particle id), same collisions; the force sums differ only in
+  // the summation order.
+  const std::string body =
+      "simulation: {name: reorder, mode: dsmc, random_seed: 21}\n"
+      "domain: {margin_m: 0.3}\n"
+      "reference: {area_m2: 1, length_m: 1, moment_center_m: [0,0,0], lift_axis_body: [0,0,1]}\n"
+      "gas: {number_density_m3: 1.0e21, translational_temperature_K: 600, "
+      "bulk_velocity_body_mps: [-3000, 200, 0], species: {N2: 0.6, O: 0.4}}\n"
+      "surface: {model: cll, temperature_K: 300, cll: {alpha_n: 0.8, sigma_t: 0.7}}\n"
+      "dsmc: {collision_model: VSS, cell_size_mode: fixed, cell_size_m: 0.1, timestep_mode: fixed, "
+      "timestep_s: 2.0e-6, particles_per_cell_target: 40, warmup_steps: 4, sample_steps: 12, blocks: 2}\n";
+  Case c = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}), body);
+  DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  DsmcSimulation a(c.cfg, c.geometry, c.inflow, s);
+  s.reorder_interval = 2;
+  DsmcSimulation b(c.cfg, c.geometry, c.inflow, s);
+  a.fill_freestream();
+  b.fill_freestream();
+  for (int k = 0; k < 16; ++k) {
+    a.step(k >= 4);
+    b.step(k >= 4);
+  }
+  const DsmcResult ra = a.result(), rb = b.result();
+  CHECK(ra.counters.collisions > 1000);
+  CHECK(ra.counters.surface_interactions > 200);
+  CHECK(ra.counters.collisions == rb.counters.collisions);
+  CHECK(ra.counters.collision_candidates == rb.counters.collision_candidates);
+  CHECK(ra.counters.surface_interactions == rb.counters.surface_interactions);
+  CHECK(ra.counters.exited == rb.counters.exited);
+  CHECK(a.num_particles() == b.num_particles());
+  CHECK_THAT(rb.estimates.C_D.value, WithinRel(ra.estimates.C_D.value, 1e-10));
+  CHECK_THAT(rb.estimates.heat_rate_W.value, WithinRel(ra.estimates.heat_rate_W.value, 1e-10));
+  // the same molecules in the same states
+  a.compact();
+  b.compact();
+  const auto ia = a.particle_ids(), ib = b.particle_ids();
+  const auto va = a.velocities(), vb = b.velocities();
+  const auto ea = a.vibrational_energies(), eb = b.vibrational_energies();
+  REQUIRE(ia.size() == ib.size());
+  std::map<std::uint64_t, std::size_t> where;
+  for (std::size_t k = 0; k < ib.size(); ++k) where[ib[k]] = k;
+  std::size_t diff = 0;
+  for (std::size_t k = 0; k < ia.size(); ++k) {
+    const auto it = where.find(ia[k]);
+    if (it == where.end() || !(va[k].x == vb[it->second].x && va[k].y == vb[it->second].y &&
+                               va[k].z == vb[it->second].z && ea[k] == eb[it->second]))
+      ++diff;
+  }
   CHECK(diff == 0);
 }
 
