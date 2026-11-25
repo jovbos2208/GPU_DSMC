@@ -72,6 +72,20 @@ Any `dsmc` options as comma-separated `key=value` lists; shortened runs
 (100 + 200 steps) with the fenced phase profiler; table of the phases per step
 and a check that collisions and surface interactions agree for all variants.
 
+## CPU vs. GPU
+
+```bash
+cmake --preset cpu-release && cmake --build build/cpu-release -j     # once
+DEVICE=1 ./cpu_vs_gpu.sh                                              # P3 reservoir
+```
+
+Full size (15 M particles, 1.5 M collisions per step, 50 + 150 steps) on the
+GPU and on all physical CPU cores (OpenMP, `OMP_PROC_BIND=spread`,
+`OMP_PLACES=cores`), plus a CPU thread scaling 1, 2, 4, … cores with 10 + 20
+steps; no cell-state output. Prints ms per step, ns per particle step,
+collisions per second, the phase split, the speed-up and parallel efficiency,
+and whether CPU and GPU produced the same collision counts.
+
 ## What is marked in the code
 
 Every phase of the internal profiler (`Profiler::Scope`) is also a Kokkos
