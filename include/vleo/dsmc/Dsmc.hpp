@@ -63,8 +63,9 @@ enum class DsmcBoundary {
 // Resolved numerical parameters of a DSMC run.
 // Collision kernel (results are identical, docs/dsmc.md section 4):
 // PerCell = one thread per cell (default on host backends), Waves = one team
-// per cell with conflict-free waves of candidates (default on GPUs).
-enum class CollisionKernel { Automatic, PerCell, Waves };
+// per cell with conflict-free waves of candidates, Hybrid = PerCell for cells
+// with at most 256 candidates and Waves for the heavier ones (default on GPUs).
+enum class CollisionKernel { Automatic, PerCell, Waves, Hybrid };
 
 struct DsmcSettings {
   double timestep_s = 0.0;

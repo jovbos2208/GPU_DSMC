@@ -7,9 +7,13 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
-- `dsmc.collision_kernel: automatic | per_cell | waves` and
+- `dsmc.collision_kernel: automatic | per_cell | waves | hybrid` and
   `dsmc.collision_team_size` (8/16/32/64 threads per cell of the waves kernel
-  on GPUs); identical results, only the speed differs.
+  on GPUs); identical results, only the speed differs. GPU default is now
+  `hybrid` (per-cell for cells with ≤ 256 candidates, waves for heavier
+  cells): `per_cell` is 4.5× faster than `waves` on the W7700 at 4–5
+  candidates per cell (reservoir 45.2 → 9.9 ms, dense GOCE 21.6 → 5.2 ms per
+  step).
   `benchmarks/profiling/compare_collision_kernels.sh` measures the variants.
 - `dsmc.boundary: open | specular`: closed DSMC reservoir (specular walls, no
   inflow) as a run configuration (docs/dsmc.md §11).

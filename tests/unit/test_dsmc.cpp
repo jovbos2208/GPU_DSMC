@@ -240,6 +240,12 @@ TEST_CASE("Per-cell and wave-parallel collision kernels give identical results",
   // Dense N2/O mixture with VSS and Larsen-Borgnakke, large cells: many
   // candidates per cell (more than one chunk of the wave kernel) sharing
   // particles, so the dependency order is exercised.
+  // Variants of the second kernel: waves with 8 / 32 threads per cell (GPUs; host
+  // backends choose themselves), hybrid (per-cell for cells with <= 256 candidates,
+  // waves for the others) with ~1300 and, at 120 particles per cell, ~260
+  // candidates per cell (both paths of the hybrid kernel in one step).
+  const int variant = GENERATE(0, 1, 2, 3);
+  const std::string ppc = variant == 3 ? "120" : "600";
   const std::string body =
       "simulation: {name: waves, mode: dsmc, random_seed: 9}\n"
       "domain: {margin_m: 0.3}\n"
@@ -248,13 +254,14 @@ TEST_CASE("Per-cell and wave-parallel collision kernels give identical results",
       "bulk_velocity_body_mps: [-3000, 200, 0], species: {N2: 0.6, O: 0.4}}\n"
       "surface: {model: cll, temperature_K: 300, cll: {alpha_n: 0.8, sigma_t: 0.7}}\n"
       "dsmc: {collision_model: VSS, cell_size_mode: fixed, cell_size_m: 0.3, timestep_mode: fixed, "
-      "timestep_s: 2.0e-6, particles_per_cell_target: 600, warmup_steps: 3, sample_steps: 6, blocks: 2}\n";
+      "timestep_s: 2.0e-6, particles_per_cell_target: " +
+      ppc + ", warmup_steps: 3, sample_steps: 6, blocks: 2}\n";
   Case c = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}), body);
   DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
   s.collision_kernel = CollisionKernel::PerCell;
   DsmcSimulation a(c.cfg, c.geometry, c.inflow, s);
-  s.collision_kernel = CollisionKernel::Waves;
-  s.collision_team_size = GENERATE(8, 32);  // GPUs: threads per cell (host backends choose themselves)
+  s.collision_kernel = variant >= 2 ? CollisionKernel::Hybrid : CollisionKernel::Waves;
+  s.collision_team_size = variant == 0 ? 8 : 32;
   DsmcSimulation b(c.cfg, c.geometry, c.inflow, s);
   a.fill_freestream();
   b.fill_freestream();
@@ -266,8 +273,11 @@ TEST_CASE("Per-cell and wave-parallel collision kernels give identical results",
   const DsmcResult ra = a.result(), rb = b.result();
   max_cand_per_cell = ra.counters.collision_candidates / static_cast<std::uint64_t>(9 * ra.grid.gas_cells);
   INFO("candidates per gas cell and step (mean) " << max_cand_per_cell);
-  CHECK(max_cand_per_cell > 300);  // > kCollideChunk = 256: several chunks per cell
-  CHECK(ra.counters.collisions > 100000);
+  if (variant == 3)
+    CHECK((max_cand_per_cell > 150 && max_cand_per_cell < 400));  // around the hybrid threshold
+  else
+    CHECK(max_cand_per_cell > 300);  // > kCollideChunk = 256: several chunks per cell
+  CHECK(ra.counters.collisions > (variant == 3 ? 20000u : 100000u));
   CHECK(ra.counters.collisions == rb.counters.collisions);
   CHECK(ra.counters.collision_candidates == rb.counters.collision_candidates);
   CHECK(ra.counters.sigma_g_max_updates == rb.counters.sigma_g_max_updates);

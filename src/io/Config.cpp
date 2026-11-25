@@ -25,7 +25,12 @@ std::string_view to_string(OutputFormat v) {
 }
 
 std::string_view to_string(CollisionKernelMode v) {
-  return v == CollisionKernelMode::PerCell ? "per_cell" : v == CollisionKernelMode::Waves ? "waves" : "automatic";
+  switch (v) {
+    case CollisionKernelMode::PerCell: return "per_cell";
+    case CollisionKernelMode::Waves: return "waves";
+    case CollisionKernelMode::Hybrid: return "hybrid";
+    default: return "automatic";
+  }
 }
 std::string_view to_string(DomainBoundary v) { return v == DomainBoundary::Specular ? "specular" : "open"; }
 std::string_view to_string(CollisionModel v) { return v == CollisionModel::VSS ? "VSS" : "VHS"; }

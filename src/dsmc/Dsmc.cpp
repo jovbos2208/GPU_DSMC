@@ -618,9 +618,11 @@ struct CollideCellsSerial {
   Kokkos::View<double*> sg_max;
   Kokkos::View<const std::uint64_t*> cand;
   Kokkos::View<std::uint64_t*> acc, upd;
+  std::uint64_t max_cand = ~std::uint64_t(0);  // hybrid: cells with more candidates are left to the waves kernel
   KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
     const int b = offset(c), n = offset(c + 1) - b;
     const std::uint64_t n_cand = cand(c);
+    if (n_cand > max_cand) return;
     std::uint64_t n_acc = 0, n_upd = 0;
     const double max0 = sg_max(c);
     double max_new = max0;
@@ -655,13 +657,14 @@ struct CollideCellsWaves {
   Kokkos::View<const std::uint64_t*> cand;
   Kokkos::View<std::uint64_t*> acc, upd;
   int c_lo = 0;  // first owned cell (league rank 0)
+  Kokkos::View<const int*> cells;  // hybrid: the cells to process (league rank -> cell); empty: c_lo + rank
 
   static std::size_t scratch_bytes() {
     return kCollideChunk * (sizeof(double) + 2 * sizeof(int) + 2 * sizeof(char)) + 64;
   }
 
   KOKKOS_INLINE_FUNCTION void operator()(const Member& t) const {
-    const int c = c_lo + t.league_rank();
+    const int c = cells.extent(0) > 0 ? cells(t.league_rank()) : c_lo + t.league_rank();
     const std::uint64_t n_cand = cand(c);
     if (n_cand == 0) {
       Kokkos::single(Kokkos::PerTeam(t), [&]() {
@@ -736,6 +739,30 @@ struct CollideCellsWaves {
       acc(c) = n_acc;
       upd(c) = n_upd;
     });
+  }
+};
+
+// Hybrid collision kernel (automatic on GPUs): cells with at most kHybridSerialMax
+// candidates run one thread per cell, the rare heavier cells one waves team each.
+// Measured on the W7700 (benchmarks/profiling, 4-5 candidates per cell): per-cell
+// 4.5x faster than waves; a serial thread with hundreds of candidates would hold up
+// the whole kernel. Both kernels keep the dependency order: identical results.
+enum : std::uint64_t { kHybridSerialMax = kCollideChunk };
+struct HeavyCellFlag {
+  Kokkos::View<const std::uint64_t*> cand;
+  Kokkos::View<int*> cells;
+  std::uint64_t max_cand;
+  KOKKOS_INLINE_FUNCTION void operator()(const int c, int& update, const bool final) const {
+    if (cand(c) > max_cand) {
+      if (final) cells(update) = c;
+      ++update;
+    }
+  }
+};
+struct MaxCandidates {
+  Kokkos::View<const std::uint64_t*> cand;
+  KOKKOS_INLINE_FUNCTION void operator()(const int c, std::uint64_t& m) const {
+    if (cand(c) > m) m = cand(c);
   }
 };
 
@@ -987,9 +1014,12 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
   s.sample_steps = cfg.dsmc.sample_steps;
   s.blocks = cfg.dsmc.blocks;
   s.boundary = cfg.dsmc.boundary == DomainBoundary::Specular ? DsmcBoundary::Specular : DsmcBoundary::Open;
-  s.collision_kernel = cfg.dsmc.collision_kernel == CollisionKernelMode::PerCell ? CollisionKernel::PerCell
-                       : cfg.dsmc.collision_kernel == CollisionKernelMode::Waves ? CollisionKernel::Waves
-                                                                               : CollisionKernel::Automatic;
+  switch (cfg.dsmc.collision_kernel) {
+    case CollisionKernelMode::PerCell: s.collision_kernel = CollisionKernel::PerCell; break;
+    case CollisionKernelMode::Waves: s.collision_kernel = CollisionKernel::Waves; break;
+    case CollisionKernelMode::Hybrid: s.collision_kernel = CollisionKernel::Hybrid; break;
+    default: s.collision_kernel = CollisionKernel::Automatic;
+  }
   s.collision_team_size = static_cast<int>(cfg.dsmc.collision_team_size);
   const double expected = n * g.cell_volume() * g.num_cells() / s.particle_weight;
   s.max_particles = cfg.dsmc.max_particles ? *cfg.dsmc.max_particles
@@ -1030,6 +1060,7 @@ struct DsmcSimulation::Impl {
   Kokkos::View<int*> count, offset, cursor;
   Kokkos::View<double*> sg_max, remainder, count_sum;
   Kokkos::View<std::uint64_t*> cand, acc, upd;
+  Kokkos::View<int*> heavy_cells;  // hybrid collision kernel
   Kokkos::View<std::uint64_t*> pair_acc;
   Kokkos::View<double**, Kokkos::LayoutLeft> surface;
   std::vector<double> species_count_sum, species_E_sum;
@@ -1463,18 +1494,38 @@ struct DsmcSimulation::Impl {
                                static_cast<std::uint32_t>(step_index)};
     const bool per_cell = set.collision_kernel == CollisionKernel::PerCell ||
                           (set.collision_kernel == CollisionKernel::Automatic && kHostExecution);
+    const bool hybrid = set.collision_kernel == CollisionKernel::Hybrid ||
+                        (set.collision_kernel == CollisionKernel::Automatic && !kHostExecution);
     if (nc == 0) {
       // no owned cells (more ranks than planes)
     } else if (per_cell) {
       Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(c_lo, c_hi),
                            CollideCellsSerial{model, offset, list, sg_max, cand, acc, upd});
+    } else if (hybrid) {
+      std::uint64_t most = 0;
+      Kokkos::parallel_reduce("vleo::dsmc_max_candidates", IntPolicy(c_lo, c_hi), MaxCandidates{cand},
+                              Kokkos::Max<std::uint64_t>(most));
+      CollideCellsSerial serial{model, offset, list, sg_max, cand, acc, upd};
+      serial.max_cand = kHybridSerialMax;
+      Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(c_lo, c_hi), serial);
+      if (most > kHybridSerialMax) {
+        int heavy = 0;
+        Kokkos::parallel_scan("vleo::dsmc_heavy_cells", IntPolicy(c_lo, c_hi),
+                              HeavyCellFlag{cand, heavy_cells, kHybridSerialMax}, heavy);
+        Kokkos::TeamPolicy<> tp = kHostExecution ? Kokkos::TeamPolicy<>(heavy, Kokkos::AUTO)
+                                                 : Kokkos::TeamPolicy<>(heavy, set.collision_team_size);
+        tp.set_scratch_size(0, Kokkos::PerTeam(static_cast<int>(CollideCellsWaves::scratch_bytes())));
+        CollideCellsWaves waves{model, offset, list, sg_max, cand, acc, upd, c_lo, {}};
+        waves.cells = Kokkos::subview(heavy_cells, Kokkos::make_pair(0, heavy));
+        Kokkos::parallel_for("vleo::dsmc_collide_waves", tp, waves);
+      }
     } else {
       // collision_team_size threads per cell on GPUs (default 32: wave32 / warp); host backends choose themselves
       Kokkos::TeamPolicy<> tp =
           kHostExecution ? Kokkos::TeamPolicy<>(nc, Kokkos::AUTO) : Kokkos::TeamPolicy<>(nc, set.collision_team_size);
       tp.set_scratch_size(0, Kokkos::PerTeam(static_cast<int>(CollideCellsWaves::scratch_bytes())));
       Kokkos::parallel_for("vleo::dsmc_collide_waves", tp,
-                           CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd, c_lo});
+                           CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd, c_lo, {}});
     }
     std::uint64_t s[3] = {0, 0, 0};
     if (nc > 0)
@@ -1642,6 +1693,7 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
   s.cand = Kokkos::View<std::uint64_t*>("dsmc_cand", nc);
   s.acc = Kokkos::View<std::uint64_t*>("dsmc_acc", nc);
   s.upd = Kokkos::View<std::uint64_t*>("dsmc_upd", nc);
+  s.heavy_cells = Kokkos::View<int*>("dsmc_heavy_cells", nc);
   s.pair_acc = Kokkos::View<std::uint64_t*>("dsmc_pair_acc", static_cast<std::size_t>(s.nsp * s.nsp));
   s.species_count_sum.assign(static_cast<std::size_t>(s.nsp), 0.0);
   s.species_E_sum.assign(static_cast<std::size_t>(s.nsp), 0.0);

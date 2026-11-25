@@ -28,8 +28,8 @@ enum class ParameterMode { Automatic, Fixed };
 // specular walls and no inflow (reservoir / homogeneous gas).
 enum class DomainBoundary { Open, Specular };
 // DSMC collision kernel (docs/dsmc.md section 4): automatic = per_cell on host
-// backends, waves on GPUs. Results are identical.
-enum class CollisionKernelMode { Automatic, PerCell, Waves };
+// backends, hybrid on GPUs. Results are identical.
+enum class CollisionKernelMode { Automatic, PerCell, Waves, Hybrid };
 enum class ConvergenceQuantity { CD, CL, CY, CMx, CMy, CMz, HeatRate };
 
 std::string_view to_string(SolverMode v);

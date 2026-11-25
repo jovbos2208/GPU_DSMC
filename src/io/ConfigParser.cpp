@@ -30,9 +30,10 @@ constexpr std::array<EnumEntry<LengthUnit>, 3> kUnits{
 constexpr std::array<EnumEntry<GSIModel>, 2> kGsi{{{"maxwell", GSIModel::Maxwell}, {"cll", GSIModel::CLL}}};
 constexpr std::array<EnumEntry<CollisionModel>, 2> kCollision{
     {{"VHS", CollisionModel::VHS}, {"VSS", CollisionModel::VSS}}};
-constexpr std::array<EnumEntry<CollisionKernelMode>, 3> kCollKernel{{{"automatic", CollisionKernelMode::Automatic},
+constexpr std::array<EnumEntry<CollisionKernelMode>, 4> kCollKernel{{{"automatic", CollisionKernelMode::Automatic},
                                                                    {"per_cell", CollisionKernelMode::PerCell},
-                                                                   {"waves", CollisionKernelMode::Waves}}};
+                                                                   {"waves", CollisionKernelMode::Waves},
+                                                                   {"hybrid", CollisionKernelMode::Hybrid}}};
 constexpr std::array<EnumEntry<DomainBoundary>, 2> kBoundary{
     {{"open", DomainBoundary::Open}, {"specular", DomainBoundary::Specular}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{

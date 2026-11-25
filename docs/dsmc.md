@@ -143,10 +143,15 @@ Per cell with N particles and collision volume V_eff:
   current velocities of its two particles. Processing the candidates in index
   order, or in any order in which a candidate runs after all earlier
   candidates sharing one of its particles, gives identical results. Host
-  backends use one thread per cell in index order; GPU backends use one team
-  (32 threads) per cell, which processes the candidates in chunks of 256 and,
-  within a chunk, in waves of mutually independent candidates. Both are
-  tested to be bitwise identical (`test_dsmc`). Before M5 the candidates of a
+  backends use one thread per cell in index order (`per_cell`). The `waves`
+  kernel uses one team (32 threads) per cell, which processes the candidates
+  in chunks of 256 and, within a chunk, in waves of mutually independent
+  candidates. GPU backends use `hybrid` by default: `per_cell` for cells with
+  at most 256 candidates, `waves` only for the heavier cells (compacted list).
+  On the W7700 with 4–5 candidates per cell, `per_cell` is 4.5× faster than
+  `waves` (team barriers and reductions per cell dominate;
+  benchmarks/profiling, `compare_collision_kernels.sh`). All are tested to be
+  bitwise identical (`test_dsmc`); `dsmc.collision_kernel` selects one. Before M5 the candidates of a
   cell shared one random stream and the bound was raised immediately; the
   results of the two versions agree statistically, not bitwise;
 - post-collision velocities: v_cm is kept, g' = |g| · (isotropic unit vector),
