@@ -912,7 +912,10 @@ std::vector<int> split_planes(const std::vector<double>& w, int parts) {
 // Cell-state moments (dsmc.dt_DSMCState_out): one thread per cell sums its
 // particles in list order (deterministic, no atomics) and adds the sums to
 // the window accumulator. Columns: kCellMom global moments, then per species
-// (count, sum e_vib).
+// (count, sum e_vib). The sums live in scalars and in per-species arrays that
+// are only indexed by compile-time constants (unrolled species loop): an
+// array indexed by the particle's species is placed in slow private (scratch)
+// memory on GPUs; W7700 profile before: 1.9 ns per particle, 2.4x the move.
 inline constexpr int kCellN = 0, kCellM = 1, kCellMV = 2, kCellMV2 = 5, kCellErot = 6, kCellRotDof = 7,
                      kCellColl = 8, kCellMom = 9;
 struct CellMoments {
@@ -924,25 +927,50 @@ struct CellMoments {
   Kokkos::View<double**, Kokkos::LayoutLeft> sum;
   int nsp;
   KOKKOS_INLINE_FUNCTION void operator()(const int c) const {
-    double s[kCellMom + 2 * kMaxDsmcSpecies] = {};
-    for (int j = offset(c); j < offset(c + 1); ++j) {
+    double n = 0, ms = 0, mx = 0, my = 0, mz = 0, mv2 = 0, erot = 0, dof = 0;
+    double cnt[kMaxDsmcSpecies] = {}, evib[kMaxDsmcSpecies] = {};
+    const int j1 = offset(c + 1);
+    for (int j = offset(c); j < j1; ++j) {
       const int i = list(j);
       const auto sp = static_cast<int>(p.species(i));
       const double m = mass(sp);
       const Vec3 v = p.velocity(i);
-      s[kCellN] += 1.0;
-      s[kCellM] += m;
-      s[kCellMV + 0] += m * v.x;
-      s[kCellMV + 1] += m * v.y;
-      s[kCellMV + 2] += m * v.z;
-      s[kCellMV2] += m * norm2(v);
-      s[kCellErot] += p.e_rot(i);
-      s[kCellRotDof] += modes(sp).rot_dof;
-      s[kCellMom + 2 * sp] += 1.0;
-      s[kCellMom + 2 * sp + 1] += p.e_vib(i);
+      n += 1.0;
+      ms += m;
+      mx += m * v.x;
+      my += m * v.y;
+      mz += m * v.z;
+      mv2 += m * norm2(v);
+      erot += p.e_rot(i);
+      dof += modes(sp).rot_dof;
+      const double ev = p.e_vib(i);
+#ifdef KOKKOS_ENABLE_PRAGMA_UNROLL
+#pragma unroll
+#endif
+      for (int q = 0; q < kMaxDsmcSpecies; ++q) {  // registers: constant indices only
+        const bool hit = q == sp;
+        cnt[q] += hit ? 1.0 : 0.0;
+        evib[q] += hit ? ev : 0.0;
+      }
     }
-    s[kCellColl] = static_cast<double>(acc(c));
-    for (int k = 0; k < kCellMom + 2 * nsp; ++k) sum(c, k) += s[k];
+    sum(c, kCellN) += n;
+    sum(c, kCellM) += ms;
+    sum(c, kCellMV + 0) += mx;
+    sum(c, kCellMV + 1) += my;
+    sum(c, kCellMV + 2) += mz;
+    sum(c, kCellMV2) += mv2;
+    sum(c, kCellErot) += erot;
+    sum(c, kCellRotDof) += dof;
+    sum(c, kCellColl) += static_cast<double>(acc(c));
+#ifdef KOKKOS_ENABLE_PRAGMA_UNROLL
+#pragma unroll
+#endif
+    for (int q = 0; q < kMaxDsmcSpecies; ++q) {
+      if (q < nsp) {
+        sum(c, kCellMom + 2 * q) += cnt[q];
+        sum(c, kCellMom + 2 * q + 1) += evib[q];
+      }
+    }
   }
 };
 
@@ -1627,7 +1655,8 @@ struct DsmcSimulation::Impl {
       collide();
     }
 
-    if (state_sampling) {
+    // every state_sample_every-th step of the window, starting with its first step
+    if (state_sampling && (step_index - state_first_step) % cfg.dsmc.state_sample_every == 0) {
       Profiler::Scope ps(prof, "dsmc.cell_state");
       if (c_hi > c_lo)  // owned cells (several ranks: the other cells have no particles here)
         Kokkos::parallel_for("vleo::dsmc_cell_state", IntPolicy(c_lo, c_hi),
@@ -2112,7 +2141,7 @@ DsmcCellState DsmcSimulation::take_cell_state() {
   st.first_step = s.state_first_step;
   st.last_step = s.step_index > 0 ? s.step_index - 1 : 0;
   st.time_s = static_cast<double>(s.step_index) * dt;
-  st.window_s = steps * dt;
+  st.window_s = static_cast<double>(s.step_index - s.state_first_step) * dt;  // steps of the window, sampled or not
   st.sampling = s.last_sample;
   st.grid = s.grid.grid;
   for (const auto& sp : s.cfg.gas.species) st.species.push_back(sp.name);

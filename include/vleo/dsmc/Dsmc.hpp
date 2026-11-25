@@ -220,7 +220,7 @@ using DsmcProgressCallback = std::function<void(const DsmcProgress&)>;
 struct DsmcCellState {
   std::uint64_t index = 0;          // 0, 1, 2, ... (output number)
   double time_s = 0.0;              // physical time at the end of the window
-  double window_s = 0.0;            // averaging window = steps * dt
+  double window_s = 0.0;            // averaging window = steps of the window * dt (steps = samples taken)
   std::uint64_t first_step = 0;     // first and last time step of the window (0-based)
   std::uint64_t last_step = 0;
   std::uint64_t steps = 0;

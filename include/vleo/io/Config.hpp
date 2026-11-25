@@ -146,6 +146,10 @@ struct DSMCSection {
   // (time-averaged macroscopic fields per cell, VTKHDF / HDF5, docs/dsmc.md
   // section 10). Unset: no cell-state output.
   std::optional<double> dt_DSMCState_out;
+  // Cell-state moments are summed every state_sample_every-th step of a window
+  // (1 = every step). Consecutive steps are strongly correlated, so a few
+  // steps between samples cost little statistics and save the moments kernel.
+  std::uint32_t state_sample_every = 1;
   // open (default) or specular: closed reservoir, the gas of the initial fill stays
   // in the box (no inflow, specular walls; docs/dsmc.md section 11)
   DomainBoundary boundary = DomainBoundary::Open;

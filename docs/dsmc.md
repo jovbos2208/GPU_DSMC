@@ -269,9 +269,13 @@ dsmc:
   dt_DSMCState_out: 2.0e-5   # one file per 2e-5 s of simulated time
 ```
 
-**Averaging.** Every time step adds the particle moments of each cell to a
-window accumulator (kernel `vleo::dsmc_cell_state`, one thread per cell over
-the id-sorted cell list: deterministic, no atomics). A window ends with the
+**Averaging.** Every time step (with `dsmc.state_sample_every: n`, every n-th
+step of the window, always including its first one) adds the particle moments
+of each cell to a window accumulator (kernel `vleo::dsmc_cell_state`, one
+thread per cell over the id-sorted cell list: deterministic, no atomics).
+Consecutive steps see nearly the same molecules, so n of a few steps loses
+little statistics while the kernel cost drops by 1/n (W7700: the kernel took
+~30–45 % of the step time at n = 1 before its register rewrite). A window ends with the
 first step whose end time reaches the next multiple of Δt_out; its average is
 written and the accumulator restarts. Windows cover the whole run, warm-up
 included (field `SamplingPhase` tells which phase a window ended in); the run
@@ -281,7 +285,7 @@ choose Δt_out as long as the time resolution you need allows.
 
 **Fields** (cell data, SI units, velocities in the body frame):
 
-| Name | Definition (sums over the samples of the window, N samples, S steps) |
+| Name | Definition (sums over the samples of the window, N particle samples, S sampled steps) |
 | ---- | ------------------------------------------------------------------- |
 | `number_density_m3` | n = (N/S) W / (f V_cell), f = gas fraction |
 | `mass_density_kg_m3` | ρ = (Σm/S) W / (f V_cell) |
@@ -309,7 +313,8 @@ which lowers it by about 1/(number of distinct molecules in the window); with
 the usual ≥ 10 particles per cell and molecules passing through the cell this
 is below the statistical noise.
 
-Field data: `TimeValue` (end of the window, s), `AveragingWindow_s`,
+Field data: `TimeValue` (end of the window, s), `AveragingWindow_s` (all
+steps of the window × Δt, sampled or not),
 `FirstStep`, `LastStep`, `SamplingPhase` (0/1).
 
 **Files.** `<output-dir>/dsmc_state/dsmc_state_NNNNNN.vtkhdf`, one per window,

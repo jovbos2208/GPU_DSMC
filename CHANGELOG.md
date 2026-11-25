@@ -7,6 +7,10 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- `dsmc.state_sample_every: n`: cell-state moments summed every n-th step of
+  an output window (default 1); `AveragingWindow_s` now counts all steps of
+  the window. The moments kernel keeps its sums in registers (no array
+  indexed by species): bitwise identical output, faster on GPUs.
 - `dsmc.collision_kernel: automatic | per_cell | waves | hybrid` and
   `dsmc.collision_team_size` (8/16/32/64 threads per cell of the waves kernel
   on GPUs); identical results, only the speed differs. GPU default is now
