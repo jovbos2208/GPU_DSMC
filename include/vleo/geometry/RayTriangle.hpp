@@ -44,7 +44,7 @@ struct WatertightRay {
   int kx = 0, ky = 1, kz = 2;
   double sx = 0.0, sy = 0.0, sz = 0.0;
 
-  KOKKOS_INLINE_FUNCTION WatertightRay() = default;
+  WatertightRay() = default;  // implicitly host + device (an annotation here is ignored with a warning by NVCC)
 
   KOKKOS_INLINE_FUNCTION WatertightRay(const Vec3& o, const Vec3& d) : origin(o), dir(d) {
     const double ax = Kokkos::fabs(d.x), ay = Kokkos::fabs(d.y), az = Kokkos::fabs(d.z);
