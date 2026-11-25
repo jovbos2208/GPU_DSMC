@@ -7,6 +7,10 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- `dsmc.collision_kernel: automatic | per_cell | waves` and
+  `dsmc.collision_team_size` (8/16/32/64 threads per cell of the waves kernel
+  on GPUs); identical results, only the speed differs.
+  `benchmarks/profiling/compare_collision_kernels.sh` measures the variants.
 - `dsmc.boundary: open | specular`: closed DSMC reservoir (specular walls, no
   inflow) as a run configuration (docs/dsmc.md §11).
 - Profiling cases `benchmarks/profiling/` (closed air reservoir, GOCE 244 km,

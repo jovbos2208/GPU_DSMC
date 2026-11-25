@@ -49,6 +49,18 @@ Every mode also writes `monitor.csv` (every 0.25 s: GPU busy %, VRAM and
 power of all AMD GPUs from sysfs; CPU % = cores in use, RSS and thread count of
 the solver), plotted as `monitor_<mode>.png`.
 
+## Collision kernel comparison
+
+```bash
+DEVICE=1 ./compare_collision_kernels.sh                                   # P3 reservoir
+DEVICE=1 ./compare_collision_kernels.sh p3_reservoir_air.yaml p2_goce_dense.yaml
+```
+
+Runs each case shortened (100 + 200 steps, no cell-state output, fenced phase
+profiler) with `per_cell` and `waves` at 8/16/32/64 threads per cell and prints
+`dsmc.collide` per step; the collision counters must agree for all variants.
+Table in `results/collide/summary.txt`.
+
 ## What is marked in the code
 
 Every phase of the internal profiler (`Profiler::Scope`) is also a Kokkos

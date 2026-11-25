@@ -9,6 +9,7 @@
 //   DSMC vs TPMC (free-molecular): 5 sqrt(SE_a^2 + SE_b^2)
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
@@ -253,6 +254,7 @@ TEST_CASE("Per-cell and wave-parallel collision kernels give identical results",
   s.collision_kernel = CollisionKernel::PerCell;
   DsmcSimulation a(c.cfg, c.geometry, c.inflow, s);
   s.collision_kernel = CollisionKernel::Waves;
+  s.collision_team_size = GENERATE(8, 32);  // GPUs: threads per cell (host backends choose themselves)
   DsmcSimulation b(c.cfg, c.geometry, c.inflow, s);
   a.fill_freestream();
   b.fill_freestream();

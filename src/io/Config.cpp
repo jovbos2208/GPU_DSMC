@@ -24,6 +24,9 @@ std::string_view to_string(OutputFormat v) {
   return "?";
 }
 
+std::string_view to_string(CollisionKernelMode v) {
+  return v == CollisionKernelMode::PerCell ? "per_cell" : v == CollisionKernelMode::Waves ? "waves" : "automatic";
+}
 std::string_view to_string(DomainBoundary v) { return v == DomainBoundary::Specular ? "specular" : "open"; }
 std::string_view to_string(CollisionModel v) { return v == CollisionModel::VSS ? "VSS" : "VHS"; }
 

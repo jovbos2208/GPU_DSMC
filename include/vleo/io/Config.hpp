@@ -27,6 +27,9 @@ enum class ParameterMode { Automatic, Fixed };
 // DSMC domain boundary: open (free-stream inflow, outflow) or a closed box with
 // specular walls and no inflow (reservoir / homogeneous gas).
 enum class DomainBoundary { Open, Specular };
+// DSMC collision kernel (docs/dsmc.md section 4): automatic = per_cell on host
+// backends, waves on GPUs. Results are identical.
+enum class CollisionKernelMode { Automatic, PerCell, Waves };
 enum class ConvergenceQuantity { CD, CL, CY, CMx, CMy, CMz, HeatRate };
 
 std::string_view to_string(SolverMode v);
@@ -35,6 +38,7 @@ std::string_view to_string(OutputFormat v);
 std::string_view to_string(CollisionModel v);
 std::string_view to_string(ParameterMode v);
 std::string_view to_string(DomainBoundary v);
+std::string_view to_string(CollisionKernelMode v);
 std::string_view to_string(GSIModel v);
 std::string_view to_string(ConvergenceQuantity v);
 
@@ -145,6 +149,8 @@ struct DSMCSection {
   // open (default) or specular: closed reservoir, the gas of the initial fill stays
   // in the box (no inflow, specular walls; docs/dsmc.md section 11)
   DomainBoundary boundary = DomainBoundary::Open;
+  CollisionKernelMode collision_kernel = CollisionKernelMode::Automatic;
+  std::uint32_t collision_team_size = 32;  // threads per cell of the waves kernel (8, 16, 32, 64)
 };
 
 struct StatisticsSection {

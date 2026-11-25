@@ -30,6 +30,9 @@ constexpr std::array<EnumEntry<LengthUnit>, 3> kUnits{
 constexpr std::array<EnumEntry<GSIModel>, 2> kGsi{{{"maxwell", GSIModel::Maxwell}, {"cll", GSIModel::CLL}}};
 constexpr std::array<EnumEntry<CollisionModel>, 2> kCollision{
     {{"VHS", CollisionModel::VHS}, {"VSS", CollisionModel::VSS}}};
+constexpr std::array<EnumEntry<CollisionKernelMode>, 3> kCollKernel{{{"automatic", CollisionKernelMode::Automatic},
+                                                                   {"per_cell", CollisionKernelMode::PerCell},
+                                                                   {"waves", CollisionKernelMode::Waves}}};
 constexpr std::array<EnumEntry<DomainBoundary>, 2> kBoundary{
     {{"open", DomainBoundary::Open}, {"specular", DomainBoundary::Specular}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
@@ -334,7 +337,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   if (!check_map(n, p,
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles",
-                  "dt_DSMCState_out", "boundary"},
+                  "dt_DSMCState_out", "boundary", "collision_kernel", "collision_team_size"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
@@ -373,6 +376,15 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   }
   if (auto v = get_double_in(n, "dt_DSMCState_out", p, is, Need::Optional, kPositive)) out.dt_DSMCState_out = *v;
   if (auto v = get_enum(n, "boundary", p, is, Need::Optional, kBoundary)) out.boundary = *v;
+  if (auto v = get_enum(n, "collision_kernel", p, is, Need::Optional, kCollKernel)) out.collision_kernel = *v;
+  if (auto v = get_uint64(n, "collision_team_size", p, is, Need::Optional)) {
+    if (*v != 8 && *v != 16 && *v != 32 && *v != 64)
+      is.add(p + ".collision_team_size", "must be 8, 16, 32 or 64");
+    else if (out.collision_kernel == CollisionKernelMode::PerCell)
+      is.add(p + ".collision_team_size", "not used by collision_kernel 'per_cell'");
+    else
+      out.collision_team_size = static_cast<std::uint32_t>(*v);
+  }
   if (out.blocks > out.sample_steps) is.add(p + ".blocks", "must not exceed dsmc.sample_steps");
 }
 

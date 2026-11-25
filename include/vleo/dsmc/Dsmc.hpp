@@ -80,6 +80,7 @@ struct DsmcSettings {
   bool profile = false;                // phase timings (also VLEO_PROFILE=1)
   bool load_balance = true;            // several ranks: re-split the planes at the end of the warm-up (M6.5)
   CollisionKernel collision_kernel = CollisionKernel::Automatic;
+  int collision_team_size = 32;        // threads per cell of the waves kernel on GPUs
   GridOptions grid;
 
   // Free-stream reference values used for the automatic choices.

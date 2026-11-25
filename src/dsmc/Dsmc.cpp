@@ -987,6 +987,10 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
   s.sample_steps = cfg.dsmc.sample_steps;
   s.blocks = cfg.dsmc.blocks;
   s.boundary = cfg.dsmc.boundary == DomainBoundary::Specular ? DsmcBoundary::Specular : DsmcBoundary::Open;
+  s.collision_kernel = cfg.dsmc.collision_kernel == CollisionKernelMode::PerCell ? CollisionKernel::PerCell
+                       : cfg.dsmc.collision_kernel == CollisionKernelMode::Waves ? CollisionKernel::Waves
+                                                                               : CollisionKernel::Automatic;
+  s.collision_team_size = static_cast<int>(cfg.dsmc.collision_team_size);
   const double expected = n * g.cell_volume() * g.num_cells() / s.particle_weight;
   s.max_particles = cfg.dsmc.max_particles ? *cfg.dsmc.max_particles
                                            : static_cast<std::uint64_t>(std::max(1.0e6, 6.0 * expected));
@@ -1465,8 +1469,9 @@ struct DsmcSimulation::Impl {
       Kokkos::parallel_for("vleo::dsmc_collide", IntPolicy(c_lo, c_hi),
                            CollideCellsSerial{model, offset, list, sg_max, cand, acc, upd});
     } else {
-      // 32 threads per cell on GPUs (wave32 / warp); host backends (tests) choose themselves
-      Kokkos::TeamPolicy<> tp = kHostExecution ? Kokkos::TeamPolicy<>(nc, Kokkos::AUTO) : Kokkos::TeamPolicy<>(nc, 32);
+      // collision_team_size threads per cell on GPUs (default 32: wave32 / warp); host backends choose themselves
+      Kokkos::TeamPolicy<> tp =
+          kHostExecution ? Kokkos::TeamPolicy<>(nc, Kokkos::AUTO) : Kokkos::TeamPolicy<>(nc, set.collision_team_size);
       tp.set_scratch_size(0, Kokkos::PerTeam(static_cast<int>(CollideCellsWaves::scratch_bytes())));
       Kokkos::parallel_for("vleo::dsmc_collide_waves", tp,
                            CollideCellsWaves{model, offset, list, sg_max, cand, acc, upd, c_lo});
@@ -2262,6 +2267,7 @@ DsmcSettings refine_cell_size_with_pilot(const SimulationConfig& cfg, const Geom
   out.grid = settings.grid;
   out.profile = settings.profile;
   out.collision_kernel = settings.collision_kernel;
+  out.collision_team_size = settings.collision_team_size;
   out.initial_fill = settings.initial_fill;
   out.boundary = settings.boundary;
   out.max_interactions_per_step = settings.max_interactions_per_step;

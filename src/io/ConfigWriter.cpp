@@ -94,6 +94,9 @@ void walk(const SimulationConfig& c, Sink& s) {
   if (c.dsmc.max_particles) s.u64("max_particles", *c.dsmc.max_particles);
   if (c.dsmc.dt_DSMCState_out) s.dbl("dt_DSMCState_out", *c.dsmc.dt_DSMCState_out);
   if (c.dsmc.boundary != DomainBoundary::Open) s.str("boundary", to_string(c.dsmc.boundary));
+  if (c.dsmc.collision_kernel != CollisionKernelMode::Automatic)
+    s.str("collision_kernel", to_string(c.dsmc.collision_kernel));
+  if (c.dsmc.collision_team_size != 32) s.u64("collision_team_size", c.dsmc.collision_team_size);
   s.end();
 
   s.begin("statistics");

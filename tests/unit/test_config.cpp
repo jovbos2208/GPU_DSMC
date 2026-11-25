@@ -568,8 +568,10 @@ TEST_CASE("DSMC options and scope", "[config]") {
   const std::string he = std::string(dsmc).replace(dsmc.find("    O: 1.0"), 10, "    He: 1.0");
   const SimulationConfig c = parse_simulation_config(
       he + "dsmc:\n  warmup_steps: 50\n  sample_steps: 400\n  blocks: 10\n  max_particles: 1000000\n"
-           "  dt_DSMCState_out: 2.5e-5\n  boundary: specular\n",
+           "  dt_DSMCState_out: 2.5e-5\n  boundary: specular\n  collision_kernel: waves\n  collision_team_size: 16\n",
       kData);
+  CHECK(c.dsmc.collision_kernel == CollisionKernelMode::Waves);
+  CHECK(c.dsmc.collision_team_size == 16);
   CHECK(c.dsmc.boundary == DomainBoundary::Specular);
   CHECK(*c.dsmc.warmup_steps == 50);
   REQUIRE(c.dsmc.dt_DSMCState_out.has_value());
@@ -601,6 +603,9 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
       {"dsmc:\n  sample_steps: 10\n  blocks: 20\n", "dsmc.blocks: must not exceed dsmc.sample_steps"},
       {"dsmc:\n  max_particles: 0\n", "dsmc.max_particles: must be at least 1"},
       {"dsmc:\n  boundary: periodic\n", "dsmc.boundary"},
+      {"dsmc:\n  collision_kernel: fast\n", "dsmc.collision_kernel"},
+      {"dsmc:\n  collision_team_size: 12\n", "dsmc.collision_team_size: must be 8, 16, 32 or 64"},
+      {"dsmc:\n  collision_kernel: per_cell\n  collision_team_size: 16\n", "dsmc.collision_team_size: not used"},
       {"dsmc:\n  warmup_steps: -3\n", "dsmc.warmup_steps: expected a non-negative integer"},
       {"dsmc:\n  dt_DSMCState_out: 0\n", "dsmc.dt_DSMCState_out: value 0 is outside"},
       {"dsmc:\n  dt_DSMCState_out: -1e-5\n", "dsmc.dt_DSMCState_out: value -1e-05 is outside"},
