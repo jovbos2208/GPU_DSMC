@@ -26,12 +26,14 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <Kokkos_Core.hpp>
 
 #include "vleo/core/BuildInfo.hpp"
 #include "vleo/core/Comm.hpp"
+#include "vleo/core/Profiler.hpp"
 #include "vleo/core/SelfTest.hpp"
 #include "vleo/geometry/Geometry.hpp"
 #include "vleo/io/ConfigParser.hpp"
@@ -589,6 +591,7 @@ int run_case(const Options& opt, PreparedCase& pc, const std::optional<vleo::Pla
 
   // --- Outputs (rank 0 only) ------------------------------------------------------
   if (!vleo::comm::root()) return self_test_ok ? kExitOk : kExitRuntimeError;
+  const vleo::Region output_region("vleo::write_outputs");
   try {
     const fs::path f_resolved = out_dir / "resolved_config.yaml";
     const fs::path f_input = out_dir / "input_config.yaml";
@@ -755,8 +758,10 @@ int run(const Options& opt, int argc, char** argv) {
         }
   }
 
+  std::optional<vleo::Region> self_test_region(std::in_place, "vleo::self_test");
   const vleo::SelfTestResult self_test = vleo::backend_self_test(cases.front().cfg.simulation.random_seed);
   const bool self_test_ok = vleo::comm::all(self_test.passed);
+  self_test_region.reset();
   if (!self_test_ok) std::cerr << "error: " << self_test.detail << "\n";
 
   // --- Cases -------------------------------------------------------------------

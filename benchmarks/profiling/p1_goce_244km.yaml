@@ -1,0 +1,67 @@
+# Profiling case P1: GOCE full scale at 244 km (production case, nearly free-molecular).
+# Same physics and numerics as Aero_coeffs_OC/vleo_goce_dsmc_244km/goce_244km_dsmc.yaml
+# (NRLMSIS 2.1, 2013-04-15, F10.7 = 123, Ap = 6; CLL alpha_n = 0.64, sigma_t = 1, T_w = 300 K;
+# 0.08 m cells, 20 particles per cell, ~15-16.5 M particles, dt = 1.8 us), but short:
+# 400 warm-up + 600 sampled steps (~80-90 s on one W7700) and a cell-state file every
+# 200 steps, so that the timeline contains every kind of work:
+#   move (BVH ray tracing + CLL), binning (histogram, scan, fill, sort), collisions (few here),
+#   surface/step reductions (sampling phase), cell moments and HDF5 output (host), progress.
+# Starts from free-stream gas, so the particle count still grows by ~7 % (re-emitted gas).
+simulation:
+  name: p1_goce_244km
+  mode: dsmc
+  random_seed: 2442013
+
+geometry:
+  file: ../../examples/geometry/goce_march2019.stl
+  units: mm
+
+domain:
+  box_min_m: [-7.5, -3.0, -3.0]
+  box_max_m: [3.5, 3.0, 3.0]
+
+reference:
+  area_m2: 1.1
+  length_m: 1.0
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+
+gas:
+  number_density_m3: 2.2500e15
+  translational_temperature_K: 1016.5
+  bulk_velocity_body_mps: [-7829.0, 0.0, 0.0]
+  species:
+    O: 0.67637
+    N2: 0.29316
+    N: 0.01614
+    O2: 0.01134
+    He: 0.00283
+    Ar: 0.00016
+
+surface:
+  model: cll
+  temperature_K: 300.0
+  cll:
+    alpha_n: 0.64
+    sigma_t: 1.0
+
+dsmc:
+  collision_model: VSS
+  timestep_mode: fixed
+  timestep_s: 1.8e-6
+  cell_size_mode: fixed
+  cell_size_m: 0.08
+  particles_per_cell_target: 20
+  warmup_steps: 400
+  sample_steps: 600
+  blocks: 10
+  dt_DSMCState_out: 3.6e-4     # 200 steps per file -> 5 files
+
+statistics:
+  confidence_level: 0.95
+  report_uncertainty: true
+
+output:
+  directory: results/p1_goce_244km
+  format: csv
+  save_surface_fields: false

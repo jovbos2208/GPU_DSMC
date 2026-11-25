@@ -5,6 +5,12 @@
 // that phase on any backend (CPU, CUDA, HIP). Disabled (default) it costs
 // nothing: no fences are inserted and the solver runs asynchronously.
 // Enabled with the command-line option --profile or VLEO_PROFILE=1.
+//
+// Independently of that, every scope is also a Kokkos profiling region
+// (pushRegion/popRegion) whenever a Kokkos tool is loaded (rocprofv3
+// --kokkos-trace, KOKKOS_TOOLS_LIBS=..., rocprof-sys): the phases then appear
+// as named host ranges in external timelines, without fences, so the
+// asynchronous execution is not disturbed. Without a tool this is one branch.
 
 #include <chrono>
 #include <map>
@@ -14,6 +20,22 @@
 
 namespace vleo {
 
+// Named Kokkos profiling region for external tools (no-op without a loaded tool).
+class Region {
+ public:
+  explicit Region(const char* name) : active_(Kokkos::Profiling::profileLibraryLoaded()) {
+    if (active_) Kokkos::Profiling::pushRegion(name);
+  }
+  ~Region() {
+    if (active_) Kokkos::Profiling::popRegion();
+  }
+  Region(const Region&) = delete;
+  Region& operator=(const Region&) = delete;
+
+ private:
+  bool active_;
+};
+
 class Profiler {
  public:
   explicit Profiler(bool enabled = false) : enabled_(enabled) {}
@@ -22,7 +44,7 @@ class Profiler {
 
   class Scope {
    public:
-    Scope(Profiler& p, const char* name) : p_(p), name_(name) {
+    Scope(Profiler& p, const char* name) : p_(p), name_(name), region_(name) {
       if (p_.enabled_) {
         Kokkos::fence();
         t0_ = std::chrono::steady_clock::now();
@@ -42,6 +64,7 @@ class Profiler {
    private:
     Profiler& p_;
     const char* name_;
+    Region region_;
     std::chrono::steady_clock::time_point t0_;
   };
 

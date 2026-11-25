@@ -92,6 +92,10 @@ starting points:
 - `--profile` adds per-phase timings to `diagnostics.profile`;
   `scripts/benchmark.py` measures the standard cases
   ([benchmarks/README.md](../benchmarks/README.md)).
+- External profilers (rocprofv3 `--kokkos-trace`, rocprof-sys,
+  `KOKKOS_TOOLS_LIBS`) see the solver phases as named Kokkos regions;
+  [benchmarks/profiling/README.md](../benchmarks/profiling/README.md) has
+  ready cases and a driver for GPU/CPU timelines.
 - DSMC cost scales with the number of cells × particles per cell; the pilot
   rule can increase the cell count substantially for dense flows around thin
   parts – the pilot report in the log shows the chosen cell size before the

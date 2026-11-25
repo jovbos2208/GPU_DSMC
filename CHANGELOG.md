@@ -7,6 +7,12 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
+- Profiling cases `benchmarks/profiling/` (GOCE 244 km and a collision-heavy
+  dense variant) with `profile.sh` (built-in phases, rocprofv3, rocprof-sys,
+  perf, plus a GPU/CPU load monitor) and `analyze_profile.py` (kernel and
+  phase tables, GPU idle gaps, host wait time, timeline plots). The
+  `Profiler::Scope` phases and the run stages are now Kokkos profiling regions
+  when a Kokkos tool is loaded (no fences, no cost otherwise).
 - DSMC cell-state output `dsmc.dt_DSMCState_out` (seconds of simulated time):
   per-cell averages over each output window – number and mass density,
   velocity, translational / rotational / vibrational / overall temperature,

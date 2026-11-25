@@ -5,9 +5,11 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 
 #include "vleo/core/Comm.hpp"
 #include "vleo/core/PhysicalConstants.hpp"
@@ -2153,9 +2155,14 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
     last = now;
     return dt;
   };
+  std::optional<Region> setup_region(std::in_place, "vleo::dsmc_setup");
   DsmcSimulation sim(cfg, geometry, inflow, settings);
+  setup_region.reset();
   sim.record_phase("run.setup", lap());
-  if (settings.initial_fill) sim.fill_freestream();
+  if (settings.initial_fill) {
+    const Region rg("vleo::dsmc_fill");
+    sim.fill_freestream();
+  }
   sim.record_phase("run.fill", lap());
   const std::uint64_t total = settings.warmup_steps + settings.sample_steps;
   const std::uint64_t report = std::max<std::uint64_t>(1, total / 100);  // progress every 1 % (simulation.out)
@@ -2165,6 +2172,7 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   if (states) sim.enable_cell_state_sampling();
   for (std::uint64_t k = 0; k < total; ++k) {
     const bool sample = k >= settings.warmup_steps;
+    const Region step_region(sample ? "vleo::dsmc_step(sampling)" : "vleo::dsmc_step(warmup)");
     sim.step(sample);
     if (k + 1 == settings.warmup_steps && settings.load_balance) sim.rebalance();
     if (states) {
@@ -2172,6 +2180,7 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
       const double t_end = static_cast<double>(k + 1) * settings.timestep_s;
       const double t_next = static_cast<double>(windows_done + 1) * interval;
       if (t_end >= t_next * (1.0 - 1e-12) || k + 1 == total) {
+        const Region rg("vleo::dsmc_state_output");
         DsmcCellState st = sim.take_cell_state();  // collective with several ranks
         if (comm::root()) on_state(st);
         windows_done = static_cast<std::uint64_t>(std::floor(t_end / interval * (1.0 + 1e-12)));
@@ -2179,6 +2188,7 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
     }
     // report steps are the same on every rank (num_particles() is collective)
     if ((k + 1) % report == 0 || k + 1 == total) {
+      const Region rg("vleo::dsmc_progress");
       const std::size_t np = progress || comm::size() > 1 ? sim.num_particles() : 0;
       const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       if (progress) progress({k + 1, total, sample, np, el});
@@ -2186,7 +2196,9 @@ DsmcResult run_dsmc(const SimulationConfig& cfg, const Geometry& geometry, const
   }
   Kokkos::fence();
   sim.record_phase("run.steps", lap());
+  std::optional<Region> result_region(std::in_place, "vleo::dsmc_result");
   DsmcResult r = sim.result();
+  result_region.reset();
   if (profile) r.profile["run.result"] = Profiler::Entry{lap(), 1};
   r.wall_time_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   return r;
