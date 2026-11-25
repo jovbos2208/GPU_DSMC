@@ -1,6 +1,7 @@
 // M3.2, M3.3, M3.9, M3.10: collision grid, binning, cut-cell gas volumes.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
@@ -133,6 +134,8 @@ TEST_CASE("Binning: every particle exactly once, in its cell, sorted by id", "[g
   const Domain dom = make_domain(cfg.domain, geo.host.bbox, 1e-6);
   const InflowModel inflow = InflowModel::create(dom, cfg.gas);
   DsmcSettings s = resolve_dsmc_settings(cfg, dom);
+  // without and with reordering into cell order (dsmc.reorder_interval, default 10)
+  s.reorder_interval = GENERATE(0u, 2u);
   DsmcSimulation sim(cfg, geo, inflow, s);
   sim.fill_freestream();
   for (int k = 0; k < 5; ++k) sim.step(false);
@@ -160,8 +163,10 @@ TEST_CASE("Binning: every particle exactly once, in its cell, sorted by id", "[g
   // no particle inside the body
   CHECK(sim.counters().removed_inside_at_fill > 0);
   for (const Vec3& p : pos) REQUIRE(!(std::fabs(p.x) < 0.2 && std::fabs(p.y) < 0.2 && std::fabs(p.z) < 0.2));
-  // invariant used by the cell sort: ids increase with the storage index
-  for (std::size_t i = 1; i < ids.size(); ++i) REQUIRE(ids[i - 1] < ids[i]);
+  // without reordering the ids increase with the storage index (why the index
+  // order equals the id order of the cell lists of reordered runs)
+  if (s.reorder_interval == 0)
+    for (std::size_t i = 1; i < ids.size(); ++i) REQUIRE(ids[i - 1] < ids[i]);
   std::set<std::uint64_t> unique(ids.begin(), ids.end());
   CHECK(unique.size() == ids.size());
 }

@@ -7,9 +7,11 @@ scheme in [docs/development.md](docs/development.md#versioning).
 ## [Unreleased]
 
 ### Added
-- `dsmc.reorder_interval: n`: particles copied into cell order every n steps
-  (contiguous memory for binning, collisions, cell moments); cell lists then
-  sorted by particle id; physics bitwise unchanged.
+- `dsmc.reorder_interval: n` (default 10): particles copied into cell order
+  every n steps (contiguous memory for binning, collisions, cell moments, and
+  coherent geometry access in the move); cell lists then sorted by particle id;
+  physics bitwise unchanged, force sums differ by round-off from the summation
+  order. W7700: GOCE 244 km 73.1 → 48 ms per step, reservoir 61.0 → 49.4 ms.
 - `dsmc.state_sample_every: n`: cell-state moments summed every n-th step of
   an output window (default 1); `AveragingWindow_s` now counts all steps of
   the window. The moments kernel keeps its sums in registers (no array

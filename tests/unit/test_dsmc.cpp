@@ -312,6 +312,8 @@ TEST_CASE("Reordering the particles into cell order leaves the physics unchanged
       "timestep_s: 2.0e-6, particles_per_cell_target: 40, warmup_steps: 4, sample_steps: 12, blocks: 2}\n";
   Case c = make_case(primitives::box({-0.1, -0.1, -0.1}, {0.1, 0.1, 0.1}), body);
   DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
+  CHECK(s.reorder_interval == 10);  // default
+  s.reorder_interval = 0;
   DsmcSimulation a(c.cfg, c.geometry, c.inflow, s);
   s.reorder_interval = 2;
   DsmcSimulation b(c.cfg, c.geometry, c.inflow, s);

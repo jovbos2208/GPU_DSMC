@@ -156,7 +156,8 @@ struct DSMCSection {
   CollisionKernelMode collision_kernel = CollisionKernelMode::Automatic;
   std::uint32_t collision_team_size = 32;  // threads per cell of the waves kernel (8, 16, 32, 64)
   // Steps between reorders of the particle arrays into cell order (0: never).
-  std::uint64_t reorder_interval = 0;
+  // W7700: 5-20 steps equally good (GOCE 244 km step -34 %), 10 as default.
+  std::uint64_t reorder_interval = 10;
 };
 
 struct StatisticsSection {

@@ -82,7 +82,7 @@ struct DsmcSettings {
   bool load_balance = true;            // several ranks: re-split the planes at the end of the warm-up (M6.5)
   CollisionKernel collision_kernel = CollisionKernel::Automatic;
   int collision_team_size = 32;        // threads per cell of the waves kernel on GPUs
-  std::uint64_t reorder_interval = 0;  // steps between particle reorders into cell order (0: never)
+  std::uint64_t reorder_interval = 10; // steps between particle reorders into cell order (0: never)
   GridOptions grid;
 
   // Free-stream reference values used for the automatic choices.
@@ -281,7 +281,10 @@ class DsmcSimulation {
   std::uint64_t sampled_steps() const;
 
   // counters() holds the contributions of this rank (result() sums them).
-  // Host copies of the current particle state of this rank (tests, diagnostics).
+  // Host copies of the current particle state of this rank (tests, diagnostics),
+  // in storage order. The storage order changes between steps (compaction,
+  // dsmc.reorder_interval): combine only arrays read after the same step, or
+  // match particles by particle_ids().
   std::vector<Vec3> velocities() const;
   std::vector<Vec3> positions() const;
   std::vector<std::uint64_t> particle_ids() const;

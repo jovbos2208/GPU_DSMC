@@ -121,11 +121,13 @@ TEST_CASE("O/N/He mixture at equilibrium: pair collision rates, energy, common t
       CHECK(std::fabs(K - expected) < 5.0 * std::sqrt(expected) + 0.01 * expected);
     }
   }
+  // storage order changes with the reorders (dsmc.reorder_interval): read both again
   const std::vector<Vec3> v = sim.velocities();
-  CHECK_THAT(kinetic_energy(v, sp, c.cfg), WithinRel(E0, 1e-10));
+  const std::vector<std::uint32_t> sp1 = sim.species();
+  CHECK_THAT(kinetic_energy(v, sp1, c.cfg), WithinRel(E0, 1e-10));
   for (std::uint32_t q = 0; q < 3; ++q) {
     double nq = 0.0;
-    const double Tq = species_temperature(v, sp, q, c.cfg.gas.species[q].mass_kg, nq);
+    const double Tq = species_temperature(v, sp1, q, c.cfg.gas.species[q].mass_kg, nq);
     INFO("species " << q << ": T = " << Tq);
     CHECK(std::fabs(Tq / T - 1.0) < 5.0 * std::sqrt(2.0 / (3.0 * nq)));
   }
@@ -158,11 +160,13 @@ TEST_CASE("Two-temperature He/Ar mixture relaxes to the common temperature", "[m
   sim.set_particles(pos, vel, sp);
   const double E0 = kinetic_energy(vel, sp, c.cfg);
   for (int k = 0; k < 600; ++k) sim.step(false);  // 60 mean collision times
+  // storage order changes with the reorders (dsmc.reorder_interval): read both again
   const std::vector<Vec3> v = sim.velocities();
-  CHECK_THAT(kinetic_energy(v, sp, c.cfg), WithinRel(E0, 1e-10));
+  const std::vector<std::uint32_t> sp1 = sim.species();
+  CHECK_THAT(kinetic_energy(v, sp1, c.cfg), WithinRel(E0, 1e-10));
   double n_he = 0.0, n_ar = 0.0;
-  const double T_he = species_temperature(v, sp, 0, c.cfg.gas.species[0].mass_kg, n_he);
-  const double T_ar = species_temperature(v, sp, 1, c.cfg.gas.species[1].mass_kg, n_ar);
+  const double T_he = species_temperature(v, sp1, 0, c.cfg.gas.species[0].mass_kg, n_he);
+  const double T_ar = species_temperature(v, sp1, 1, c.cfg.gas.species[1].mass_kg, n_ar);
   const double T_eq = 2.0 * E0 / (3.0 * (n_he + n_ar) * constants::k_B);
   INFO("T_He = " << T_he << ", T_Ar = " << T_ar << ", T_eq = " << T_eq);
   CHECK(std::fabs(T_he / T_eq - 1.0) < 5.0 * std::sqrt(2.0 / (3.0 * n_he)));
