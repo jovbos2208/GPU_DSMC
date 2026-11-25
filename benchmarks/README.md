@@ -351,3 +351,22 @@ two MPI ranks (preset `cpu-release-mpi`, `mpiexec -n 2 --map-by socket
 Same collision count (150 994 394) as one rank and as the GPU. One W7700 is
 2.05× the whole dual-socket node. CPU runs on multi-socket machines: one MPI
 rank per socket (NUMA node), OpenMP within it.
+
+### NVIDIA: GeForce RTX 4070 Ti SUPER (brunhilde, 2026-11-25)
+
+First CUDA run of the code: preset `cuda-ada89` (CUDA from `/usr/local/cuda`,
+driver 570.172, gcc 14.2, `-DVLEO_HDF5=OFF` because the HDF5 module there is the
+MPI build). P3 reservoir, same run as above (50 + 150 steps, no cell-state output):
+
+| | RTX 4070 Ti SUPER | W7700 | 2× EPYC 7543, 2 ranks × 32 |
+| --- | ---: | ---: | ---: |
+| ms per step | **17.4** | 35.5 | 72.9 |
+| ns per particle step | 1.15 | 2.36 | 4.85 |
+| move / collide / binning / reorder / reduce [ms] | 6.2 / 4.0 / 2.9 / 2.1 / 1.5 | 11.8 / 9.7 / 6.5 / 2.6 / 3.9 | 23.6 / 14.2 / 21.0 / 4.9 / 4.6 |
+
+Same collision count (150 994 394) as HIP, OpenMP and MPI: NVCC, hip-clang and
+the host clang give bitwise identical physics. Collision kernels on CUDA:
+per_cell 4.06, hybrid 4.07, waves with 32 threads (one warp) 19.73 ms per step –
+the hybrid default holds on NVIDIA. The GeForce card's low FP64 rate does not
+limit the solver (memory-bound); the reorder copy (2.1 ms, 12 % of the step)
+weighs more here than on the W7700.
