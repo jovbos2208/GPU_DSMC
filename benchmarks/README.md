@@ -277,3 +277,60 @@ overlap the particle exchange with the binning of the resident particles,
 and inject directly on the owning rank (injected particles are currently
 spread over the ranks by index and migrate after their first move; their
 share of the 12 000 migrants per step in B5 has not been measured).
+
+## Profiling and GPU optimisation (2026-11-25, `dsmc-state-m6`)
+
+Server `hagen`, one Radeon PRO W7700 (HIP 6.3.1, `hip-gfx1101-hdf5`), cases and
+tools in [profiling/](profiling/README.md): P1 GOCE full scale at 244 km
+(15.4 M particles, nearly free-molecular, cell-state output every 200 steps),
+P3 closed air reservoir (`dsmc.boundary: specular`, 15.0 M particles, 0.1
+collisions per particle and step = 1.5 M per step). Timings with the fenced
+phase profiler (`VLEO_PROFILE=1`), cross-checked with the `kp_trace` Kokkos
+timeline (kernel sums agree within 0.1 %).
+
+**Starting point (P3, 104 ms per step, 6.9 ns per particle step):** GPU busy
+95.6 %, gaps between kernels 3.8 µs (median) – launch overhead is negligible;
+`dsmc_collide_waves` 46.5 %, `dsmc_cell_state` 29.0 %, move 12.0 %, binning
+7.0 %; each cell-state file stops the GPU for 0.88 s (host processing + HDF5).
+
+| Step | Change | P3 [ms/step] | P1 [ms/step] |
+| ---- | ------ | ------------ | ------------ |
+| 0 | start (waves collisions, moments every step) | 104 | 75.5 |
+| 1 | `collision_kernel: hybrid` (GPU default): per-cell for cells with ≤ 256 candidates | 60.6 | 68.4 |
+| 2 | cell-moments kernel without species-indexed array | (incl. in 1) | (incl. in 1) |
+| 3 | `reorder_interval: 10` (default): particles in cell order | 49.4 | 48.0 |
+| 4 | + `state_sample_every: 5` (config) | 42.9 | 42.2 |
+
+Collision kernels at 4–5 candidates per cell (`compare_collision_kernels.sh`):
+per-cell 9.9 ms, hybrid 10.0 ms, waves 16/32 threads 44 ms, waves 64 threads
+87 ms per step (P3); team size 8–32 barely matters – the per-team barriers and
+reductions dominate. Reordering (`compare_variants.sh`): cell moments 25 → 6.5
+ms per call, the move 18.7 → 12.5 ms (coherent geometry access), 5–20 steps
+equally good. All variants give identical collision and surface counters.
+
+GOCE 244 km sideslip production run (20 000 steps, 16.5 M particles, 100
+cell-state files): 4.8 / 5.2 ns per particle step (warm-up / sampling) →
+2.7 / 3.0 ns, 26.5 → ~16 min (without `state_sample_every`).
+
+### CPU vs. GPU (P3, `profiling/cpu_vs_gpu.sh`)
+
+2× AMD EPYC 7543 (64 cores, Kokkos OpenMP, ROCm clang 18, `OMP_PROC_BIND=spread`,
+`OMP_PLACES=cores`) vs. one W7700; no cell-state output, 50 + 150 steps:
+
+| | W7700 | 64 cores | GPU / CPU |
+| --- | ---: | ---: | ---: |
+| ms per step | 35.5 | 121.6 | **3.4×** |
+| ns per particle step | 2.36 | 8.08 | |
+| collisions per s | 2.1·10⁷ | 6.2·10⁶ | |
+| move / collide / binning / reorder / reduce [ms] | 11.8 / 9.7 / 6.5 / 2.6 / 3.9 | 28.8 / 34.9 / 31.5 / 12.0 / 9.0 | |
+
+CPU and GPU produce bitwise identical collision counts (150 994 394) and C_D.
+The GPU is 63× faster than one CPU thread. CPU thread scaling (10 + 20 steps):
+1 / 2 / 4 / 8 / 16 / 32 / 64 threads → speed-up 1.0 / 1.4 / 2.3 / 4.0 / 6.6 /
+11.9 / 17.9 (28 % efficiency at 64). Part of it is the clock (3.7 GHz boost on
+one core, 2.8 GHz base on all) and the second socket (`spread` places thread 2
+on the other socket); binning (atomic cell counters, insertion sort by id) and
+the gather-bound collisions scale worst. A host sort on contiguous id keys
+(as on GPUs) was tried and rejected: sort −15 %, fill +140 % on a 6-core CPU.
+Per energy (nominal power, not measured: W7700 ~145 W during the run, 2×
+225 W TDP) the GPU is roughly 10× more efficient per step.
