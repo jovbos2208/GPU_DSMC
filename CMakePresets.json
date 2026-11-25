@@ -59,6 +59,15 @@
       }
     },
     {
+      "name": "cuda-ada89",
+      "displayName": "NVIDIA CUDA Release for Ada (Kokkos_ARCH_ADA89, e.g. RTX 4070 / 4080 / 4090, L40)",
+      "inherits": "cuda",
+      "cacheVariables": {
+        "Kokkos_ARCH_AMPERE80": "OFF",
+        "Kokkos_ARCH_ADA89": "ON"
+      }
+    },
+    {
       "name": "hip",
       "displayName": "AMD HIP Release (default arch: AMD_GFX942 / MI300X)",
       "inherits": "base",
@@ -150,6 +159,10 @@
       "configurePreset": "cuda"
     },
     {
+      "name": "cuda-ada89",
+      "configurePreset": "cuda-ada89"
+    },
+    {
       "name": "hip",
       "configurePreset": "hip"
     },
@@ -221,6 +234,11 @@
       "name": "cuda",
       "inherits": "base",
       "configurePreset": "cuda"
+    },
+    {
+      "name": "cuda-ada89",
+      "inherits": "base",
+      "configurePreset": "cuda-ada89"
     },
     {
       "name": "hip",

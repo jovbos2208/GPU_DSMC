@@ -19,7 +19,8 @@
 #   CPU_BIN   default $DSMC/build/cpu-release/vleo_solver   (cmake --preset cpu-release && cmake --build build/cpu-release -j)
 #   DEVICE    HIP device index (default 0);  THREADS  e.g. "1 4 16 32"
 #   STEPS     "warmup sample" for the full runs (default "50 150");  SCALE_STEPS (default "10 20")
-#   SKIP_GPU=1 / SKIP_SCALING=1
+#   SKIP_GPU=1 / SKIP_CPU=1 / SKIP_SCALING=1
+#   GPU_BACKEND  hip (default) or cuda, e.g. GPU_BIN=build/cuda-ada89/vleo_solver GPU_BACKEND=cuda
 #   FULL_THREADS  threads of the full-size CPU run (default: physical cores)
 #   OMP_BIND / OMP_PLACES_  thread placement (default spread / cores); e.g. OMP_BIND=close keeps
 #             the first threads on one socket (NUMA test: FULL_THREADS=32 OMP_BIND=close)
@@ -49,7 +50,7 @@ if [[ -z ${THREADS:-} ]]; then
   while (( t < CORES )); do THREADS+="$t "; t=$((t * 2)); done
   THREADS+="$CORES"
 fi
-[[ -x $CPU_BIN ]] || { echo "error: CPU build not found: $CPU_BIN"; echo "  cmake --preset cpu-release && cmake --build build/cpu-release -j"; exit 1; }
+[[ ${SKIP_CPU:-0} == 1 || -x $CPU_BIN ]] || { echo "error: CPU build not found: $CPU_BIN"; echo "  cmake --preset cpu-release && cmake --build build/cpu-release -j"; exit 1; }
 [[ ${SKIP_GPU:-0} == 1 || -x $GPU_BIN ]] || { echo "error: GPU build not found: $GPU_BIN"; exit 1; }
 
 name=$(basename "$CASE" .yaml)
@@ -88,8 +89,8 @@ run() {  # run <tag> <backend> <bin> <warmup> <sample> [threads] [launcher]
 
 [[ ${SKIP_GPU:-0} == 1 ]] || run gpu "$GPU_BACKEND" "$GPU_BIN" "$W_FULL" "$S_FULL"
 RANKS=$(echo "${CPU_LAUNCH:-}" | sed -n 's/.*-n[p]* *\([0-9]*\).*/\1/p')
-run "cpu_full_${RANKS:+${RANKS}x}${FULL_THREADS}t" cpu "$CPU_BIN" "$W_FULL" "$S_FULL" "$FULL_THREADS" "${CPU_LAUNCH:-}"
-if [[ ${SKIP_SCALING:-0} != 1 ]]; then
+[[ ${SKIP_CPU:-0} == 1 ]] || run "cpu_full_${RANKS:+${RANKS}x}${FULL_THREADS}t" cpu "$CPU_BIN" "$W_FULL" "$S_FULL" "$FULL_THREADS" "${CPU_LAUNCH:-}"
+if [[ ${SKIP_SCALING:-0} != 1 && ${SKIP_CPU:-0} != 1 ]]; then
   for t in $THREADS; do run "cpu_scale_${t}t" cpu "$CPU_BIN" "$W_SC" "$S_SC" "$t"; done
 fi
 
