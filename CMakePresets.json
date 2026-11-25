@@ -108,6 +108,14 @@
       }
     },
     {
+      "name": "cpu-release-mpi",
+      "displayName": "CPU Release with MPI (Kokkos OpenMP + Serial): one rank per socket / NUMA node",
+      "inherits": "cpu-release",
+      "cacheVariables": {
+        "VLEO_ENABLE_MPI": "ON"
+      }
+    },
+    {
       "name": "hip-gfx1101-mpi",
       "displayName": "AMD HIP Release for RDNA3 Navi 32 with MPI (one rank per GPU, e.g. 2x Radeon PRO W7700)",
       "inherits": "hip-gfx1101",
@@ -160,6 +168,10 @@
     {
       "name": "cpu-mpi",
       "configurePreset": "cpu-mpi"
+    },
+    {
+      "name": "cpu-release-mpi",
+      "configurePreset": "cpu-release-mpi"
     },
     {
       "name": "hip-gfx1101-mpi",
@@ -234,6 +246,11 @@
       "name": "cpu-mpi",
       "inherits": "base",
       "configurePreset": "cpu-mpi"
+    },
+    {
+      "name": "cpu-release-mpi",
+      "inherits": "base",
+      "configurePreset": "cpu-release-mpi"
     },
     {
       "name": "hip-gfx1101-mpi",

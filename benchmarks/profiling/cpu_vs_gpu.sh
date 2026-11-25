@@ -24,6 +24,9 @@
 #   OMP_BIND / OMP_PLACES_  thread placement (default spread / cores); e.g. OMP_BIND=close keeps
 #             the first threads on one socket (NUMA test: FULL_THREADS=32 OMP_BIND=close)
 #   TAG       suffix of the result directory (several placements side by side)
+#   CPU_LAUNCH  launcher of the full-size CPU run, e.g. one MPI rank per socket with
+#             FULL_THREADS threads each (CPU_BIN from the cpu-mpi preset):
+#             CPU_LAUNCH="mpiexec -n 2 --map-by socket --bind-to socket" FULL_THREADS=32 OMP_BIND=close
 set -euo pipefail
 export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -70,8 +73,8 @@ open(dst, "w").write(s)
 EOF
 }
 
-run() {  # run <tag> <backend> <bin> <warmup> <sample> [threads]
-  local tag=$1 backend=$2 bin=$3 w=$4 s=$5 th=${6:-0} d="$ROOT/$1"
+run() {  # run <tag> <backend> <bin> <warmup> <sample> [threads] [launcher]
+  local tag=$1 backend=$2 bin=$3 w=$4 s=$5 th=${6:-0} launch=${7:-} d="$ROOT/$1"
   mkdir -p "$d"
   make_case "$d/case.yaml" "$w" "$s"
   printf "platform:\n  backend: %s\n" "$backend" > "$d/platform.yaml"
@@ -79,12 +82,13 @@ run() {  # run <tag> <backend> <bin> <warmup> <sample> [threads]
   [[ $th -gt 0 ]] && printf "  num_threads: %s\n" "$th" >> "$d/platform.yaml"
   echo "== $(date -u +%H:%M:%S) $tag"
   OMP_NUM_THREADS=$([[ $th -gt 0 ]] && echo "$th" || echo 1) OMP_PROC_BIND=$OMP_BIND OMP_PLACES=$OMP_PLACES_ VLEO_PROFILE=1 \
-    "$bin" --config "$d/case.yaml" --platform "$d/platform.yaml" --output-dir "$d/run" --quiet > "$d/solver.log" 2>&1 \
+    $launch "$bin" --config "$d/case.yaml" --platform "$d/platform.yaml" --output-dir "$d/run" --quiet > "$d/solver.log" 2>&1 \
     || { echo "   failed, see $d/solver.log"; tail -3 "$d/solver.log"; }
 }
 
 [[ ${SKIP_GPU:-0} == 1 ]] || run gpu "$GPU_BACKEND" "$GPU_BIN" "$W_FULL" "$S_FULL"
-run "cpu_full_${FULL_THREADS}t" cpu "$CPU_BIN" "$W_FULL" "$S_FULL" "$FULL_THREADS"
+RANKS=$(echo "${CPU_LAUNCH:-}" | sed -n 's/.*-n[p]* *\([0-9]*\).*/\1/p')
+run "cpu_full_${RANKS:+${RANKS}x}${FULL_THREADS}t" cpu "$CPU_BIN" "$W_FULL" "$S_FULL" "$FULL_THREADS" "${CPU_LAUNCH:-}"
 if [[ ${SKIP_SCALING:-0} != 1 ]]; then
   for t in $THREADS; do run "cpu_scale_${t}t" cpu "$CPU_BIN" "$W_SC" "$S_SC" "$t"; done
 fi
@@ -109,7 +113,8 @@ def load(tag):
                 ratio=g["collisions"]["collisions_per_particle_per_step"],
                 theory=g["collisions"]["free_stream_collisions_per_particle_per_step"],
                 particles=g["particles_mean"], CD=d["results"]["C_D"], ph=ph)
-gpu, full = load("gpu"), load(f"cpu_full_{cores}t")
+gpu = load("gpu")
+full = next((load(os.path.basename(t)) for t in sorted(glob.glob(os.path.join(root, "cpu_full_*")))), None)
 rows = [r for r in (gpu, full) if r]
 print(f"\nFull size ({rows[0]['particles']:.4g} particles, {rows[0]['steps']} steps)")
 print(f"{'run':<16} {'ms/step':>9} {'ns/(p*step)':>12} {'collisions/s':>14} {'move':>7} {'collide':>8} {'binning':>8} {'reorder':>8} {'reduce':>7}   [ms/step]")
