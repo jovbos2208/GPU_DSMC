@@ -334,3 +334,20 @@ the gather-bound collisions scale worst. A host sort on contiguous id keys
 (as on GPUs) was tried and rejected: sort −15 %, fill +140 % on a 6-core CPU.
 Per energy (nominal power, not measured: W7700 ~145 W during the run, 2×
 225 W TDP) the GPU is roughly 10× more efficient per step.
+
+**NUMA: one MPI rank per socket.** 32 threads on one socket (`OMP_PROC_BIND=close`)
+take 125.8 ms per step – as fast as 64 threads on both sockets (127.8 ms);
+32 threads spread over both sockets take 184.5 ms (collisions 65.5 vs. 28.0 ms,
+binning 51 vs. 37 ms): the gather-bound kernels pay for remote memory. With
+two MPI ranks (preset `cpu-release-mpi`, `mpiexec -n 2 --map-by socket
+--bind-to socket`, 32 threads each):
+
+| | 1 process × 64 threads | 2 ranks × 32 threads | W7700 |
+| --- | ---: | ---: | ---: |
+| ms per step | 127.8 | **72.9** | 35.5 |
+| ns per particle step | 8.50 | 4.85 | 2.36 |
+| move / collide / binning / reorder [ms] | 31.3 / 35.7 / 31.4 / 11.9 | 23.6 / 14.2 / 21.0 / 4.9 | 11.8 / 9.7 / 6.5 / 2.6 |
+
+Same collision count (150 994 394) as one rank and as the GPU. One W7700 is
+2.05× the whole dual-socket node. CPU runs on multi-socket machines: one MPI
+rank per socket (NUMA node), OpenMP within it.
