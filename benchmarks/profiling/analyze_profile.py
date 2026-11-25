@@ -39,7 +39,7 @@ GROUPS = [  # (group, substrings of the Kokkos label / region name / functor), f
 COLORS = {"move": "#1f77b4", "binning": "#ff7f0e", "collide": "#d62728", "reduce": "#9467bd",
           "cell_state": "#2ca02c", "sample": "#8c564b", "inject": "#e377c2", "compact": "#17becf",
           "migrate": "#bcbd22", "kokkos": "#7f7f7f", "other": "#c7c7c7"}
-SYNC_CALLS = re.compile(r"Synchronize|Memcpy(?!Async)|hipMemcpyDtoH\b|EventSynchronize|hipFree\b")
+SYNC_CALLS = re.compile(r"Synchronize|Memcpy(?!Async)|hipMemcpyDtoH\b|EventSynchronize|hipFree\b|fence|Fence")
 
 
 def group_of(name):
@@ -192,8 +192,29 @@ def load_rocprof(root):
     for r in copy:
         s, e = ts(r)
         copies.append((s, e, col(r, "Direction", "Kind", default="copy"), int(col(r, "Bytes", "Size", default=0) or 0)))
-    R.update(kernels=sorted(kernels), api=sorted(api_rows), ranges=ranges, copies=sorted(copies))
+    R.update(source="rocprofv3", kernels=sorted(kernels), api=sorted(api_rows), ranges=ranges, copies=sorted(copies))
     return R
+
+
+def load_kp_trace(path):
+    """Timeline of the kp_trace Kokkos tool (kp_trace.cpp) in the layout of load_rocprof."""
+    if not os.path.exists(path):
+        return None
+    kern, reg, waits, copies = [], [], [], []
+    for r in read_csv(path):
+        s, e, n = int(r["start_ns"]), int(r["end_ns"]), r["name"]
+        if r["kind"] == "kernel":
+            kern.append((s, e, n))
+        elif r["kind"] == "region":
+            reg.append((s, e, n))
+        elif r["kind"] == "fence":
+            waits.append((s, e, "fence: " + re.sub(r"\s+", " ", n)[:70], "host"))
+        elif r["kind"] == "copy":
+            d = n.split(" ")[0]
+            copies.append((s, e, d, int(r["bytes"] or 0)))
+            waits.append((s, e, "deep_copy " + d, "host"))
+    return {"source": "kp_trace", "kernels": sorted(kern), "api": sorted(waits),
+            "ranges": {"host": Ranges(reg)} if reg else {}, "copies": sorted(copies)}
 
 
 def union_length(iv):
@@ -219,7 +240,7 @@ def gaps(iv):
     return np.array(out)
 
 
-def rocprof_summary(R, md, figdir):
+def rocprof_summary(R, md, figdir, prefix=""):
     K = R["kernels"]
     main_tid = max(R["ranges"], key=lambda k: len(R["ranges"][k].items)) if R["ranges"] else None
     rg = R["ranges"].get(main_tid)
@@ -230,7 +251,11 @@ def rocprof_summary(R, md, figdir):
     ktot = sum(e - s for s, e, _ in loop)
     busy = union_length([(s, e) for s, e, _ in loop])
     span = t_hi - t_lo
-    md.append("## GPU (rocprofv3), step loop only\n")
+    md.append(f"## Kernels ({R['source']}), step loop only\n")
+    if R["source"] == "kp_trace":
+        md.append("kp_trace with global fencing (default): a kernel interval runs from the launch to the end of "
+                  "the kernel on the device (device time + a few µs launch and synchronisation latency); the "
+                  "gaps between kernels are host-only time (launch, host code, copies).\n")
     md.append(f"- steps traced: {len(steps)}, loop span {span / 1e9:.2f} s, "
               f"{span / max(1, len(steps)) / 1e6:.2f} ms per step")
     md.append(f"- GPU busy (union of kernel intervals): {100 * busy / span:.1f} % of the loop, "
@@ -256,10 +281,13 @@ def rocprof_summary(R, md, figdir):
         for s, e, fn, tid in R["api"]:
             if s >= t_lo and e <= t_hi:
                 a[fn][0] += 1; a[fn][1] += e - s
-        md.append("\n## CPU in HIP API calls (step loop)\n")
-        md.append("Time the host thread spends inside HIP calls; synchronising calls "
-                  "(Synchronize, blocking Memcpy) = the CPU waiting for the GPU.\n")
-        md.append("| HIP call | calls | total [ms] | mean [µs] | waits for GPU |\n|---|---:|---:|---:|:---:|")
+        if R["source"] == "kp_trace":
+            md.append("\n## Host waits: fences and deep copies (step loop)\n")
+        else:
+            md.append("\n## CPU in HIP API calls (step loop)\n")
+            md.append("Time the host thread spends inside HIP calls; synchronising calls "
+                      "(Synchronize, blocking Memcpy) = the CPU waiting for the GPU.\n")
+        md.append("| call | calls | total [ms] | mean [µs] | waits for device |\n|---|---:|---:|---:|:---:|")
         for fn, (c, t) in sorted(a.items(), key=lambda x: -x[1][1])[:15]:
             md.append(f"| `{fn}` | {c} | {t / 1e6:.1f} | {t / c / 1e3:.1f} | {'x' if SYNC_CALLS.search(fn) else ''} |")
     if R["copies"]:
@@ -299,8 +327,8 @@ def rocprof_summary(R, md, figdir):
                          "time step with cell-state output (moments copy + HDF5 write on the host)"))
     figs.append(("timeline_run.png", (K[0][0], K[-1][1]), "whole run"))
     for fname, (lo, hi), title in figs:
-        timeline(R, rg, lo, hi, t0, os.path.join(figdir, fname), title, overview=fname == "timeline_run.png")
-        md.append(f"\n![{title}]({fname})")
+        timeline(R, rg, lo, hi, t0, os.path.join(figdir, prefix + fname), title, overview=fname == "timeline_run.png")
+        md.append(f"\n![{title}]({prefix + fname})")
 
 
 def timeline(R, rg, lo, hi, t0, png, title, overview=False):
@@ -328,10 +356,11 @@ def timeline(R, rg, lo, hi, t0, png, title, overview=False):
             rows.append({0: "CPU: step / stage", 1: "CPU: phase", 2: "CPU: kernel launch"}.get(d, f"CPU: level {d}"))
             y += 1
     if R["api"]:
+        api_row = "CPU: fences / copies" if R.get("source") == "kp_trace" else "CPU HIP API"
         for s, e, fn, tid in sel(R["api"]):
-            c = "#d62728" if SYNC_CALLS.search(fn) else "0.55"
+            c = "#5a0000" if SYNC_CALLS.search(fn) else "0.55"
             ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor=c, edgecolor="none")
-        rows.append("CPU HIP API"); y += 1
+        rows.append(api_row); y += 1
     for s, e, n in sel(R["kernels"]):
         ax.broken_barh([(x(s), max(x(e) - x(s), 1e-9))], (y, 0.8), facecolor=COLORS[group_of(n)], edgecolor="none")
     rows.append("GPU kernels"); y += 1
@@ -342,7 +371,7 @@ def timeline(R, rg, lo, hi, t0, png, title, overview=False):
     ax.set_yticks(np.arange(len(rows)) + 0.4); ax.set_yticklabels(rows, fontsize=8)
     ax.set_xlim(x(lo), x(hi)); ax.set_xlabel(f"time [{unit}] since the first kernel")
     handles = [Patch(color=c, label=g) for g, c in COLORS.items()]
-    handles += [Patch(color="#d62728", label="HIP call waiting for GPU"), Patch(color="0.55", label="other HIP call")]
+    handles += [Patch(color="#5a0000", label="host waits for device"), Patch(color="0.55", label="other call")]
     ax.legend(handles=handles, fontsize=7, ncol=6, loc="upper center", bbox_to_anchor=(0.5, -0.12))
     ax.set_title(title, fontsize=10)
     fig.savefig(png, dpi=120); plt.close(fig)
@@ -376,8 +405,14 @@ def main():
             share = f"{100 * v['seconds'] / tot:.1f} %" if k in leaf else ""
             md.append(f"| `{k}` | {v['calls']} | {v['seconds']:.2f} | {1e3 * v['seconds'] / steps:.2f} | {share} |")
         md.append("")
+    K = load_kp_trace(os.path.join(root, "kokkos", "trace.csv"))
+    if K:
+        md.append("# Kokkos timeline (kp_trace)\n")
+        rocprof_summary(K, md, root, prefix="kokkos_")
+        md.append("\nPerfetto/Chrome trace: `kokkos/trace.json` (https://ui.perfetto.dev)")
     R = load_rocprof(os.path.join(root, "rocprof"))
     if R:
+        md.append("# rocprofv3 timeline\n")
         rocprof_summary(R, md, root)
         pf = find(os.path.join(root, "rocprof"), "*.pftrace")
         if pf:

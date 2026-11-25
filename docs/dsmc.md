@@ -340,6 +340,23 @@ layout is read back value by value with the HDF5 API; the solver writes the
 expected files and series. The files were also read with VTK 9.7
 (`vtkHDFReader`), and the `.vtu` conversion gives identical cell data.
 
+## 11. Closed reservoir (`dsmc.boundary: specular`)
+
+With `boundary: specular` the domain box is a closed reservoir: no inflow,
+specular reflection at the six faces, and the gas of the initial free-stream
+fill (number density, temperature, composition, equilibrium internal
+energies) stays in the box. The particle count is constant, the energy is
+conserved, and the collision rate per particle and step must equal
+Δt/τ∞ (`diagnostics.collisions_per_particle_per_step` vs.
+`free_stream_collisions_per_particle_per_step`) – the homogeneous-gas checks
+of the unit tests (section 6) as a run configuration. A geometry is still
+required: use a small body (e.g. a millimetre cube) that does not disturb
+the gas. `gas.bulk_velocity_body_mps` must be non-zero (it defines the
+aerodynamic axes) but should be tiny (e.g. 1e-3 m/s); the force coefficients
+are meaningless in a reservoir. Use fixed `timestep_s`, `cell_size_m` and
+`warmup_steps` (the automatic choices assume a flow). Example:
+`benchmarks/profiling/p3_reservoir_air.yaml`.
+
 ## 8. Recorded study results
 
 Generated with `scripts/dsmc_studies.py build/cpu-release/vleo_solver <dir>`

@@ -986,6 +986,7 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
   }
   s.sample_steps = cfg.dsmc.sample_steps;
   s.blocks = cfg.dsmc.blocks;
+  s.boundary = cfg.dsmc.boundary == DomainBoundary::Specular ? DsmcBoundary::Specular : DsmcBoundary::Open;
   const double expected = n * g.cell_volume() * g.num_cells() / s.particle_weight;
   s.max_particles = cfg.dsmc.max_particles ? *cfg.dsmc.max_particles
                                            : static_cast<std::uint64_t>(std::max(1.0e6, 6.0 * expected));

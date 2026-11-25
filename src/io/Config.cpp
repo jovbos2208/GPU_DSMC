@@ -24,6 +24,7 @@ std::string_view to_string(OutputFormat v) {
   return "?";
 }
 
+std::string_view to_string(DomainBoundary v) { return v == DomainBoundary::Specular ? "specular" : "open"; }
 std::string_view to_string(CollisionModel v) { return v == CollisionModel::VSS ? "VSS" : "VHS"; }
 
 std::string_view to_string(ParameterMode v) { return v == ParameterMode::Automatic ? "automatic" : "fixed"; }

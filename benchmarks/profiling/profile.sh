@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Profile vleo_solver on one GPU: which kernel / phase runs when on the GPU and the CPU.
 #
-#   ./profile.sh <mode> [case.yaml]          (default case: p1_goce_244km.yaml)
+#   ./profile.sh <mode> [case.yaml]          (default case: p3_reservoir_air.yaml)
 #
 # modes
 #   phases   built-in fenced phase timings (--profile) -> results.json, no external tool
+#   kokkos   kp_trace.cpp (built here with the host C++ compiler, no vendor tool needed):
+#            timeline of Kokkos regions, kernels, deep copies and fences
+#            -> CSV + Chrome/Perfetto JSON (KP_TRACE_FENCE=0: asynchronous, see kp_trace.cpp)
 #   rocprof  rocprofv3: GPU kernel + memory-copy timeline, HIP API calls on the CPU threads,
 #            Kokkos regions/kernel labels (--kokkos-trace) -> Perfetto trace + CSV
 #   sys      rocprof-sys (omnitrace): CPU call-stack sampling + GPU activity + Kokkos
 #            regions in one Perfetto trace
 #   perf     Linux perf: CPU call-graph sampling of the host process
-#   all      phases, rocprof, sys, perf one after the other (skips missing tools)
+#   all      phases, kokkos, rocprof, sys, perf one after the other (skips missing tools)
 # Every mode also records monitor.csv (GPU busy %, VRAM, power; CPU % and RSS of the
 # solver process; every 0.25 s) and finally runs analyze_profile.py.
 #
@@ -25,8 +28,8 @@ set -euo pipefail
 export LC_ALL=C   # decimal points in awk output
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
-MODE=${1:?usage: ./profile.sh phases|rocprof|sys|perf|all [case.yaml]}
-CASE=${2:-p1_goce_244km.yaml}
+MODE=${1:?usage: ./profile.sh phases|kokkos|rocprof|sys|perf|all [case.yaml]}
+CASE=${2:-p3_reservoir_air.yaml}
 DSMC=${DSMC:-$(cd "$HERE/../.." && pwd)}
 BIN=${BIN:-$DSMC/build/hip-gfx1101-hdf5/vleo_solver}
 DEVICE=${DEVICE:-0}
@@ -36,6 +39,7 @@ PERIOD=${PERIOD:-0.25}
 BACKEND=${BACKEND:-hip}
 [[ -x "$BIN" ]] || { echo "error: solver binary not found: $BIN (set BIN=...)"; exit 1; }
 mkdir -p "$OUT"
+OUT=$(cd "$OUT" && pwd)   # absolute: the profilers run with their own paths
 
 cat > "$OUT/platform_gpu.yaml" <<EOF
 platform:
@@ -123,6 +127,16 @@ do_phases() {
   MODE_NOW=phases run_with "$OUT/phases" env VLEO_PROFILE=1 "$BIN"
 }
 
+do_kokkos() {
+  local d="$OUT/kokkos" cxx
+  cxx=$(command -v g++ || command -v c++ || command -v clang++ || true)
+  [[ -n $cxx ]] || { echo "skip kokkos: no host C++ compiler"; return; }
+  mkdir -p "$d"
+  "$cxx" -O2 -std=c++17 -shared -fPIC -o "$d/libkp_trace.so" "$HERE/kp_trace.cpp"
+  MODE_NOW=kokkos run_with "$d" env KOKKOS_TOOLS_LIBS="$d/libkp_trace.so" KP_TRACE_OUT="$d/trace" \
+      KP_TRACE_FENCE="${KP_TRACE_FENCE:-1}" "$BIN"
+}
+
 do_rocprof() {
   if ! have rocprofv3; then
     echo "skip rocprof: rocprofv3 not found (module avail 2>&1 | grep -i rocprof)"; return
@@ -139,7 +153,7 @@ do_sys() {
   elif have omnitrace-sample; then tool=omnitrace-sample; pre=OMNITRACE
   else echo "skip sys: neither rocprof-sys-sample nor omnitrace-sample found"; return; fi
   local d="$OUT/sys"
-  local -a envs=("${pre}_OUTPUT_PATH=$PWD/$d/trace" "${pre}_USE_PERFETTO=true" "${pre}_USE_TIMEMORY=true"
+  local -a envs=("${pre}_OUTPUT_PATH=$d/trace" "${pre}_USE_PERFETTO=true" "${pre}_USE_TIMEMORY=true"
                  "${pre}_USE_SAMPLING=true" "${pre}_SAMPLING_FREQ=250" "${pre}_USE_PROCESS_SAMPLING=true"
                  "${pre}_USE_KOKKOSP=true")
   if [[ $pre == ROCPROFSYS ]]; then envs+=("ROCPROFSYS_USE_ROCM=true"); else envs+=("OMNITRACE_USE_ROCTRACER=true"); fi
@@ -166,10 +180,11 @@ do_perf() {
 "$BIN" --check --config "$CASE" --platform "$OUT/platform_gpu.yaml"
 case $MODE in
   phases) do_phases ;;
+  kokkos) do_kokkos ;;
   rocprof) do_rocprof ;;
   sys) do_sys ;;
   perf) do_perf ;;
-  all) do_phases; do_rocprof; do_sys; do_perf ;;
+  all) do_phases; do_kokkos; do_rocprof; do_sys; do_perf ;;
   *) echo "unknown mode $MODE"; exit 1 ;;
 esac
 

@@ -1,0 +1,64 @@
+# Profiling case P3: closed DSMC reservoir (dsmc.boundary: specular), air at rest.
+# 1 m^3 box, N2/O2 at 1000 K with rotation and vibration, number density chosen so that
+# the mean free path is about twice the cell size: every cell collides every step, the
+# load is uniform over the grid, there is no inflow, no outflow and (apart from a 2 mm
+# marker cube that the solver needs as geometry) no body. The run time goes to
+# binning, collisions (VSS + Larsen-Borgnakke) and the move with wall reflections.
+# Physics checks in results.json: particle count constant, collisions per particle and
+# step = dt / tau_inf (diagnostics.collisions_per_particle_per_step vs
+# free_stream_collisions_per_particle_per_step), cell state: T_tr = T_rot = 1000 K,
+# T_vib from the Larsen-Borgnakke equilibrium, velocity 0.
+simulation:
+  name: p3_reservoir_air
+  mode: dsmc
+  random_seed: 20261125
+
+geometry:
+  file: marker_cube_2mm.stl
+  units: mm
+
+domain:
+  box_min_m: [-0.5, -0.5, -0.5]
+  box_max_m: [0.5, 0.5, 0.5]
+
+reference:
+  area_m2: 1.0
+  length_m: 1.0
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 0.0, 1.0]
+
+gas:
+  number_density_m3: 6.2e19         # lambda_inf = 0.030 m = 2 cells, tau_inf = 35 us
+  translational_temperature_K: 1000.0
+  bulk_velocity_body_mps: [-1.0e-3, 0.0, 0.0]   # gas at rest (non-zero only for the aero axes)
+  species:
+    N2: 0.79
+    O2: 0.21
+
+surface:
+  model: maxwell
+  temperature_K: 1000.0
+  maxwell:
+    diffuse_fraction: 1.0
+
+dsmc:
+  boundary: specular
+  collision_model: VSS
+  timestep_mode: fixed
+  timestep_s: 3.5e-6           # 0.1 tau_inf: 0.1 collisions per particle and step (~1.5 M per step)
+  cell_size_mode: fixed
+  cell_size_m: 0.015            # 67^3 = 0.30 M cells
+  particles_per_cell_target: 50 # ~15 M particles
+  warmup_steps: 200
+  sample_steps: 800
+  blocks: 10
+  dt_DSMCState_out: 7.0e-4      # 200 steps per file -> 5 files
+
+statistics:
+  confidence_level: 0.95
+  report_uncertainty: true
+
+output:
+  directory: results/p3_reservoir_air
+  format: csv
+  save_surface_fields: false

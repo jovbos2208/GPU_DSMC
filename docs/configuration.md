@@ -136,6 +136,7 @@ Material files cannot reference other material files.
 | `blocks` | uint32 | 20 | 2 … 100000, ≤ `sample_steps`; blocks for the block-averaged SE |
 | `max_particles` | uint64 | automatic | hard limit of the particle arrays |
 | `dt_DSMCState_out` | real | – (off) | > 0 [s]; interval of simulated time between cell-state files: time-averaged density, velocity, temperatures, pressure, Mach number, … per grid cell as VTKHDF (HDF5) files for ParaView ([dsmc.md](dsmc.md) §10). Needs a build with HDF5 (`VLEO_HDF5`), otherwise the configuration is rejected |
+| `boundary` | string | `open` | `open`: free-stream inflow through all faces, outflow removes particles; `specular`: closed reservoir, specular walls, no inflow – the gas of the initial fill stays in the box (homogeneous gas, relaxation, profiling; [dsmc.md](dsmc.md) §11) |
 
 The automatic rules are in [dsmc.md](dsmc.md) §3; mixtures and internal
 energy in §9; cell-state output in §10.

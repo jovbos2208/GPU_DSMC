@@ -24,6 +24,9 @@ enum class LengthUnit { Metre, Centimetre, Millimetre };
 enum class OutputFormat { JSON, CSV, HDF5 };
 enum class CollisionModel { VHS, VSS };
 enum class ParameterMode { Automatic, Fixed };
+// DSMC domain boundary: open (free-stream inflow, outflow) or a closed box with
+// specular walls and no inflow (reservoir / homogeneous gas).
+enum class DomainBoundary { Open, Specular };
 enum class ConvergenceQuantity { CD, CL, CY, CMx, CMy, CMz, HeatRate };
 
 std::string_view to_string(SolverMode v);
@@ -31,6 +34,7 @@ std::string_view to_string(LengthUnit v);
 std::string_view to_string(OutputFormat v);
 std::string_view to_string(CollisionModel v);
 std::string_view to_string(ParameterMode v);
+std::string_view to_string(DomainBoundary v);
 std::string_view to_string(GSIModel v);
 std::string_view to_string(ConvergenceQuantity v);
 
@@ -138,6 +142,9 @@ struct DSMCSection {
   // (time-averaged macroscopic fields per cell, VTKHDF / HDF5, docs/dsmc.md
   // section 10). Unset: no cell-state output.
   std::optional<double> dt_DSMCState_out;
+  // open (default) or specular: closed reservoir, the gas of the initial fill stays
+  // in the box (no inflow, specular walls; docs/dsmc.md section 11)
+  DomainBoundary boundary = DomainBoundary::Open;
 };
 
 struct StatisticsSection {

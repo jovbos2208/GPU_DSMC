@@ -6,11 +6,16 @@ GPU is idle.
 
 | Case | Content | Steps | Run time (W7700) |
 | ---- | ------- | ----- | ---------------- |
+| `p3_reservoir_air.yaml` (default) | closed reservoir (`dsmc.boundary: specular`), 1 m³ of N2/O2 at rest, 1000 K, λ = 2 cells, 0.1 collisions per particle and step: uniform, collision-dominated load, no inflow/outflow, no body (2 mm marker cube) | 200 + 800, cell state every 200 steps | ~1.5 min (est.) |
 | `p1_goce_244km.yaml` | GOCE full scale, 244 km (NRLMSIS 2.1), CLL; production case, nearly free-molecular: move/BVH dominates, collisions idle | 400 + 600, cell state every 200 steps | ~1.5 min |
 | `p2_goce_dense.yaml` | same geometry and numerics at 10⁴ × the density (λ∞ = 0.13 m): collision kernels carry load | 800 + 400, cell state every 200 steps | ~2 min |
 
-Both use 0.08 m cells (0.78 M cells), 20 particles per cell (≈ 15–17 M
-particles) and write 5–6 VTKHDF cell-state files, so the timeline contains
+P3: 67³ = 0.30 M cells × 50 particles = 15 M particles; physics checks in
+`results.json`: constant particle count, collisions per particle and step =
+Δt/τ∞, and in the cell states T_tr = T_rot = 1000 K, gas at rest (CPU test
+with 8000 cells: 0.1004 vs 0.1005, particle count exact).
+P1/P2 use 0.08 m cells (0.78 M cells), 20 particles per cell (≈ 15–17 M
+particles). All write 5–6 VTKHDF cell-state files, so the timeline contains
 every kind of work: injection, move (BVH ray tracing + CLL), the step reduction
 (the host waits here), binning (histogram, scan, fill, sort), collisions, cell
 moments, the cell-state copy to the host plus the HDF5 write, and the progress
@@ -22,8 +27,9 @@ report.
 module load llvm-amdgpu/6.3.1 hip rocminfo hdf5/1.14.4-3   # + rocprofiler-sdk / rocprof-sys if separate modules
 cd ~/workspace/GPU_DSMC/benchmarks/profiling
 DEVICE=1 ./profile.sh phases                     # fenced phase times only (no tool needed)
-DEVICE=1 ./profile.sh rocprof                    # rocprofv3 timeline (main mode)
-DEVICE=1 ./profile.sh all p2_goce_dense.yaml     # every available tool, dense case
+DEVICE=1 ./profile.sh kokkos                     # timeline with kp_trace (no vendor tool needed)
+DEVICE=1 ./profile.sh rocprof                    # rocprofv3 timeline, if installed
+DEVICE=1 ./profile.sh all p1_goce_244km.yaml     # every available tool, GOCE case
 ```
 
 `DEVICE` = HIP index of the free GPU, `BIN` = solver binary (default
@@ -34,6 +40,7 @@ and the figures.
 | Mode | Tool | Shows |
 | ---- | ---- | ----- |
 | `phases` | built-in `VLEO_PROFILE=1` | fenced wall time per phase (`dsmc.move`, `dsmc.bin.*`, `dsmc.collide`, …); exact per phase, but the fences serialise host and GPU |
+| `kokkos` | `kp_trace.cpp` (Kokkos Tools library, compiled by the script with g++) | timeline of regions, every kernel by label, deep copies and fences → `kokkos/trace.csv` + `trace.json` (Perfetto); with `KP_TRACE_FENCE=1` (default) each kernel is fenced, so its interval is its device time and the gaps are host-only time; `KP_TRACE_FENCE=0` shows the asynchronous launches instead |
 | `rocprof` | `rocprofv3` | unfenced timeline: GPU kernels and copies, HIP API calls of the host thread, Kokkos regions and kernel labels (`--kokkos-trace`); `.pftrace` for Perfetto + CSV |
 | `sys` | `rocprof-sys-sample` (omnitrace) | host call-stack sampling (where the CPU spends its time, incl. HIP runtime threads) together with GPU activity and Kokkos regions in one Perfetto trace |
 | `perf` | Linux `perf` | host hot spots and per-thread time (needs `kernel.perf_event_paranoid ≤ 2`) |

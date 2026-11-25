@@ -30,6 +30,8 @@ constexpr std::array<EnumEntry<LengthUnit>, 3> kUnits{
 constexpr std::array<EnumEntry<GSIModel>, 2> kGsi{{{"maxwell", GSIModel::Maxwell}, {"cll", GSIModel::CLL}}};
 constexpr std::array<EnumEntry<CollisionModel>, 2> kCollision{
     {{"VHS", CollisionModel::VHS}, {"VSS", CollisionModel::VSS}}};
+constexpr std::array<EnumEntry<DomainBoundary>, 2> kBoundary{
+    {{"open", DomainBoundary::Open}, {"specular", DomainBoundary::Specular}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
     {{"automatic", ParameterMode::Automatic}, {"fixed", ParameterMode::Fixed}}};
 constexpr std::array<EnumEntry<ConvergenceQuantity>, 7> kConvQuantities{{{"C_D", ConvergenceQuantity::CD},
@@ -332,7 +334,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   if (!check_map(n, p,
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles",
-                  "dt_DSMCState_out"},
+                  "dt_DSMCState_out", "boundary"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
@@ -370,6 +372,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
       out.max_particles = *v;
   }
   if (auto v = get_double_in(n, "dt_DSMCState_out", p, is, Need::Optional, kPositive)) out.dt_DSMCState_out = *v;
+  if (auto v = get_enum(n, "boundary", p, is, Need::Optional, kBoundary)) out.boundary = *v;
   if (out.blocks > out.sample_steps) is.add(p + ".blocks", "must not exceed dsmc.sample_steps");
 }
 
