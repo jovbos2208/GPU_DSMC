@@ -126,6 +126,23 @@ def tanh_thickness(xs, n, n1, n2, rng):
     return 2 * w
 
 
+def max_slope_thickness(xs, n, n1, n2, half):
+    """(n2 - n1) / max dn/dx with the slope from local linear fits over +- half
+    (the experimental definition; only meaningful on a well-averaged profile)."""
+    best = 0.0
+    for x0 in xs[np.abs(xs) < 10 * half]:
+        sel = np.abs(xs - x0) <= half
+        if sel.sum() < 3:
+            continue
+        best = max(best, np.polyfit(xs[sel], n[sel], 1)[0])
+    return (n2 - n1) / best
+
+
+# lambda_mu = 16 mu / (5 rho sqrt(2 pi R T)) (hard-sphere form from the viscosity, used by
+# Alsmeyer 1976 and Bird 1994 for shock data) over the VHS mean free path of the solver
+LAMBDA_MU_OVER_VHS = (16.0 / 5.0) / (2.0 * (7.0 - 2.0 * OMEGA) * (5.0 - 2.0 * OMEGA) / 15.0)
+
+
 def load_run(run):
     res = json.load(open(os.path.join(run, "results.json")))
     cfg = yaml.safe_load(open(os.path.join(run, "resolved_config.yaml")))
@@ -209,6 +226,9 @@ def main():
         delta_se = float(np.std(deltas, ddof=1) / math.sqrt(len(deltas)))
         n_ns, T_ns = navier_stokes(n1, T1, d["u1"], d["M"], xs)
         delta_ns = tanh_thickness(xs, n_ns, n1, n2, 20 * lam)
+        ms = max_slope_thickness(xs, n_fill, n1, n2, 0.5 * lam)
+        ms_ns = max_slope_thickness(xs, n_ns, n1, n2, 0.5 * lam)
+        lmu = LAMBDA_MU_OVER_VHS * lam
         up = (xs < -15 * lam) & (xs > -25 * lam)
         dn = (xs > 15 * lam) & (xs < 25 * lam)
         r, _, t = rankine_hugoniot(d["M"])
@@ -218,9 +238,13 @@ def main():
               f"mass flux ratio {np.nanmean(n_all[dn] * u_all[dn]) / np.nanmean(n_all[up] * u_all[up]):.4f}")
         print(f"  thickness {delta / lam:.3f} +- {delta_se / lam:.3f} lambda1, Navier-Stokes {delta_ns / lam:.3f}; "
               f"lambda1/delta {lam / delta:.4f} +- {lam * delta_se / delta ** 2:.4f} (NS {lam / delta_ns:.4f})")
+        print(f"  max-slope thickness {ms / lam:.3f} lambda1 (NS {ms_ns / lam:.3f}); with lambda_mu = "
+              f"{LAMBDA_MU_OVER_VHS:.4f} lambda1 (Alsmeyer's normalisation): lambda_mu/delta {lmu / ms:.4f} "
+              f"(NS {lmu / ms_ns:.4f})")
         rows.append(dict(M=d["M"], xs=xs / lam, n=(n_all - n1) / (n2 - n1), T=(T_all - T1) / (T2 - T1),
                          n_ns=(n_ns - n1) / (n2 - n1), T_ns=(T_ns - T1) / (T2 - T1), inv=lam / delta,
-                         inv_se=lam * delta_se / delta ** 2, inv_ns=lam / delta_ns))
+                         inv_se=lam * delta_se / delta ** 2, inv_ns=lam / delta_ns, inv_mu=lmu / ms,
+                         inv_mu_ns=lmu / ms_ns))
     if a.png:
         import matplotlib
         matplotlib.use("Agg")
@@ -240,8 +264,12 @@ def main():
         p2.errorbar([r["M"] for r in rs], [r["inv"] for r in rs], yerr=[2 * r["inv_se"] for r in rs], marker="o",
                     label="DSMC (VHS argon)")
         p2.plot([r["M"] for r in rs], [r["inv_ns"] for r in rs], marker="s", ls="--", label="Navier-Stokes")
+        p2.plot([r["M"] for r in rs], [r["inv_mu"] for r in rs], marker="^", color="C2",
+                label="DSMC, lambda_mu / delta_max-slope")
+        p2.plot([r["M"] for r in rs], [r["inv_mu_ns"] for r in rs], marker="v", ls=":", color="C3",
+                label="NS, lambda_mu / delta_max-slope")
         p2.set_xlabel("Mach number")
-        p2.set_ylabel("lambda1 / delta  (lambda1: VHS mean free path)")
+        p2.set_ylabel("lambda1 / delta (tanh fit, VHS lambda) and lambda_mu / delta (max slope)")
         p2.legend(frameon=False)
         fig.tight_layout()
         fig.savefig(a.png)
