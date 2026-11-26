@@ -15,6 +15,13 @@
 //     5 SE + 2 %
 //   He / Ar (mass ratio 0.1: the higher orders raise D12 by a few %): the measured
 //     value must lie between 0.97 and 1.12 times the first approximation.
+// Box length study on the W7700 (DIFF_L, 16 runs each, docs/verification.md):
+//   L / lambda      15              30              60
+//   O/N VHS     0.998 +- 0.020  0.999 +- 0.007  1.001 +- 0.006
+//   He/Ar VHS   0.958 +- 0.028  1.072 +- 0.016  1.080 +- 0.008
+//   He/Ar VSS   0.687 +- 0.025  1.038 +- 0.011  1.088 +- 0.007
+// He has a mean free path several times the mixture lambda, so its finite-k lambda
+// error is large at small L; at the default L = 30 lambda He/Ar VSS is still ~5 % low.
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>

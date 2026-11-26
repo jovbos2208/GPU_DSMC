@@ -10,7 +10,8 @@ runs in `ctest`.
 | 0 | Particle level: binary collisions, scattering, ⟨σg⟩, equilibrium, relaxation, wall models, mixtures, internal energy | done ([dsmc.md](dsmc.md) §6, §9; [tpmc.md](tpmc.md)) |
 | 1 | Transport coefficients: Couette (viscosity) and Fourier (thermal conductivity), free-molecular and near-continuum | **done** (this page) |
 | 1 | Normal shock in argon: Rankine–Hugoniot, thickness vs. Navier–Stokes, Mach series | **done** (ctest at Ma 1.4; solver cases Ma 1.4–8) |
-| 1 | Diffusion in a binary mixture; shock thickness vs. experiment (Alsmeyer) and a second code (SPARTA) | planned |
+| 1 | Binary diffusion (O/N, He/Ar; VHS, VSS) vs. Chapman–Enskog | **done** |
+| 1 | Shock thickness vs. experiment (Alsmeyer 1976) | qualitative only (shape of λ/δ(Ma)); the tabulated measurements were not accessible |
 | 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | planned |
 | 3 | Benchmarks with published data: cylinder in argon at Ma 10 (Lofthouse), sphere drag over Kn, 70° blunted cone | planned |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
@@ -209,3 +210,50 @@ the fully averaged profile.)
 
 Next: SPARTA on the same five cases (independent code), and the measured
 λ/δ of Alsmeyer once the table is available.
+
+## 3. Binary diffusion
+
+### Set-up (`test_dsmc_diffusion`, label `verification`)
+
+An equimolar mixture A/B at n = 10²¹ m⁻³, T = 273 K in a closed specular box
+x ∈ [0, L] (2 × 2 cells across, cells λ/3, 100 particles per cell, Δt = 0.2 τ;
+λ, τ of the mixture). The particles start with uniform density and
+temperature and the composition x_A(x) = ½ + 0.4 cos(πx/L). With specular
+walls the cosine is an eigenmode of Fick's equation and the molar-average
+velocity stays zero, so the amplitude decays as exp(−D₁₂π²t/L²). The amplitude
+a(t) = (2/N) Σ_A cos(πx/L) is sampled every 5 steps and ln a is fitted from 20 τ
+until a ≈ 0.15 a₀; independent runs (seeds) give the standard error.
+
+Reference: first-order Chapman–Enskog for the VHS / VSS pair of the solver
+(diameter, ω, T_ref and α averaged):
+D₁₂ = 3(α+1)/(8(5−2ω)) · √(2πkT/m_r)/(nπd²) · (T/T_ref)^(ω−½)
+(VSS momentum-transfer cross-section 2σ_T/(α+1); hard spheres:
+3/(8nd²)·√(kT/(2πm_r))).
+
+### Results (W7700, 16 runs per point, 2026-11-26)
+
+D₁₂ / D₁₂(Chapman–Enskog, 1st order) against the box length:
+
+| L / λ | kλ | O/N VHS | He/Ar VHS | He/Ar VSS |
+| ----- | -- | ------- | --------- | --------- |
+| 15 | 0.21 | 0.998 ± 0.020 | 0.958 ± 0.028 | 0.687 ± 0.025 |
+| 30 | 0.10 | 0.999 ± 0.007 | 1.072 ± 0.016 | 1.038 ± 0.011 |
+| 60 | 0.05 | 1.001 ± 0.006 | 1.080 ± 0.008 | 1.088 ± 0.007 |
+
+- **O/N** (masses 16/14, identical collision data; the higher Chapman–Enskog
+  orders are below 1 %): the first approximation is reproduced to 0.1–0.2 % at
+  every box length.
+- **He/Ar** converges to 1.08–1.10 times the first approximation as kλ → 0. The
+  higher Chapman–Enskog orders are positive for very different masses (up to
+  +13 % for hard spheres in the Lorentz limit); the value has not yet been
+  compared with Kihara's second approximation. The ratio of the VSS to the VHS
+  result, 1.207, matches the ratio of the first approximations, 1.198.
+- **Finite wavelength.** A short box slows the decay strongly when one species
+  is light: helium has a mean free path several times the mixture λ, so its
+  effective kλ is larger (He/Ar VSS: −31 % at L = 15 λ). For mixtures with
+  light species the domain must be long compared with the mean free path of
+  the light species, not only with the mixture λ.
+
+The ctest runs L = 30 λ with 6 runs (40 s on the CPU) and requires O/N within
+5 SE + 2 % and He/Ar between 0.97 and 1.12 times the first approximation.
+`DIFF_L=60 DIFF_RUNS=16 tests/test_dsmc_diffusion -s` repeats the converged study.
