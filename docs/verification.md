@@ -79,7 +79,8 @@ VHS μ/μ_CE = 0.994 ± 0.008, κ/κ_CE = 1.015 ± 0.013; VSS 1.005 ± 0.008 and
 0.992 ± 0.012; wall and plane fluxes within 1.3 σ. Run time of
 `test_dsmc_transport`: 5 min on the CPU, 8 min on the laptop GPU (24 000
 particles are far too few to fill a GPU; the host-side plane counting
-dominates).
+dominates). The W7700 (gfx1101, hagen) gives bit-for-bit the same numbers as
+the laptop GPU.
 
 **Finding: post-collision stress is biased.** The box average Σ m v_x v_y / V
 of the particle velocities after the collisions is 6.8 % (VHS) below the wall
@@ -91,6 +92,18 @@ or from plane crossings, not from post-collision moments (see [dsmc.md](dsmc.md)
 §11.1).
 
 ### Running a case with the solver
+
+Results on the W7700 (hagen, 2026-11-26; 4000 warm-up + 20 000 sampled steps,
+10 cell-state files of the sampling phase, H = 24 mm, Kn = 0.054, VHS):
+
+| Case | Wall flux | Core gradient | Result |
+| ---- | --------- | ------------- | ------ |
+| `couette_argon.yaml` | τ = 0.15541 ± 0.00067 Pa | du/dy = 7161 ± 9 s⁻¹, core T 280.5 K | μ = 2.1704·10⁻⁵ Pa s, +0.34 % vs. Chapman–Enskog (0.8 σ) |
+| `fourier_argon.yaml` | q = 52.99 ± 0.30 W/m² | T^(1+ω) fit | κ/κ_CE = 1.0045 ± 0.0065 (0.7 σ) |
+
+Both agree with the first-order Chapman–Enskog values within one standard
+error and with the expected higher-order correction (+0.2–0.3 %).
+
 
 `verification/couette_argon.yaml` and `verification/fourier_argon.yaml` set up
 the near-continuum cases for the command-line solver (uniform initial gas,
