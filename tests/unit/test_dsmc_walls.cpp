@@ -21,6 +21,8 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <random>
 #include <sstream>
@@ -54,7 +56,7 @@ struct Case {
 // Argon box x [0, lx], y [-h/2, h/2], z [0, lz] with the given dsmc.faces block.
 // The solver needs a body: a specular 0.2 um cube in a corner of the box.
 Case argon_channel(double n, double T, double lx, double h, double lz, double cell, int ppc, const std::string& faces,
-                   const std::string& model = "VHS") {
+                   const std::string& model = "VHS", int seed = 23) {
   static int counter = 0;
   const fs::path dir = fs::temp_directory_path() / "vleo_test_dsmc_walls";
   fs::create_directories(dir);
@@ -65,7 +67,7 @@ Case argon_channel(double n, double T, double lx, double h, double lz, double ce
   std::ostringstream y;
   y.precision(17);
   y << "geometry: {file: " << stl.string() << "}\n"
-    << "simulation: {name: channel, mode: dsmc, random_seed: 23}\n"
+    << "simulation: {name: channel, mode: dsmc, random_seed: " << seed << "}\n"
     << "domain: {box_min_m: [0, " << -0.5 * h << ", 0], box_max_m: [" << lx << ", " << 0.5 * h << ", " << lz << "]}\n"
     << "reference: {area_m2: 1, length_m: 1, moment_center_m: [0,0,0], lift_axis_body: [0,0,1]}\n"
     << "gas: {number_density_m3: " << n << ", translational_temperature_K: " << T
@@ -214,6 +216,20 @@ struct GasProbe {
     vel0 = vel;
     id0 = ids;
   }
+  // Profiles only (study mode, no plane crossings).
+  void profile_only(const DsmcSimulation& sim, int block) {
+    Block& b = blocks[static_cast<std::size_t>(block)];
+    const auto pos = sim.positions();
+    const auto vel = sim.velocities();
+    for (std::size_t i = 0; i < pos.size(); ++i) {
+      int k = static_cast<int>((pos[i].y / h + 0.5) * bins);
+      k = std::clamp(k, 0, bins - 1);
+      b.n[static_cast<std::size_t>(k)] += 1.0;
+      b.ux[static_cast<std::size_t>(k)] += vel[i].x;
+      b.e[static_cast<std::size_t>(k)] += norm2(vel[i]);
+    }
+    ++b.profiles;
+  }
   // Flux of x-momentum (P_xy) and energy (q_y) in +y through the core planes.
   double pxy(const Block& b) const { return weight * b.px / (area * dt * planes * b.steps); }
   double qy(const Block& b) const { return weight * b.en / (area * dt * planes * b.steps); }
@@ -226,6 +242,40 @@ struct GasProbe {
     return mass * (b.e[static_cast<std::size_t>(k)] / nk - u * u) / (3.0 * kB);
   }
 };
+
+// Discretisation study (docs/verification.md stage 2, verification/run_transport_study.py):
+// VLEO_STUDY_DX (cell size / lambda, default 1/3), VLEO_STUDY_DT (dt / tau, default
+// 0.2), VLEO_STUDY_N (total particles, default 24 000; particles per cell follow
+// from the number of cells), VLEO_STUDY_PPC (particles per cell: the channel is
+// widened so that the total stays VLEO_STUDY_N), VLEO_STUDY_MODEL (VHS or VSS),
+// VLEO_STUDY_SEED (random seed of the solver). With any of them set,
+// the near-continuum test runs only that model, scales the step counts so that the
+// simulated time stays the same, skips the plane-crossing check and prints a STUDY
+// line instead of checking the tolerances.
+struct TransportStudy {
+  bool active = false;
+  double dx_lambda = 1.0 / 3.0, dt_tau = 0.2, particles = 24000.0, ppc = 0.0, seed = 23.0;
+  std::string model = "VHS";
+};
+TransportStudy transport_study() {
+  TransportStudy t;
+  auto env = [&](const char* k, double& v) {
+    if (const char* e = std::getenv(k)) {
+      v = std::atof(e);
+      t.active = true;
+    }
+  };
+  env("VLEO_STUDY_DX", t.dx_lambda);
+  env("VLEO_STUDY_DT", t.dt_tau);
+  env("VLEO_STUDY_N", t.particles);
+  env("VLEO_STUDY_PPC", t.ppc);
+  env("VLEO_STUDY_SEED", t.seed);
+  if (const char* e = std::getenv("VLEO_STUDY_MODEL")) {
+    t.model = e;
+    t.active = true;
+  }
+  return t;
+}
 
 }  // namespace
 
@@ -410,19 +460,38 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
   // lambda_inf of the configuration (resolve with a dummy box first)
   Case probe = argon_channel(n, T0, 0.01, 0.01, 0.01, 0.001, 10, "    x_min: specular\n", model);
   const double lambda = resolve_dsmc_settings(probe.cfg, probe.inflow.domain).lambda_inf_m;
-  const double h = 20.0 * lambda, dx = lambda / 3.0, lx = 2.0 * dx;
+  const TransportStudy st = transport_study();
+  if (st.active && st.model != model) return;
+  // the cell size matters only along y (no gradients in x and z): the channel keeps
+  // its width 2 lambda / 3 and the particle number when dx changes
+  const double h = 20.0 * lambda, dx = st.dx_lambda * lambda;
+  const double ny = std::ceil(h / dx * (1.0 - 1e-12));
+  double lx = 2.0 * lambda / 3.0;
+  if (st.ppc > 0.0)  // fixed particles per cell: widen the channel to keep the particle number
+    lx = dx * std::max(1.0, std::round(std::sqrt(st.particles / (st.ppc * ny))));
+  const double ncells = std::pow(std::ceil(lx / dx * (1.0 - 1e-12)), 2) * ny;
+  const int ppc = st.ppc > 0.0 ? static_cast<int>(st.ppc)
+                               : std::max(1, static_cast<int>(std::lround(st.particles / ncells)));
   const int nblocks = 10;
   const int bins = 60;
-  const int blocks_steps = 2000 / VLEO_TEST_SCALE;  // per block
+  const double fsteps = 0.2 / st.dt_tau;  // same simulated time for every time step
+  const int warm_steps = static_cast<int>(std::lround(2000 * fsteps));
+  const int blocks_steps = static_cast<int>(std::lround(2000 / VLEO_TEST_SCALE * fsteps));  // per block
+  const int profile_every = std::max(1, static_cast<int>(std::lround(2 * fsteps)));
+  auto study_line = [&](const char* kase, double ratio, double se) {
+    std::printf("STUDY case=%s model=%s dx_lambda=%.4f dt_tau=%.4f ppc=%d particles=%.0f seed=%.0f ratio=%.5f se=%.5f\n",
+                kase, model, st.dx_lambda, st.dt_tau, ppc, ncells * ppc, st.seed, ratio, se);
+    std::fflush(stdout);
+  };
 
   SECTION("Couette: walls at -100 and +100 m/s") {
     const double U = 100.0;
-    Case c = argon_channel(n, T0, lx, h, lx, dx, 100,
+    Case c = argon_channel(n, T0, lx, h, lx, dx, ppc,
                            "    x_min: periodic\n    x_max: periodic\n    z_min: periodic\n    z_max: periodic\n" +
                                wall("y_min", T0, -U) + wall("y_max", T0, U),
-                           model);
+                           model, static_cast<int>(st.seed));
     DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
-    s.timestep_s = 0.2 * s.tau_inf_s;
+    s.timestep_s = st.dt_tau * s.tau_inf_s;
     s.blocks = nblocks;
     DsmcSimulation sim(c.cfg, c.geometry, c.inflow, s);
     // linear velocity profile, uniform density and temperature
@@ -437,13 +506,16 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
       vel.emplace_back(0.9 * U * 2.0 * y / h + nor(rng), nor(rng), nor(rng));
     }
     sim.set_particles(pos, vel, std::vector<std::uint32_t>(N, 0u));
-    for (int k = 0; k < 2000; ++k) sim.step(false);
+    for (int k = 0; k < warm_steps; ++k) sim.step(false);
     GasProbe g(bins, h, lx * lx, s.particle_weight, m, s.timestep_s, nblocks);
     g.begin(sim);
     for (int b = 0; b < nblocks; ++b)
       for (int k = 0; k < blocks_steps; ++k) {
         sim.step(true);
-        g.after_step(sim, b, k % 2 == 0);
+        if (!st.active)
+          g.after_step(sim, b, k % 2 == 0);
+        else if (k % profile_every == 0)
+          g.profile_only(sim, b);
       }
     std::vector<double> dudy_b, pxy_b, T_b;
     for (const auto& bl : g.blocks) {
@@ -470,6 +542,10 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
     const double mu_ce = viscosity_ce(ar, vss, mean(T_b));
     INFO(model << ": mu = " << mu << " +- " << se << " Pa s, Chapman-Enskog " << mu_ce << " ("
                << 100.0 * (mu / mu_ce - 1.0) << " %), core T " << mean(T_b) << " K, Kn " << lambda / h);
+    if (st.active) {
+      study_line("couette", mu / mu_ce, se / mu_ce);
+      return;
+    }
     CHECK(std::fabs(mu - mu_ce) < 5.0 * se + 0.02 * mu_ce);
     // momentum conservation: the flux through the core planes equals the wall shear
     const double pxy = mean(pxy_b), pxy_se = std_error(pxy_b);
@@ -479,9 +555,10 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
 
   SECTION("Fourier: walls at 323 K and 223 K") {
     const double T1 = 323.0, T2 = 223.0;
-    Case c = argon_channel(n, T0, lx, h, lx, dx, 100, wall("y_min", T1) + wall("y_max", T2), model);
+    Case c = argon_channel(n, T0, lx, h, lx, dx, ppc, wall("y_min", T1) + wall("y_max", T2), model,
+                           static_cast<int>(st.seed));
     DsmcSettings s = resolve_dsmc_settings(c.cfg, c.inflow.domain);
-    s.timestep_s = 0.2 * s.tau_inf_s;
+    s.timestep_s = st.dt_tau * s.tau_inf_s;
     s.blocks = nblocks;
     DsmcSimulation sim(c.cfg, c.geometry, c.inflow, s);
     // linear temperature, density ~ 1 / T (uniform pressure)
@@ -499,13 +576,16 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
       vel.emplace_back(sd * nor(rng), sd * nor(rng), sd * nor(rng));
     }
     sim.set_particles(pos, vel, std::vector<std::uint32_t>(N, 0u));
-    for (int k = 0; k < 2000; ++k) sim.step(false);
+    for (int k = 0; k < warm_steps; ++k) sim.step(false);
     GasProbe g(bins, h, lx * lx, s.particle_weight, m, s.timestep_s, nblocks);
     g.begin(sim);
     for (int b = 0; b < nblocks; ++b)
       for (int k = 0; k < blocks_steps; ++k) {
         sim.step(true);
-        g.after_step(sim, b, k % 2 == 0);
+        if (!st.active)
+          g.after_step(sim, b, k % 2 == 0);
+        else if (k % profile_every == 0)
+          g.profile_only(sim, b);
       }
     // kappa ~ T^omega: kappa dT/dy = kappa_ref T_ref^-omega / (1 + omega) d(T^(1 + omega))/dy
     const double w = ar.vhs.omega;
@@ -531,6 +611,10 @@ TEST_CASE("Near-continuum Couette and Fourier flow: viscosity and conductivity o
     const double ratio = q / qce;
     const double se = ratio * std::hypot(q_se / q, qce_se / qce);
     INFO(model << ": kappa / kappa_CE = " << ratio << " +- " << se << ", Kn " << lambda / h);
+    if (st.active) {
+      study_line("fourier", ratio, se);
+      return;
+    }
     CHECK(std::fabs(ratio - 1.0) < 5.0 * se + 0.02);
     // energy conservation: the flux through the core planes equals the wall heat flux
     const double qy = mean(qy_b), qy_se = std_error(qy_b);
