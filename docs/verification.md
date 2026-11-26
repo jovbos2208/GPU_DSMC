@@ -14,7 +14,8 @@ runs in `ctest`.
 | 1 | Shock thickness vs. experiment (Alsmeyer 1976) | qualitative only (shape of λ/δ(Ma)); the tabulated measurements were not accessible |
 | 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | **done** |
 | 3 | Hypersonic cylinder in argon (Lofthouse 2008), Ma 10 and 25, Kn 0.25 and 0.05: drag, peak heat flux | **done** (solver runs, section 5) |
-| 3 | Sphere drag over Kn, 70° blunted cone | planned |
+| 3 | Sphere drag over Kn in argon (Ma 4, Kn 10 … 0.03, free-molecular limit) vs. exact theory and correlations | **done** (solver runs, section 6) |
+| 3 | 70° blunted cone | planned |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
 
 `ctest -L verification` runs the long cases; `ctest -LE verification` skips them.
@@ -396,3 +397,74 @@ rate: the cost is set by moving and sorting, not by collisions. The sampling
 phase costs about 15 % more than the warm-up (cell sampling and state output).
 The mean particle count is that of the sampling phase; with the lower count
 of the warm-up the index is about 2.2 ns.
+
+## 6. Sphere drag over the Knudsen number (stage 3)
+
+### Set-up
+
+Argon sphere, D = 0.1 m, Ma 4 at low-density wind-tunnel conditions
+(stagnation temperature T₀ = 300 K: T∞ = 47.4 K, U∞ = 513 m/s; wall at T₀,
+fully diffuse, T_w/T∞ = 6.33), VHS argon from the species database (Bird 1994).
+Kn = λ_VHS,∞/D = 10, 3, 1, 0.3, 0.1, 0.03 (Re = ρ∞U∞D/μ∞ = 0.5 … 166, μ the
+first-order Chapman–Enskog viscosity of the VHS gas). Quarter model (symmetry
+planes y = 0, z = 0 specular, `domain.clip_geometry`), the other four faces are
+inflow faces with the free stream; box min(4, 1 + 6λ∞/D)·D upstream and
+sideways, 1.5 D downstream; cells D/20, refined to λ_wall/2 (Kn 0.1, D/43) and
+0.75 λ_wall (Kn 0.03, D/95, estimated from the pitot pressure); 10 particles per
+cell in the free stream. The free-molecular limit is a TPMC run of the full
+sphere (UV sphere, 32 040 facets).
+
+```bash
+cd verification
+python3 make_sphere_configs.py                  # configs, STL (not in the repo), batch_sphere.txt
+vleo_solver --batch batch_sphere.txt --platform <platform.yaml> --skip-existing
+python3 sphere_eval.py results/sphere_ma4_fm results/sphere_ma4_kn* --png results/sphere.png
+```
+
+The Kn 0.03 case (32 M particles) does not fit on one 16 GB GPU because of the
+per-particle step tally; it ran with `mpirun -n 2` on two W7700. A 1-rank and a
+2-rank run of the same case give bitwise identical results (checked on the
+CPU), so the inflow faces and the clipped geometry are decomposition-safe.
+
+References: the exact free-molecular drag of a sphere with diffuse
+re-emission (Patterson 1971), and the correlations of Henderson (AIAA J. 14,
+1976; supersonic branch) and Loth (AIAA J. 46, 2008; rarefaction branch,
+Re ≤ 45) as quoted by Singh et al. (arXiv 2012.04813). The correlations are
+fits to ballistic-range and low-density-tunnel measurements with errors of
+order 10–15 %. Note: Singh et al. print the term 2/s in Henderson's formula;
+the original 2/s² is used here, which gives Henderson's free-molecular limit
+2.87 (exact 2.96), whereas 2/s would give 3.27.
+
+### Results (W7700, commit 0eea90f, 2026-11-26)
+
+| Kn | Re | C_D (± SE) | C_D / C_fm | Henderson | Δ | Loth | Δ |
+| -- | -- | ---------- | ---------- | --------- | - | ---- | - |
+| ∞ (TPMC) | 0 | 2.9608 ± 0.0007 | 0.9997 | 2.874 | +3.0 % | 2.962 (exact) | −0.03 % |
+| 10 | 0.50 | 2.920 ± 0.004 | 0.986 | 2.562 | +14.0 % | 2.859 | +2.1 % |
+| 3 | 1.66 | 2.817 ± 0.003 | 0.951 | 2.371 | +18.8 % | 2.785 | +1.1 % |
+| 1 | 5.0 | 2.583 ± 0.003 | 0.872 | 2.141 | +20.6 % | 2.674 | −3.4 % |
+| 0.3 | 16.6 | 2.125 ± 0.002 | 0.717 | 1.852 | +14.7 % | 2.478 | −14.3 % |
+| 0.1 | 50 | 1.651 ± 0.001 | 0.557 | 1.595 | +3.5 % | – | – |
+| 0.03 | 166 | 1.346 ± 0.0003 | 0.455 | 1.358 | −0.9 % | – | – |
+
+- Free-molecular limit: TPMC agrees with the exact value to 0.03 %.
+- Near-free-molecular: the drag reduction is proportional to 1/Kn,
+  1 − C_D/C_fm = 0.142/Kn (Kn 10), 0.146/Kn (Kn 3), 0.128/Kn (Kn 1), as the
+  first-collision theory predicts for the leading correction.
+- Rarefied regime (Kn ≥ 1): within 3.4 % of Loth's correlation, which is built
+  on the exact free-molecular limit; Henderson is 14–21 % lower there (his
+  free-molecular limit alone is 3 % low).
+- Near-continuum (Kn 0.1, 0.03): within 3.5 % and 0.9 % of Henderson.
+- Kn 0.3 (Re 17) lies between the two correlations, which differ by 34 %
+  there; the transition region is not constrained better than ±15 % by them.
+  Measured argon data (Aroesty 1963; AEDC sphere-drag reports) would make this
+  point a sharp test.
+- Resolution of Kn 0.03: the smallest local λ in resolved cells is 0.78 mm
+  (Δx = 1.05 mm, Δx/λ ≈ 1.35 next to the stagnation point; the 0.12 mm in
+  the warnings is in small cut cells); 16 % of the cells, mostly in the wake,
+  hold fewer than 5 particles. From section 4, a drag error of about 1 % is
+  expected from this; the case is not grid-converged.
+
+Performance: 1.7–2.0 ns per particle and step on one W7700 (Kn 10 … 0.1),
+1.09 ns on two W7700 for Kn 0.03 (32 M particles), i.e. a parallel efficiency
+of about 0.9 for two GPUs.
