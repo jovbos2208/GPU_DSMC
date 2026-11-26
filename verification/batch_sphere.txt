@@ -1,0 +1,7 @@
+sphere_ma4_fm.yaml results/sphere_ma4_fm
+sphere_ma4_kn10.yaml results/sphere_ma4_kn10
+sphere_ma4_kn3.yaml results/sphere_ma4_kn3
+sphere_ma4_kn1.yaml results/sphere_ma4_kn1
+sphere_ma4_kn0p3.yaml results/sphere_ma4_kn0p3
+sphere_ma4_kn0p1.yaml results/sphere_ma4_kn0p1
+sphere_ma4_kn0p03.yaml results/sphere_ma4_kn0p03

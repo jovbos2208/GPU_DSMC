@@ -17,3 +17,4 @@ __pycache__/
 # verification: run results and downloaded reference papers (not redistributed)
 verification/results/
 verification/references/
+verification/sphere_d100mm.stl
