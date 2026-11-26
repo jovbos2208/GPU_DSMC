@@ -17,6 +17,7 @@ Needs numpy, h5py, pyyaml (and matplotlib for --png).
 """
 import argparse
 import glob
+import warnings
 import json
 import math
 import os
@@ -183,6 +184,9 @@ def main():
     a = ap.parse_args()
     rows = []
     for run in a.runs:
+        if not os.path.exists(os.path.join(run, "results.json")):
+            print(f"{run}: no results.json (still running or failed) - skipped")
+            continue
         d = load_run(run)
         xs, prof = align(d)
         lam, n1, n2, T1, T2 = d["lam"], d["n1"], d["n2"], d["T1"], d["T2"]
@@ -190,12 +194,16 @@ def main():
         groups = np.array_split(np.arange(len(arr)), 5)
         deltas = []
         for g in groups:
-            ng = np.nanmean(arr[g, 0, :], axis=0)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                ng = np.nanmean(arr[g, 0, :], axis=0)
             ng = np.where(np.isfinite(ng), ng, np.where(xs < 0, n1, n2))
             deltas.append(tanh_thickness(xs, ng, n1, n2, 20 * lam))
-        n_all = np.nanmean(arr[:, 0, :], axis=0)
-        T_all = np.nanmean(arr[:, 2, :], axis=0)
-        u_all = np.nanmean(arr[:, 1, :], axis=0)
+        with warnings.catch_warnings():  # bins outside the box after the alignment are empty
+            warnings.simplefilter("ignore", RuntimeWarning)
+            n_all = np.nanmean(arr[:, 0, :], axis=0)
+            T_all = np.nanmean(arr[:, 2, :], axis=0)
+            u_all = np.nanmean(arr[:, 1, :], axis=0)
         n_fill = np.where(np.isfinite(n_all), n_all, np.where(xs < 0, n1, n2))
         delta = tanh_thickness(xs, n_fill, n1, n2, 20 * lam)
         delta_se = float(np.std(deltas, ddof=1) / math.sqrt(len(deltas)))
