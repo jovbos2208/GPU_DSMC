@@ -109,7 +109,7 @@ def main():
     print(f"{a.run}: {sp} {model}, H = {H * 1e3:.2f} mm, Kn = {lam / H:.4f}, {nfiles} cell-state files, "
           f"{int(core.sum())} core cells")
 
-    moving = abs(top["velocity_mps"][0] - walls["y_min"]["velocity_mps"][0]) > 0
+    moving = abs(float(top["velocity_mps"][0]) - float(walls["y_min"]["velocity_mps"][0])) > 0
     if moving:  # Couette
         tau = -top["force_x_N"]["value"] / A
         tau_se = top["force_x_N"]["std_error"] / A

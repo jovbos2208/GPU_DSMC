@@ -133,7 +133,8 @@ def load_run(run):
     nx = int(round((hi[0] - lo[0]) / dx[0]))
     faces = cfg["dsmc"]["faces"]
     up, down = faces["x_min"], faces["x_max"]
-    n1, T1, u1 = up["number_density_m3"], up["temperature_K"], up["velocity_mps"][0]
+    # PyYAML reads exponents without a decimal point ("1e+21") as strings: convert explicitly
+    n1, T1, u1 = float(up["number_density_m3"]), float(up["temperature_K"]), float(up["velocity_mps"][0])
     M = u1 / math.sqrt(GAMMA * K_B * T1 / M_AR)
     xc = lo[0] + (np.arange(nx) + 0.5) * dx[0]
     profiles = []
@@ -156,8 +157,8 @@ def load_run(run):
         profiles.append((n, u, T))
     if not profiles:
         sys.exit(f"error: {run}: no cell-state files of the sampling phase")
-    return dict(res=res, n1=n1, T1=T1, u1=u1, n2=down["number_density_m3"], T2=down["temperature_K"],
-                u2=down["velocity_mps"][0], M=M, xc=xc, dx=dx[0], profiles=profiles,
+    return dict(res=res, n1=n1, T1=T1, u1=u1, n2=float(down["number_density_m3"]), T2=float(down["temperature_K"]),
+                u2=float(down["velocity_mps"][0]), M=M, xc=xc, dx=dx[0], profiles=profiles,
                 lam=res["diagnostics"]["mean_free_path_inf_m"])
 
 
