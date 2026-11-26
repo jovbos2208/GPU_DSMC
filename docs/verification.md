@@ -168,9 +168,44 @@ cd verification && vleo_solver --batch batch_shock.txt --platform <platform.yaml
 verification/shock_profile.py results/shock_ma* --png shock.png
 ```
 
-4 × 4 cells across, 50 particles per cell (0.25–0.46 M particles), Δt from
+4 × 4 cells across, 50 particles per cell (0.3–0.58 M particles), Δt from
 min(0.1 τ₁, 0.2 τ₂, Δx/(u + 2c_mp)), 4 + 20 downstream flow-through times,
 40 cell-state files. The script aligns the files, prints the Rankine–Hugoniot
-checks and λ₁/δ for DSMC and Navier–Stokes, and plots the profiles and λ₁/δ
-over Ma. Next: compare λ₁/δ with the argon measurements of Alsmeyer (1976) and
-with SPARTA on the same cases.
+checks and the thickness for DSMC and Navier–Stokes, and plots the profiles and
+the reciprocal thickness over Ma.
+
+Results on the W7700 (hagen, 2026-11-26; 33–79 s per case). Plateaus 15–25 λ₁
+behind the centre against the prescribed upstream state; δ_tanh = 2w of the
+tanh fit with the VHS λ₁; λ_μ/δ_max: Alsmeyer's normalisation,
+λ_μ = 16μ₁/(5ρ₁√(2πRT₁)) = 1.3198 λ₁ and δ = (n₂ − n₁)/max dn/dx:
+
+| Ma | n₂/n₁ (RH) | T₂/T₁ (RH) | n₂u₂/(n₁u₁) | δ_tanh DSMC [λ₁] | δ_tanh NS [λ₁] | DSMC/NS | λ_μ/δ_max DSMC | λ_μ/δ_max NS |
+| -- | ---------- | ---------- | ----------- | ---------------- | -------------- | ------- | -------------- | ------------ |
+| 1.4 | 1.5798 (1.5806) | 1.3919 (1.3918) | 1.0000 | 10.78 ± 0.05 | 10.12 | 1.07 | 0.126 | 0.130 |
+| 2 | 2.2857 (2.2857) | 2.0783 (2.0781) | 0.9999 | 6.119 ± 0.006 | 4.869 | 1.26 | 0.218 | 0.269 |
+| 3 | 3.0004 (3.0000) | 3.6661 (3.6667) | 1.0000 | 5.232 ± 0.003 | 3.536 | 1.48 | 0.256 | 0.370 |
+| 5 | 3.5723 (3.5714) | 8.6780 (8.6800) | 0.9999 | 5.764 ± 0.006 | 3.454 | 1.67 | 0.237 | 0.381 |
+| 8 | 3.8210 (3.8209) | 20.869 (20.872) | 1.0003 | 7.158 ± 0.006 | 4.065 | 1.76 | 0.191 | 0.326 |
+
+(Standard errors of δ from 5 groups of 8 files; the max-slope value is taken from
+the fully averaged profile.)
+
+- Rankine–Hugoniot is reproduced to 0.05 % or better at all Mach numbers, the
+  mass flux to 0.03 %.
+- Navier–Stokes is adequate for weak shocks (3 % in λ_μ/δ at Ma 1.4) and
+  predicts shocks that are 1.5–1.8 times too thin from Ma 3 on.
+- The reciprocal thickness has its maximum near Ma 3 and falls at higher Mach
+  numbers, the shape of the argon measurements (Alsmeyer 1976, Ma 1.55–9,
+  [JFM 74, 497](https://www.doi.org/10.1017/S0022112076001912)). Alsmeyer found the best agreement with a
+  viscosity exponent ω = 0.72; the argon data of this solver use ω = 0.81
+  (Bird 1994), which gives somewhat thicker strong shocks. A quantitative
+  comparison needs the tabulated measurements.
+- The temperature rises ahead of the density; the upstream temperature
+  precursor grows with Ma (at Ma 8, 23 % of the jump at 5–10 λ₁ ahead of the
+  centre, 1 % at 15–20 λ₁). At the inflow face (27–30 λ₁) it is below 0.05 %
+  of the jump, so the tube is long enough. A plateau ratio taken against a
+  *measured* T₁ 15–25 λ₁ upstream is biased by this precursor (T₂/T₁ = 18.5
+  instead of 20.9 at Ma 8); the table uses the prescribed upstream state.
+
+Next: SPARTA on the same five cases (independent code), and the measured
+λ/δ of Alsmeyer once the table is available.
