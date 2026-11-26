@@ -12,7 +12,7 @@ runs in `ctest`.
 | 1 | Normal shock in argon: Rankine–Hugoniot, thickness vs. Navier–Stokes, Mach series | **done** (ctest at Ma 1.4; solver cases Ma 1.4–8) |
 | 1 | Binary diffusion (O/N, He/Ar; VHS, VSS) vs. Chapman–Enskog | **done** |
 | 1 | Shock thickness vs. experiment (Alsmeyer 1976) | qualitative only (shape of λ/δ(Ma)); the tabulated measurements were not accessible |
-| 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | planned |
+| 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | **done** |
 | 3 | Benchmarks with published data: cylinder in argon at Ma 10 (Lofthouse), sphere drag over Kn, 70° blunted cone | planned |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
 
@@ -257,3 +257,68 @@ D₁₂ / D₁₂(Chapman–Enskog, 1st order) against the box length:
 The ctest runs L = 30 λ with 6 runs (40 s on the CPU) and requires O/N within
 5 SE + 2 % and He/Ar between 0.97 and 1.12 times the first approximation.
 `DIFF_L=60 DIFF_RUNS=16 tests/test_dsmc_diffusion -s` repeats the converged study.
+
+## 4. Discretisation errors (stage 2)
+
+### Set-up
+
+The near-continuum Couette and Fourier cases of section 1 (argon, VHS,
+Kn = 0.05, μ from the wall shear, κ from the wall heat flux) with one parameter
+varied at a time around the reference Δx = λ/3, Δt = 0.2 τ, 100 particles per
+cell, 24 000 particles. The particle number and the simulated time stay the
+same in every sweep (larger cells: more particles per cell; fewer particles per
+cell: wider channel; smaller Δt: more steps), so all points have the same
+statistics. Study mode of `test_dsmc_walls` (`VLEO_STUDY_*`), driven by
+
+```bash
+verification/run_transport_study.py run build/<preset>/tests/test_dsmc_walls   # 30 runs, resumable
+verification/run_transport_study.py plot                                       # fit and figure
+```
+
+### Results (W7700, 2026-11-26)
+
+Ratio to first-order Chapman–Enskog (± 1 SE, ≈ 0.01):
+
+| Δx/λ (Δt = 0.2 τ) | 1/3 | 2/3 | 1 | 1.5 | 2 |
+| ----------------- | --- | --- | - | --- | - |
+| μ | 0.995 | 1.017 | 1.064 | 1.106 | 1.213 |
+| κ | 1.015 | 1.011 | 1.029 | 1.058 | 1.073 |
+
+| Δt/τ (Δx = λ/3) | 0.05 | 0.1 | 0.2 | 0.4 | 0.8 |
+| --------------- | ---- | --- | --- | --- | --- |
+| μ | 1.006 | 0.994 | 0.995 | 1.007 | 1.024 |
+| κ | 0.985 | 1.009 | 1.015 | 0.997 | 1.000 |
+
+| particles per cell | 5 | 10 | 20 | 50 | 100 |
+| ------------------ | - | -- | -- | -- | --- |
+| μ | 0.972 | 0.996 | 1.005 | 1.000 | 1.005 |
+| κ | 0.972 | 0.982 | 1.000 | 1.000 | 1.003 |
+
+Weighted fits r₀ + b x² (λ, τ: VHS mean free path and collision time of the
+solver). The hard-sphere theory (Alexander, Garcia & Alder 1998; Garcia &
+Wagner 2000; Hadjiconstantinou 2000) is written in the hard-sphere mean free
+path, which for VHS argon corresponds to λ_μ = 16μ/(5ρ√(2πRT)) = 1.32 λ; the
+coefficients below are converted to λ_μ, τ_μ = λ_μ/c̄ (factor 1.32² = 1.74):
+
+| Error term | b (λ, τ) | b (λ_μ, τ_μ) | hard spheres |
+| ---------- | -------- | ------------ | ------------ |
+| μ, cell size | 0.055 ± 0.003 | 0.096 ± 0.005 | 16/(45π) = 0.113 |
+| κ, cell size | 0.016 ± 0.004 | 0.029 ± 0.007 | 32/(225π) = 0.045 |
+| μ, time step | 0.043 ± 0.014 | 0.075 ± 0.025 | 16/(75π) = 0.068 |
+| κ, time step | 0.004 ± 0.021 | 0.007 ± 0.037 | 64/(675π) = 0.030 |
+
+- The cell size is the dominant discretisation error. It is quadratic, as the
+  theory predicts, and somewhat smaller than for hard spheres (VHS argon,
+  ω = 0.81, is a softer potential): +1.4 % in μ at Δx = λ/2, +5.5 % at Δx = λ.
+- The time step matters little below 0.4 τ; μ rises by 2.5 % at 0.8 τ, κ
+  shows no measurable effect.
+- From 20 particles per cell on there is no effect within 1 %. With 10 the
+  conductivity is 2 % low, with 5 both coefficients are 3 % low (2–3 σ): few
+  particles per cell underestimate the transport coefficients.
+- Recommended for transport-dominated regions: Δx ≤ λ/2 (local λ), Δt ≤ 0.4 τ
+  (local τ), ≥ 20 particles per cell.
+- GOCE at 120 km (0.1 m cells, 8–20 particles per cell): next to the body
+  Δx/λ_local ≈ 0.8, i.e. about +3.5 % in μ and +1 % in κ there, falling off
+  quickly away from the body; 8–12 particles per cell in the long-domain runs
+  lower the coefficients by up to 1–2 %; Δt/τ ≪ 0.1. These errors are small
+  compared with the 15–17 % collision effect on C_D at 120 km.
