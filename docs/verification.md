@@ -9,7 +9,8 @@ runs in `ctest`.
 | ----- | ------- | ------ |
 | 0 | Particle level: binary collisions, scattering, ⟨σg⟩, equilibrium, relaxation, wall models, mixtures, internal energy | done ([dsmc.md](dsmc.md) §6, §9; [tpmc.md](tpmc.md)) |
 | 1 | Transport coefficients: Couette (viscosity) and Fourier (thermal conductivity), free-molecular and near-continuum | **done** (this page) |
-| 1 | Diffusion in a binary mixture, normal shock in argon (Bird, Alsmeyer) | planned |
+| 1 | Normal shock in argon: Rankine–Hugoniot, thickness vs. Navier–Stokes, Mach series | **done** (ctest at Ma 1.4; solver cases Ma 1.4–8) |
+| 1 | Diffusion in a binary mixture; shock thickness vs. experiment (Alsmeyer) and a second code (SPARTA) | planned |
 | 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | planned |
 | 3 | Benchmarks with published data: cylinder in argon at Ma 10 (Lofthouse), sphere drag over Kn, 70° blunted cone | planned |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
@@ -111,3 +112,65 @@ longer warm-up, cell-state output for the profiles);
 `verification/evaluate_transport.py <run-dir>` fits the profiles from the
 cell-state files of the sampling phase and prints μ or κ against Chapman–Enskog
 (needs numpy and h5py or VTK).
+
+## 2. Normal shock in argon
+
+### Set-up
+
+A tube x ∈ [−30, 30] λ₁ between two inflow faces (`dsmc.faces` type
+`inflow`, [dsmc.md](dsmc.md) §11.1): x_min injects the upstream state
+(n₁ = 10²¹ m⁻³, T₁ = 273 K, u₁ = Ma a₁), x_max the Rankine–Hugoniot downstream
+state (monatomic, γ = 5/3). Both halves are filled with their state at the
+start (`fill_depth_m`), so the shock forms at x = 0 within a few collision
+times. The side faces are specular. VHS argon (Bird 1994), cells λ₁/4.
+λ₁ is the VHS mean free path of the upstream gas (`mean_free_path_inf_m`).
+
+The shock position is neutrally stable and performs a slow random walk
+(up to 2–3 λ₁ over a run). Profiles are therefore aligned on the shock centre
+(n = (n₁ + n₂)/2) per averaging window before they are added.
+
+**Thickness.** δ = 2w of the least-squares fit
+n = (n₁+n₂)/2 + (n₂−n₁)/2 · tanh((x − x₀)/w) over |x| < 20 λ₁, the same estimator
+for DSMC and Navier–Stokes. (The textbook definition (n₂−n₁)/max dn/dx taken
+from the largest local slope of a noisy profile is biased: the maximum of a
+noisy slope is too large, δ too small – 7.3 ± 1.5 λ₁ instead of 11.1 ± 0.2 λ₁
+at Ma 1.4.)
+
+**Navier–Stokes reference.** In the shock frame with the mass flux m₀ = ρ₁u₁
+and the momentum and energy fluxes P, E of the upstream state:
+4/3 μ u′ = m₀u + ρRT − P,  κ T′ = m₀c_vT − m₀u²/2 + Pu − E, with the same μ(T)
+(first-order Chapman–Enskog VHS) and κ = 15kμ/(4m). The profile is the
+trajectory from the upstream node into the downstream saddle, integrated
+backwards from the saddle along its stable eigenvector (RK4, 0.2 µm steps;
+C++ in `test_dsmc_shock`, Python in `verification/shock_profile.py`, identical
+to 4 digits).
+
+### Results (cpu-release, `test_dsmc_shock_ma14` and runs at other Mach numbers, 2026-11-26)
+
+| Ma | n₂/n₁ (RH) | T₂/T₁ (RH) | δ DSMC [λ₁] | δ NS [λ₁] | δ_DSMC / δ_NS |
+| -- | ---------- | ---------- | ----------- | --------- | ------------- |
+| 1.2 | 1.278 (1.297) | 1.192 (1.195) | 20.4 ± 0.5 | 19.35 | 1.05 ± 0.03 |
+| 1.4 | 1.577 (1.581) | 1.392 (1.392) | 11.12 ± 0.16 | 10.12 | 1.10 ± 0.02 |
+| 2.0 | 2.286 (2.286) | 2.081 (2.078) | 6.18 ± 0.03 | 4.87 | 1.27 ± 0.01 |
+
+(At Ma 1.2 the shock, 20 λ₁ thick, does not reach its plateaus within ±30 λ₁.)
+The plateaus reproduce Rankine–Hugoniot to 0.1–0.3 %. Navier–Stokes
+underestimates the thickness increasingly with the Mach number, as expected
+for a shock that is a few mean free paths thick; the ratio tends to 1 for weak
+shocks. The ctest therefore requires 1 ≤ δ/δ_NS ≤ 1.2 at Ma 1.4 (5 SE margin)
+and 1–1.5 % on the plateaus and the mass flux.
+
+### Mach series with the solver
+
+```bash
+verification/make_shock_configs.py --mach 1.4 2 3 5 8   # shock_ma*.yaml + batch_shock.txt
+cd verification && vleo_solver --batch batch_shock.txt --platform <platform.yaml>
+verification/shock_profile.py results/shock_ma* --png shock.png
+```
+
+4 × 4 cells across, 50 particles per cell (0.25–0.46 M particles), Δt from
+min(0.1 τ₁, 0.2 τ₂, Δx/(u + 2c_mp)), 4 + 20 downstream flow-through times,
+40 cell-state files. The script aligns the files, prints the Rankine–Hugoniot
+checks and λ₁/δ for DSMC and Navier–Stokes, and plots the profiles and λ₁/δ
+over Ma. Next: compare λ₁/δ with the argon measurements of Alsmeyer (1976) and
+with SPARTA on the same cases.

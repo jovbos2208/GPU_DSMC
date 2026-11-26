@@ -36,8 +36,10 @@ constexpr std::array<EnumEntry<CollisionKernelMode>, 4> kCollKernel{{{"automatic
                                                                    {"hybrid", CollisionKernelMode::Hybrid}}};
 constexpr std::array<EnumEntry<DomainBoundary>, 2> kBoundary{
     {{"open", DomainBoundary::Open}, {"specular", DomainBoundary::Specular}}};
-constexpr std::array<EnumEntry<FaceType>, 3> kFaceTypes{
-    {{"specular", FaceType::Specular}, {"periodic", FaceType::Periodic}, {"wall", FaceType::Wall}}};
+constexpr std::array<EnumEntry<FaceType>, 4> kFaceTypes{{{"specular", FaceType::Specular},
+                                                         {"periodic", FaceType::Periodic},
+                                                         {"wall", FaceType::Wall},
+                                                         {"inflow", FaceType::Inflow}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
     {{"automatic", ParameterMode::Automatic}, {"fixed", ParameterMode::Fixed}}};
 constexpr std::array<EnumEntry<ConvergenceQuantity>, 7> kConvQuantities{{{"C_D", ConvergenceQuantity::CD},
@@ -335,7 +337,8 @@ void parse_mode_value(const YAML::Node& n, const std::string& p, std::string_vie
 }
 
 // dsmc.faces: per-face boundaries of the closed box. A face is either a
-// scalar (specular | periodic) or a map {type, temperature_K, velocity_mps}.
+// scalar (specular | periodic) or a map {type, temperature_K, velocity_mps,
+// number_density_m3, fill_depth_m}.
 void parse_faces(const YAML::Node& n, const std::string& p, DSMCSection& out, Issues& is) {
   if (!check_map(n, p, {"x_min", "x_max", "y_min", "y_max", "z_min", "z_max"}, is)) return;
   for (std::size_t f = 0; f < 6; ++f) {
@@ -347,13 +350,14 @@ void parse_faces(const YAML::Node& n, const std::string& p, DSMCSection& out, Is
     if (v.IsScalar()) {
       const auto t = get_enum(n, key, p, is, Need::Required, kFaceTypes);
       if (!t) continue;
-      if (*t == FaceType::Wall) {
-        is.add(fp, "a wall needs a map: {type: wall, temperature_K: ..., velocity_mps: [...]}", &v);
+      if (*t == FaceType::Wall || *t == FaceType::Inflow) {
+        is.add(fp, "a wall or inflow face needs a map: {type: ..., temperature_K: ..., ...}", &v);
         continue;
       }
       face.type = *t;
     } else {
-      if (!check_map(v, fp, {"type", "temperature_K", "velocity_mps"}, is)) continue;
+      if (!check_map(v, fp, {"type", "temperature_K", "velocity_mps", "number_density_m3", "fill_depth_m"}, is))
+        continue;
       const auto t = get_enum(v, "type", fp, is, Need::Required, kFaceTypes);
       if (!t) continue;
       face.type = *t;
@@ -366,9 +370,18 @@ void parse_faces(const YAML::Node& n, const std::string& p, DSMCSection& out, Is
           else
             face.velocity_mps = *u;
         }
+      } else if (face.type == FaceType::Inflow) {
+        if (auto T = get_double_in(v, "temperature_K", fp, is, Need::Required, kPositive)) face.temperature_K = *T;
+        if (auto nd = get_double_in(v, "number_density_m3", fp, is, Need::Required, kPositive))
+          face.number_density_m3 = *nd;
+        if (auto u = get_vec3(v, "velocity_mps", fp, is, Need::Optional)) face.velocity_mps = *u;
+        if (auto d = get_double_in(v, "fill_depth_m", fp, is, Need::Optional, Range{0.0, kInf, true, false}))
+          face.fill_depth_m = *d;
       } else if (v["temperature_K"].IsDefined() || v["velocity_mps"].IsDefined()) {
-        is.add(fp, "temperature_K and velocity_mps are only allowed for type 'wall'");
+        is.add(fp, "temperature_K and velocity_mps are only allowed for type 'wall' or 'inflow'");
       }
+      if (face.type != FaceType::Inflow && (v["number_density_m3"].IsDefined() || v["fill_depth_m"].IsDefined()))
+        is.add(fp, "number_density_m3 and fill_depth_m are only allowed for type 'inflow'");
     }
     out.faces[f] = face;
   }
@@ -379,6 +392,13 @@ void parse_faces(const YAML::Node& n, const std::string& p, DSMCSection& out, Is
       is.add(p, "periodic faces come in pairs: " + std::string(kFaceNames[2 * a]) + " and " +
                     std::string(kFaceNames[2 * a + 1]) + " must both be periodic");
   }
+  int fill_axes = 0;
+  for (std::size_t a = 0; a < 3; ++a) {
+    bool fill = false;
+    for (std::size_t k = 2 * a; k < 2 * a + 2; ++k) fill = fill || (out.faces[k] && out.faces[k]->fill_depth_m > 0.0);
+    fill_axes += fill ? 1 : 0;
+  }
+  if (fill_axes > 1) is.add(p, "fill_depth_m is only supported on the two faces of one axis");
 }
 
 void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {

@@ -1,0 +1,5 @@
+shock_ma1p4.yaml results/shock_ma1p4
+shock_ma2.yaml results/shock_ma2
+shock_ma3.yaml results/shock_ma3
+shock_ma5.yaml results/shock_ma5
+shock_ma8.yaml results/shock_ma8

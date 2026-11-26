@@ -220,6 +220,9 @@ void RunLog::dsmc_parameters(const SimulationConfig& cfg, const InflowModel& inf
     const DomainFace& fc = *d.faces[f];
     std::string v(to_string(fc.type));
     if (fc.type == FaceType::Wall) v += ", diffuse, T = " + num(fc.temperature_K) + " K, u = " + vec(fc.velocity_mps) + " m/s";
+    if (fc.type == FaceType::Inflow)
+      v += ", n = " + num(fc.number_density_m3) + " m^-3, T = " + num(fc.temperature_K) + " K, u = " +
+           vec(fc.velocity_mps) + " m/s" + (fc.fill_depth_m > 0.0 ? ", fill " + num(fc.fill_depth_m) + " m" : "");
     kv(std::string("  face ") + std::string(kFaceNames[f]), v);
   }
   kv("particles per cell (target)", std::to_string(d.particles_per_cell_target));

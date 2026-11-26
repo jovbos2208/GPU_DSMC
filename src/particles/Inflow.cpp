@@ -58,41 +58,59 @@ Domain make_domain(const DomainSection& cfg, const Aabb& mesh_box, double min_ma
   return d;
 }
 
+namespace {
+
+// Channels of one face for a drifting Maxwellian (n, T, u) with the composition of `gas`.
+void add_face_channels(InflowModel& model, const GasSection& gas, int face, double n, double T, const Vec3& u) {
+  double fraction_sum = 0.0;
+  for (const auto& sp : gas.species) fraction_sum += sp.mole_fraction;
+  const int axis = face / 2;
+  const double sign = (face % 2 == 0) ? 1.0 : -1.0;
+  const double area = model.domain.area_of_face(face);
+  for (std::size_t i = 0; i < gas.species.size(); ++i) {
+    const auto& sp = gas.species[i];
+    InflowChannel ch;
+    ch.face = face;
+    ch.species = static_cast<std::uint32_t>(i);
+    ch.thermal_speed = std::sqrt(2.0 * constants::k_B * T / sp.mass_kg);
+    ch.rot_dof = sp.modes.rot_dof;
+    ch.vib = sp.modes.vib_dof > 0 ? 1 : 0;
+    ch.theta_v = sp.modes.vib_temperature_K;
+    ch.temperature = T;
+    ch.bulk = u;
+    ch.s = sign * u[axis] / ch.thermal_speed;
+    ch.exp_s2 = std::exp(-ch.s * ch.s);
+    if (ch.s >= 0.0) {
+      const double mass_a = 1.0 - 0.5 * ch.exp_s2;
+      const double mass_b = 0.5 * kSqrtPi * ch.s * std::erfc(-ch.s);
+      ch.p_a = mass_a / (mass_a + mass_b);
+    }
+    const double n_s = n * sp.mole_fraction / fraction_sum;
+    ch.rate_per_s = number_flux(n_s, ch.thermal_speed, ch.s) * area;
+    model.total_rate_per_s += ch.rate_per_s;
+    model.channels.push_back(ch);
+  }
+}
+
+}  // namespace
+
 InflowModel InflowModel::create(const Domain& domain, const GasSection& gas) {
   InflowModel model;
   model.domain = domain;
   model.bulk_velocity = gas.bulk_velocity_body_mps;
-  double fraction_sum = 0.0;
-  for (const auto& sp : gas.species) fraction_sum += sp.mole_fraction;
-
-  for (int face = 0; face < 6; ++face) {
-    const int axis = face / 2;
-    const double sign = (face % 2 == 0) ? 1.0 : -1.0;
-    const double area = domain.area_of_face(face);
-    for (std::size_t i = 0; i < gas.species.size(); ++i) {
-      const auto& sp = gas.species[i];
-      InflowChannel ch;
-      ch.face = face;
-      ch.species = static_cast<std::uint32_t>(i);
-      ch.thermal_speed = std::sqrt(2.0 * constants::k_B * gas.translational_temperature_K / sp.mass_kg);
-      ch.rot_dof = sp.modes.rot_dof;
-      ch.vib = sp.modes.vib_dof > 0 ? 1 : 0;
-      ch.theta_v = sp.modes.vib_temperature_K;
-      ch.temperature = gas.translational_temperature_K;
-      ch.s = sign * gas.bulk_velocity_body_mps[axis] / ch.thermal_speed;
-      ch.exp_s2 = std::exp(-ch.s * ch.s);
-      if (ch.s >= 0.0) {
-        const double mass_a = 1.0 - 0.5 * ch.exp_s2;
-        const double mass_b = 0.5 * kSqrtPi * ch.s * std::erfc(-ch.s);
-        ch.p_a = mass_a / (mass_a + mass_b);
-      }
-      const double n_s = gas.number_density_m3 * sp.mole_fraction / fraction_sum;
-      ch.rate_per_s = number_flux(n_s, ch.thermal_speed, ch.s) * area;
-      model.total_rate_per_s += ch.rate_per_s;
-      model.channels.push_back(ch);
-    }
-  }
+  for (int face = 0; face < 6; ++face)
+    add_face_channels(model, gas, face, gas.number_density_m3, gas.translational_temperature_K,
+                      gas.bulk_velocity_body_mps);
   if (!(model.total_rate_per_s > 0.0)) throw GeometryError("inflow rate through the domain boundary is zero");
+  return model;
+}
+
+InflowModel InflowModel::create_face(const Domain& domain, const GasSection& gas, int face, double number_density_m3,
+                                     double temperature_K, const Vec3& velocity_mps) {
+  InflowModel model;
+  model.domain = domain;
+  model.bulk_velocity = velocity_mps;
+  add_face_channels(model, gas, face, number_density_m3, temperature_K, velocity_mps);
   return model;
 }
 

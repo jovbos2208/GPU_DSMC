@@ -65,12 +65,17 @@ enum class DsmcBoundary {
 // Default follows DsmcSettings::boundary (open: particles exit; specular:
 // mirror). Periodic faces re-enter at the opposite face; a wall re-emits
 // fully diffuse at its temperature, moving with its tangential velocity, and
-// the momentum and energy it receives are tallied (DsmcResult::walls).
-enum class DsmcFace { Default, Specular, Periodic, Wall };
+// the momentum and energy it receives are tallied (DsmcResult::walls). An
+// inflow face injects its own drifting Maxwellian (n, T, u) and removes the
+// particles that leave through it; fill_depth_m > 0 fills the slab next to
+// it with that state at the start (fill_freestream).
+enum class DsmcFace { Default, Specular, Periodic, Wall, Inflow };
 struct DsmcFaceBoundary {
   DsmcFace type = DsmcFace::Default;
   double temperature_K = 0.0;
   Vec3 velocity_mps;
+  double number_density_m3 = 0.0;  // inflow
+  double fill_depth_m = 0.0;       // inflow
 };
 
 // Resolved numerical parameters of a DSMC run.

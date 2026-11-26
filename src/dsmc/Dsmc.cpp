@@ -386,8 +386,10 @@ struct FillKernel {
   std::uint64_t seed;
   double dt, weight;
   bool has_closed;
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
-    const std::uint64_t id = first_id + i;
+  std::size_t base = 0;  // first storage slot
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t j) const {
+    const std::size_t i = base + j;
+    const std::uint64_t id = first_id + j;
     RandomStream rng(seed, id, 0u, RngStream::Injection);
     const double x = rng.uniform();
     std::uint32_t sp = 0;
@@ -1124,10 +1126,16 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
     if (!cfg.dsmc.faces[f]) continue;
     const DomainFace& d = *cfg.dsmc.faces[f];
     DsmcFaceBoundary& fb = s.faces[f];
-    fb.type = d.type == FaceType::Periodic ? DsmcFace::Periodic : d.type == FaceType::Wall ? DsmcFace::Wall
-                                                                                           : DsmcFace::Specular;
+    switch (d.type) {
+      case FaceType::Periodic: fb.type = DsmcFace::Periodic; break;
+      case FaceType::Wall: fb.type = DsmcFace::Wall; break;
+      case FaceType::Inflow: fb.type = DsmcFace::Inflow; break;
+      default: fb.type = DsmcFace::Specular;
+    }
     fb.temperature_K = d.temperature_K;
     fb.velocity_mps = d.velocity_mps;
+    fb.number_density_m3 = d.number_density_m3;
+    fb.fill_depth_m = d.fill_depth_m;
   }
   switch (cfg.dsmc.collision_kernel) {
     case CollisionKernelMode::PerCell: s.collision_kernel = CollisionKernel::PerCell; break;
@@ -1192,6 +1200,7 @@ struct DsmcSimulation::Impl {
   std::array<std::vector<double>, kHistoryQuantities> series;
   std::array<std::vector<double>, kWallCols> wall_series;  // per sampled step (wall faces only)
   int wall_cols = 0;
+  bool inject_on = false;  // open box or inflow faces
   Kokkos::Array<int, 6> face_type{};
   Kokkos::Array<SurfaceProperties, 6> face_surface{};
   std::uint64_t sampled = 0;
@@ -1679,7 +1688,7 @@ struct DsmcSimulation::Impl {
   std::uint64_t last_cand = 0, last_acc = 0;
 
   void step(bool sample) {
-    if (set.boundary == DsmcBoundary::Open) {
+    if (inject_on) {
       Profiler::Scope ps(prof, "dsmc.inject");
       inject();
     }
@@ -1860,6 +1869,8 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
     s.surface = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_surface", geometry.host.size(), kSurfaceTallies);
 
   // Face boundaries (dsmc.faces): resolved against the box boundary.
+  std::vector<InflowChannel> face_channels;
+  bool any_inflow_face = false;
   for (std::size_t f = 0; f < 6; ++f) {
     const DsmcFaceBoundary& fb = settings.faces[f];
     const int axis = static_cast<int>(f / 2);
@@ -1873,6 +1884,17 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
         break;
       case DsmcFace::Specular: s.face_type[f] = kFaceSpecular; break;
       case DsmcFace::Periodic: s.face_type[f] = kFacePeriodic; break;
+      case DsmcFace::Inflow: {
+        if (!(fb.temperature_K > 0.0) || !(fb.number_density_m3 > 0.0) || fb.fill_depth_m < 0.0 ||
+            fb.fill_depth_m > inflow.domain.box.extent()[axis])
+          throw std::invalid_argument("DSMC: an inflow face needs n > 0, T > 0 and 0 <= fill depth <= box extent");
+        s.face_type[f] = kFaceExit;  // particles leaving through it are removed
+        const InflowModel m = InflowModel::create_face(inflow.domain, cfg.gas, static_cast<int>(f),
+                                                       fb.number_density_m3, fb.temperature_K, fb.velocity_mps);
+        face_channels.insert(face_channels.end(), m.channels.begin(), m.channels.end());
+        any_inflow_face = true;
+        break;
+      }
       case DsmcFace::Wall: {
         if (!(fb.temperature_K > 0.0) || fb.velocity_mps[axis] != 0.0)
           throw std::invalid_argument("DSMC: a wall face needs T > 0 and a tangential velocity");
@@ -1889,6 +1911,17 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
     }
   }
 
+  // Inflow faces of the closed box replace the free-stream channels (which a
+  // closed box never uses).
+  s.inject_on = settings.boundary == DsmcBoundary::Open;
+  if (any_inflow_face) {
+    s.inflow_host.channels = face_channels;
+    s.inflow_host.total_rate_per_s = 0.0;
+    for (const auto& c : face_channels) s.inflow_host.total_rate_per_s += c.rate_per_s;
+    s.inflow = upload(s.inflow_host);
+    s.inject_on = true;
+  }
+
   s.allocate(std::min<std::size_t>(settings.max_particles, 1u << 16));
   s.init_partition();
 }
@@ -1898,32 +1931,68 @@ DsmcSimulation::~DsmcSimulation() = default;
 void DsmcSimulation::fill_freestream() {
   Impl& s = *impl_;
   const Aabb box = s.inflow_host.domain.box;
-  const Vec3 e = box.extent();
-  const double expected = s.cfg.gas.number_density_m3 * e.x * e.y * e.z / s.set.particle_weight;
-  RandomStream rng(s.cfg.simulation.random_seed, 0, 0, RngStream::InjectionCount);
-  const auto total = static_cast<std::size_t>(std::floor(expected + rng.uniform()));
-  // several ranks: contiguous share of the ids, then migration to the owners
-  const std::size_t lo = total * static_cast<std::size_t>(s.me) / static_cast<std::size_t>(s.nranks);
-  const std::size_t local = total * static_cast<std::size_t>(s.me + 1) / static_cast<std::size_t>(s.nranks) - lo;
-  s.n = 0;
-  s.ensure_capacity(local);
-  std::vector<double> cdf, sigma;
-  double acc = 0.0, sum = 0.0;
-  for (const auto& sp : s.cfg.gas.species) sum += sp.mole_fraction;
-  for (const auto& sp : s.cfg.gas.species) {
-    acc += sp.mole_fraction / sum;
-    cdf.push_back(acc);
-    sigma.push_back(std::sqrt(constants::k_B * s.cfg.gas.translational_temperature_K / sp.mass_kg));
+  // Regions: the slabs next to inflow faces with fill_depth_m > 0 (one axis
+  // only, checked by the parser) get the state of their face, the rest of the
+  // box the free stream of the gas section. Without fill depths this is one
+  // region and identical to the plain free-stream fill.
+  struct FillRegion {
+    Aabb box;
+    double n, T;
+    Vec3 u;
+  };
+  std::vector<FillRegion> regions;
+  Aabb rest = box;
+  for (std::size_t f = 0; f < 6; ++f) {
+    const DsmcFaceBoundary& fb = s.set.faces[f];
+    if (fb.type != DsmcFace::Inflow || !(fb.fill_depth_m > 0.0)) continue;
+    const int axis = static_cast<int>(f / 2);
+    Aabb slab = box;
+    if (f % 2 == 0) {
+      slab.hi[axis] = box.lo[axis] + fb.fill_depth_m;
+      rest.lo[axis] = std::max(rest.lo[axis], slab.hi[axis]);
+    } else {
+      slab.lo[axis] = box.hi[axis] - fb.fill_depth_m;
+      rest.hi[axis] = std::min(rest.hi[axis], slab.lo[axis]);
+    }
+    regions.push_back({slab, fb.number_density_m3, fb.temperature_K, fb.velocity_mps});
   }
-  Kokkos::parallel_for("vleo::dsmc_fill", policy(0, local),
-                       FillKernel{s.cur, s.dt_cur, s.geo, box, s.cfg.gas.bulk_velocity_body_mps,
-                                  to_device(cdf, "fill_cdf"), to_device(sigma, "fill_sigma"), s.modes,
-                                  s.cfg.gas.translational_temperature_K, s.next_id + lo,
-                                  s.cfg.simulation.random_seed, s.set.timestep_s, s.set.particle_weight, s.has_closed});
-  s.n = local;
-  s.next_id += total;
+  const Vec3 er = rest.extent();
+  if (er.x > 0.0 && er.y > 0.0 && er.z > 0.0)
+    regions.insert(regions.begin(), FillRegion{rest, s.cfg.gas.number_density_m3, s.cfg.gas.translational_temperature_K,
+                                           s.cfg.gas.bulk_velocity_body_mps});
+
+  s.n = 0;
+  std::size_t filled = 0;
+  for (std::size_t r = 0; r < regions.size(); ++r) {
+    const FillRegion& reg = regions[r];
+    const Vec3 e = reg.box.extent();
+    const double expected = reg.n * e.x * e.y * e.z / s.set.particle_weight;
+    RandomStream rng(s.cfg.simulation.random_seed, r, 0, RngStream::InjectionCount);
+    const auto total = static_cast<std::size_t>(std::floor(expected + rng.uniform()));
+    // several ranks: contiguous share of the ids, then migration to the owners
+    const std::size_t lo = total * static_cast<std::size_t>(s.me) / static_cast<std::size_t>(s.nranks);
+    const std::size_t local = total * static_cast<std::size_t>(s.me + 1) / static_cast<std::size_t>(s.nranks) - lo;
+    s.ensure_capacity(s.n + local);
+    std::vector<double> cdf, sigma;
+    double acc = 0.0, sum = 0.0;
+    for (const auto& sp : s.cfg.gas.species) sum += sp.mole_fraction;
+    for (const auto& sp : s.cfg.gas.species) {
+      acc += sp.mole_fraction / sum;
+      cdf.push_back(acc);
+      sigma.push_back(std::sqrt(constants::k_B * reg.T / sp.mass_kg));
+    }
+    FillKernel fk{s.cur, s.dt_cur, s.geo, reg.box, reg.u,
+                  to_device(cdf, "fill_cdf"), to_device(sigma, "fill_sigma"), s.modes,
+                  reg.T, s.next_id + lo,
+                  s.cfg.simulation.random_seed, s.set.timestep_s, s.set.particle_weight, s.has_closed};
+    fk.base = s.n;
+    Kokkos::parallel_for("vleo::dsmc_fill", policy(0, local), fk);
+    s.n += local;
+    s.next_id += total;
+    filled += local;
+  }
   s.compact();
-  std::uint64_t removed = local - s.n;
+  std::uint64_t removed = filled - s.n;
   if (s.decomposed) {
     removed = comm::sum(removed);
     s.migrate();

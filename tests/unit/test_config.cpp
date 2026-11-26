@@ -605,7 +605,9 @@ TEST_CASE("DSMC face boundaries", "[config]") {
   const SimulationConfig c = parse_simulation_config(
       he + "dsmc:\n  boundary: specular\n  faces:\n    x_min: periodic\n    x_max: {type: periodic}\n"
            "    y_min: {type: wall, temperature_K: 323.5, velocity_mps: [-100, 0, 2.5]}\n"
-           "    y_max: {type: wall, temperature_K: 223}\n    z_max: specular\n",
+           "    y_max: {type: wall, temperature_K: 223}\n    z_max: specular\n"
+           "    z_min: {type: inflow, number_density_m3: 2.5e20, temperature_K: 400, velocity_mps: [0, 0, 350],"
+           " fill_depth_m: 0.01}\n",
       kData);
   const auto& f = c.dsmc.faces;
   REQUIRE(f[0]);
@@ -616,7 +618,12 @@ TEST_CASE("DSMC face boundaries", "[config]") {
   CHECK(f[2]->velocity_mps == Vec3(-100.0, 0.0, 2.5));
   CHECK(f[3]->type == FaceType::Wall);
   CHECK(f[3]->velocity_mps == Vec3());  // default: wall at rest
-  CHECK(!f[4]);
+  REQUIRE(f[4]);
+  CHECK(f[4]->type == FaceType::Inflow);
+  CHECK(f[4]->number_density_m3 == 2.5e20);
+  CHECK(f[4]->temperature_K == 400.0);
+  CHECK(f[4]->velocity_mps == Vec3(0.0, 0.0, 350.0));
+  CHECK(f[4]->fill_depth_m == 0.01);
   CHECK(f[5]->type == FaceType::Specular);
   const std::string yaml = to_resolved_yaml(c);
   CHECK_THAT(yaml, ContainsSubstring("faces:"));
@@ -644,7 +651,7 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
       {"dsmc:\n  dt_dsmcstate_out: 1e-5\n", "dsmc.dt_dsmcstate_out: unknown key"},
       {"dsmc:\n  faces:\n    x_min: periodic\n    x_max: periodic\n", "dsmc.faces: only allowed with dsmc.boundary: specular"},
       {"dsmc:\n  boundary: specular\n  faces:\n    x_min: periodic\n", "periodic faces come in pairs"},
-      {"dsmc:\n  boundary: specular\n  faces:\n    y_min: wall\n", "dsmc.faces.y_min: a wall needs a map"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    y_min: wall\n", "dsmc.faces.y_min: a wall or inflow face needs a map"},
       {"dsmc:\n  boundary: specular\n  faces:\n    y_min: {type: wall}\n", "dsmc.faces.y_min.temperature_K: required"},
       {"dsmc:\n  boundary: specular\n  faces:\n    y_min: {type: wall, temperature_K: 300, velocity_mps: [0, 1, 0]}\n",
        "dsmc.faces.y_min.velocity_mps: must be tangential"},
@@ -652,6 +659,17 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
        "only allowed for type 'wall'"},
       {"dsmc:\n  boundary: specular\n  faces:\n    z_max: open\n", "dsmc.faces.z_max: invalid value 'open'"},
       {"dsmc:\n  boundary: specular\n  faces:\n    top: specular\n", "dsmc.faces.top: unknown key"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: inflow\n", "dsmc.faces.x_min: a wall or inflow face needs a map"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: {type: inflow, temperature_K: 300}\n",
+       "dsmc.faces.x_min.number_density_m3: required"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: {type: wall, temperature_K: 300, fill_depth_m: 0.1}\n",
+       "only allowed for type 'inflow'"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: {type: inflow, temperature_K: 300, number_density_m3: 1e20, "
+       "fill_depth_m: -1}\n",
+       "dsmc.faces.x_min.fill_depth_m"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: {type: inflow, temperature_K: 300, number_density_m3: 1e20, "
+       "fill_depth_m: 0.1}\n    y_max: {type: inflow, temperature_K: 300, number_density_m3: 1e20, fill_depth_m: 0.1}\n",
+       "fill_depth_m is only supported on the two faces of one axis"},
   }));
   INFO(needle);
   expect_invalid(he + extra, needle);

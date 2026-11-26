@@ -104,9 +104,13 @@ void walk(const SimulationConfig& c, Sink& s) {
       const DomainFace& d = *c.dsmc.faces[f];
       s.begin(kFaceNames[f]);
       s.str("type", to_string(d.type));
-      if (d.type == FaceType::Wall) {
+      if (d.type == FaceType::Wall || d.type == FaceType::Inflow) {
         s.dbl("temperature_K", d.temperature_K);
         s.vec("velocity_mps", d.velocity_mps);
+      }
+      if (d.type == FaceType::Inflow) {
+        s.dbl("number_density_m3", d.number_density_m3);
+        s.dbl("fill_depth_m", d.fill_depth_m);
       }
       s.end();
     }

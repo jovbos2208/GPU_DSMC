@@ -37,6 +37,7 @@ std::string_view to_string(FaceType v) {
   switch (v) {
     case FaceType::Periodic: return "periodic";
     case FaceType::Wall: return "wall";
+    case FaceType::Inflow: return "inflow";
     default: return "specular";
   }
 }

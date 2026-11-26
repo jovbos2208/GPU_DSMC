@@ -87,6 +87,7 @@ struct InflowChannel {
   int vib = 0;
   double theta_v = 0.0;
   double temperature = 0.0;
+  Vec3 bulk;                  // drift velocity of the Maxwellian (tangential components of entering molecules)
 };
 
 struct InflowModel {
@@ -96,6 +97,11 @@ struct InflowModel {
   Vec3 bulk_velocity;
 
   static InflowModel create(const Domain& domain, const GasSection& gas);
+  // Channels of one face (0 ... 5) for a drifting Maxwellian with its own
+  // number density, temperature and velocity; composition from `gas`
+  // (DSMC inflow faces, docs/dsmc.md section 11.1). May have zero rate.
+  static InflowModel create_face(const Domain& domain, const GasSection& gas, int face, double number_density_m3,
+                                 double temperature_K, const Vec3& velocity_mps);
 };
 
 struct InflowSample {
@@ -145,7 +151,7 @@ struct DeviceInflow {
         out.velocity[k] = sign * z * c.thermal_speed;
         out.position[k] = sign > 0.0 ? box.lo[k] : box.hi[k];
       } else {
-        out.velocity[k] = bulk_velocity[k] + sigma_t * rng.normal();
+        out.velocity[k] = c.bulk[k] + sigma_t * rng.normal();
         out.position[k] = box.lo[k] + (box.hi[k] - box.lo[k]) * rng.uniform();
       }
     }

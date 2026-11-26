@@ -29,9 +29,10 @@ enum class ParameterMode { Automatic, Fixed };
 // specular walls and no inflow (reservoir / homogeneous gas).
 enum class DomainBoundary { Open, Specular };
 // Per-face override of a closed box (dsmc.faces, docs/dsmc.md section 11.1):
-// specular, periodic (pairs only) or a diffuse wall with its own temperature
-// and tangential velocity (Couette / Fourier verification cases).
-enum class FaceType { Specular, Periodic, Wall };
+// specular, periodic (pairs only), a diffuse wall with its own temperature
+// and tangential velocity (Couette / Fourier verification cases) or an inflow
+// face with its own drifting Maxwellian (normal shock).
+enum class FaceType { Specular, Periodic, Wall, Inflow };
 // Face order: x_min, x_max, y_min, y_max, z_min, z_max (index 2 axis + side).
 inline constexpr std::array<std::string_view, 6> kFaceNames{"x_min", "x_max", "y_min", "y_max", "z_min", "z_max"};
 // DSMC collision kernel (docs/dsmc.md section 4): automatic = per_cell on host
@@ -140,8 +141,10 @@ struct TPMCSection {
 
 struct DomainFace {
   FaceType type = FaceType::Specular;
-  double temperature_K = 0.0;  // wall only
-  Vec3 velocity_mps;           // wall only: tangential wall velocity (body frame)
+  double temperature_K = 0.0;      // wall and inflow
+  Vec3 velocity_mps;               // wall: tangential wall velocity; inflow: drift velocity (body frame)
+  double number_density_m3 = 0.0;  // inflow only
+  double fill_depth_m = 0.0;       // inflow only: initial fill of the slab next to the face with this state
 };
 
 struct DSMCSection {

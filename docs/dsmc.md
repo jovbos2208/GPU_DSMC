@@ -211,6 +211,8 @@ Tolerances were fixed before the tests were run:
 | six diffuse walls in equilibrium: normal force p A, no shear, no heat | 5 SE + 0.5 % | `test_dsmc_walls` |
 | free-molecular Couette (τ = ½ n m c̄ U) and Fourier (q = 2 k Γ (T₁ − T₂)) | 5 SE + 0.5 % | `test_dsmc_walls` |
 | near-continuum μ and κ of argon (VHS, VSS) vs. Chapman–Enskog, Kn 0.05 | 5 SE + 2 % | `test_dsmc_transport` ([verification.md](verification.md)) |
+| inflow faces: injected number, tangential moments; region fill counts and states | 5 SE / ±1 particle | `test_dsmc_shock` |
+| normal shock Ma 1.4: plateaus vs. Rankine–Hugoniot, mass flux; thickness vs. Navier–Stokes | 1–1.5 %; 1 ≤ δ/δ_NS ≤ 1.2 | `test_dsmc_shock_ma14` ([verification.md](verification.md)) |
 
 The studies M3.16/M3.17 are produced by `scripts/dsmc_studies.py`
 (0.5 m cube, helium, 900 K, 7.5 km/s, diffuse wall at 300 K; A_ref = 0.25 m²).
@@ -404,6 +406,7 @@ dsmc:
 | `specular` | v_n → −v_n (default of the closed box) |
 | `periodic` | the particle re-enters through the opposite face with unchanged velocity (also across MPI ranks: the migration after the move sends it to the owner of its new cell) |
 | `wall` | fully diffuse Maxwell re-emission at `temperature_K` in the frame of the wall (`velocity_mps`, tangential), internal energies drawn at the wall temperature; same random stream as a body interaction, so runs stay bitwise reproducible |
+| `inflow` | open face with its own drifting Maxwellian (`number_density_m3`, `temperature_K`, `velocity_mps`, composition of `gas`): the molecules that cross it inwards are injected every step (same flux sampler as the free-stream inflow), leaving molecules are removed. With `fill_depth_m` the initial fill puts this state into the slab next to the face (faces of one axis; the rest of the box gets the `gas` state, if any is left) |
 
 The momentum m (v_in − v_out) and the energy ½ m (|v_in − u_w|² − |v_out − u_w|²) + Δe_int
 given to a wall are summed per particle and step in extra tally columns
@@ -425,11 +428,15 @@ agrees with the wall values (Couette and Fourier: within 1 σ). Velocity and
 temperature profiles from the cell state are not affected (collisions conserve
 momentum and energy per cell).
 
-Verification: kinematics of periodic, specular and wall faces; equilibrium
+Inflow faces of a closed box replace the free-stream inflow channels; without them the inflow and the initial fill are unchanged bit for bit.
+
+Verification: kinematics of periodic, specular and wall faces; injected flux and moments of inflow faces, region fill; equilibrium
 pressure n k T and zero shear and heat flux on six walls; free-molecular
 Couette and Fourier flow against the exact solutions; near-continuum
-viscosity and thermal conductivity of argon against Chapman–Enskog
-([verification.md](verification.md), `test_dsmc_walls`, `test_dsmc_transport`).
+viscosity and thermal conductivity of argon against Chapman–Enskog; normal
+shock at Ma 1.4 against Rankine–Hugoniot and Navier–Stokes
+([verification.md](verification.md), `test_dsmc_walls`, `test_dsmc_transport`,
+`test_dsmc_shock`, `test_dsmc_shock_ma14`).
 
 ## 8. Recorded study results
 
