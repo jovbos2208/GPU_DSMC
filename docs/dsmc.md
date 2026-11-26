@@ -207,6 +207,10 @@ Tolerances were fixed before the tests were run:
 | cut-cell volumes | exact / shell bound | `test_grid` |
 | free-molecular DSMC vs. TPMC (satellite, CLL) | 5 √(SE_a² + SE_b²) | `test_dsmc`; long run with 6·10⁴ sampled steps: C_D, C_L, C_Y, Q̇ within 1.5 σ (ΔC_D 3·10⁻⁴) |
 | reproducibility | bitwise | `test_dsmc`, smoke `repro_dsmc_*` |
+| periodic / specular / wall faces: positions and velocities | 1e-12 / exact | `test_dsmc_walls` |
+| six diffuse walls in equilibrium: normal force p A, no shear, no heat | 5 SE + 0.5 % | `test_dsmc_walls` |
+| free-molecular Couette (τ = ½ n m c̄ U) and Fourier (q = 2 k Γ (T₁ − T₂)) | 5 SE + 0.5 % | `test_dsmc_walls` |
+| near-continuum μ and κ of argon (VHS, VSS) vs. Chapman–Enskog, Kn 0.05 | 5 SE + 2 % | `test_dsmc_transport` ([verification.md](verification.md)) |
 
 The studies M3.16/M3.17 are produced by `scripts/dsmc_studies.py`
 (0.5 m cube, helium, 900 K, 7.5 km/s, diffuse wall at 300 K; A_ref = 0.25 m²).
@@ -379,6 +383,53 @@ aerodynamic axes) but should be tiny (e.g. 1e-3 m/s); the force coefficients
 are meaningless in a reservoir. Use fixed `timestep_s`, `cell_size_m` and
 `warmup_steps` (the automatic choices assume a flow). Example:
 `benchmarks/profiling/p3_reservoir_air.yaml`.
+
+### 11.1 Face boundaries (`dsmc.faces`)
+
+Each face of the closed box can be changed individually:
+
+```yaml
+dsmc:
+  boundary: specular
+  faces:
+    x_min: periodic            # periodic faces come in pairs
+    x_max: periodic
+    y_min: {type: wall, temperature_K: 273.0, velocity_mps: [-100.0, 0.0, 0.0]}
+    y_max: {type: wall, temperature_K: 273.0, velocity_mps: [100.0, 0.0, 0.0]}
+    # z_min / z_max not given: specular
+```
+
+| Type | Move kernel |
+| ---- | ----------- |
+| `specular` | v_n → −v_n (default of the closed box) |
+| `periodic` | the particle re-enters through the opposite face with unchanged velocity (also across MPI ranks: the migration after the move sends it to the owner of its new cell) |
+| `wall` | fully diffuse Maxwell re-emission at `temperature_K` in the frame of the wall (`velocity_mps`, tangential), internal energies drawn at the wall temperature; same random stream as a body interaction, so runs stay bitwise reproducible |
+
+The momentum m (v_in − v_out) and the energy ½ m (|v_in − u_w|² − |v_out − u_w|²) + Δe_int
+given to a wall are summed per particle and step in extra tally columns
+(allocated only when a wall face exists; production runs carry no extra
+memory or work) and reduced with the body tallies. `results.json` reports per
+wall face (`diagnostics.walls`): area, temperature, velocity, the force on the
+wall `force_{x,y,z}_N` and the heat rate into the wall `heat_rate_W`, each with
+block standard error and confidence interval. The body quantities (C_D, …)
+keep referring to the STL body only.
+
+**Measuring fluxes in the gas.** The wall values are the exact fluxes of the
+scheme. The box average Σ m v_x v_y / V of the particle velocities after a time
+step is *not* the shear stress: the collisions at the end of each step relax the
+stress by about Δt/τ_μ (τ_μ = μ/p), the free flight rebuilds it, and the
+post-collision value is low by about Δt/(2 τ_μ) – 6 % at Δt = 0.2 τ in the
+argon Couette case (shrinking with Δt, independent of the cell size). The
+flux through a plane, counted from the particles that cross it during a step,
+agrees with the wall values (Couette and Fourier: within 1 σ). Velocity and
+temperature profiles from the cell state are not affected (collisions conserve
+momentum and energy per cell).
+
+Verification: kinematics of periodic, specular and wall faces; equilibrium
+pressure n k T and zero shear and heat flux on six walls; free-molecular
+Couette and Fourier flow against the exact solutions; near-continuum
+viscosity and thermal conductivity of argon against Chapman–Enskog
+([verification.md](verification.md), `test_dsmc_walls`, `test_dsmc_transport`).
 
 ## 8. Recorded study results
 

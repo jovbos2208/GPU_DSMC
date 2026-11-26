@@ -33,6 +33,13 @@ std::string_view to_string(CollisionKernelMode v) {
   }
 }
 std::string_view to_string(DomainBoundary v) { return v == DomainBoundary::Specular ? "specular" : "open"; }
+std::string_view to_string(FaceType v) {
+  switch (v) {
+    case FaceType::Periodic: return "periodic";
+    case FaceType::Wall: return "wall";
+    default: return "specular";
+  }
+}
 std::string_view to_string(CollisionModel v) { return v == CollisionModel::VSS ? "VSS" : "VHS"; }
 
 std::string_view to_string(ParameterMode v) { return v == ParameterMode::Automatic ? "automatic" : "fixed"; }

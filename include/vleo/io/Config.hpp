@@ -5,6 +5,7 @@
 // set after a successful parse: either from the input or from the documented
 // default. No field is ever left uninitialised.
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -27,6 +28,12 @@ enum class ParameterMode { Automatic, Fixed };
 // DSMC domain boundary: open (free-stream inflow, outflow) or a closed box with
 // specular walls and no inflow (reservoir / homogeneous gas).
 enum class DomainBoundary { Open, Specular };
+// Per-face override of a closed box (dsmc.faces, docs/dsmc.md section 11.1):
+// specular, periodic (pairs only) or a diffuse wall with its own temperature
+// and tangential velocity (Couette / Fourier verification cases).
+enum class FaceType { Specular, Periodic, Wall };
+// Face order: x_min, x_max, y_min, y_max, z_min, z_max (index 2 axis + side).
+inline constexpr std::array<std::string_view, 6> kFaceNames{"x_min", "x_max", "y_min", "y_max", "z_min", "z_max"};
 // DSMC collision kernel (docs/dsmc.md section 4): automatic = per_cell on host
 // backends, hybrid on GPUs. Results are identical.
 enum class CollisionKernelMode { Automatic, PerCell, Waves, Hybrid };
@@ -38,6 +45,7 @@ std::string_view to_string(OutputFormat v);
 std::string_view to_string(CollisionModel v);
 std::string_view to_string(ParameterMode v);
 std::string_view to_string(DomainBoundary v);
+std::string_view to_string(FaceType v);
 std::string_view to_string(CollisionKernelMode v);
 std::string_view to_string(GSIModel v);
 std::string_view to_string(ConvergenceQuantity v);
@@ -130,6 +138,12 @@ struct TPMCSection {
   std::optional<ConvergenceCriterion> convergence;
 };
 
+struct DomainFace {
+  FaceType type = FaceType::Specular;
+  double temperature_K = 0.0;  // wall only
+  Vec3 velocity_mps;           // wall only: tangential wall velocity (body frame)
+};
+
 struct DSMCSection {
   CollisionModel collision_model = CollisionModel::VHS;
   ParameterMode timestep_mode = ParameterMode::Automatic;
@@ -153,6 +167,8 @@ struct DSMCSection {
   // open (default) or specular: closed reservoir, the gas of the initial fill stays
   // in the box (no inflow, specular walls; docs/dsmc.md section 11)
   DomainBoundary boundary = DomainBoundary::Open;
+  // Faces that differ from the specular box (only with boundary: specular).
+  std::array<std::optional<DomainFace>, 6> faces;
   CollisionKernelMode collision_kernel = CollisionKernelMode::Automatic;
   std::uint32_t collision_team_size = 32;  // threads per cell of the waves kernel (8, 16, 32, 64)
   // Steps between reorders of the particle arrays into cell order (0: never).

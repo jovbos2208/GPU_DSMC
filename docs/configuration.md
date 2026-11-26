@@ -141,6 +141,7 @@ Material files cannot reference other material files.
 | `collision_kernel` | string | `automatic` | `automatic` (host backends: `per_cell`, GPUs: `hybrid`), `per_cell` (one thread per cell, candidates in sequence), `waves` (one team per cell, conflict-free waves of candidates) or `hybrid` (`per_cell` for cells with ≤ 256 candidates, `waves` for heavier cells); identical results, only the speed differs ([dsmc.md](dsmc.md) §4) |
 | `collision_team_size` | integer | 32 | 8, 16, 32 or 64: threads per cell of the `waves` kernel (also the heavy cells of `hybrid`) on GPUs |
 | `boundary` | string | `open` | `open`: free-stream inflow through all faces, outflow removes particles; `specular`: closed reservoir, specular walls, no inflow – the gas of the initial fill stays in the box (homogeneous gas, relaxation, profiling; [dsmc.md](dsmc.md) §11) |
+| `faces` | map | – | only with `boundary: specular`: per-face override of the closed box, keys `x_min`, `x_max`, `y_min`, `y_max`, `z_min`, `z_max`. A face is `specular` (default), `periodic` (both faces of an axis) or a diffuse wall `{type: wall, temperature_K: T, velocity_mps: [u, v, w]}` (fully diffuse Maxwell at T, moving with the tangential velocity; the normal component must be 0). Force and heat rate of every wall face are reported in `results.json` → `diagnostics.walls` (Couette / Fourier verification, [dsmc.md](dsmc.md) §11.1, [verification.md](verification.md)) |
 
 The automatic rules are in [dsmc.md](dsmc.md) §3; mixtures and internal
 energy in §9; cell-state output in §10.

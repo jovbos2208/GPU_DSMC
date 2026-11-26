@@ -596,6 +596,31 @@ TEST_CASE("DSMC options and scope", "[config]") {
   CHECK(d.dsmc.blocks == 20);
   // TPMC keeps accepting mixtures and species without VHS data.
   CHECK_NOTHROW(parse_simulation_config(mutate("    O: 1.0", "    O: 0.5\n    N: 0.5"), kData));
+  for (const auto& f : d.dsmc.faces) CHECK(!f);  // no face overrides by default
+}
+
+TEST_CASE("DSMC face boundaries", "[config]") {
+  std::string he = mutate("mode: tpmc", "mode: dsmc");
+  he.replace(he.find("    O: 1.0"), 10, "    He: 1.0");
+  const SimulationConfig c = parse_simulation_config(
+      he + "dsmc:\n  boundary: specular\n  faces:\n    x_min: periodic\n    x_max: {type: periodic}\n"
+           "    y_min: {type: wall, temperature_K: 323.5, velocity_mps: [-100, 0, 2.5]}\n"
+           "    y_max: {type: wall, temperature_K: 223}\n    z_max: specular\n",
+      kData);
+  const auto& f = c.dsmc.faces;
+  REQUIRE(f[0]);
+  CHECK(f[0]->type == FaceType::Periodic);
+  CHECK(f[1]->type == FaceType::Periodic);
+  CHECK(f[2]->type == FaceType::Wall);
+  CHECK(f[2]->temperature_K == 323.5);
+  CHECK(f[2]->velocity_mps == Vec3(-100.0, 0.0, 2.5));
+  CHECK(f[3]->type == FaceType::Wall);
+  CHECK(f[3]->velocity_mps == Vec3());  // default: wall at rest
+  CHECK(!f[4]);
+  CHECK(f[5]->type == FaceType::Specular);
+  const std::string yaml = to_resolved_yaml(c);
+  CHECK_THAT(yaml, ContainsSubstring("faces:"));
+  CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
 }
 
 TEST_CASE("Rejected: DSMC options", "[config][negative]") {
@@ -617,6 +642,16 @@ TEST_CASE("Rejected: DSMC options", "[config][negative]") {
       {"dsmc:\n  dt_DSMCState_out: -1e-5\n", "dsmc.dt_DSMCState_out: value -1e-05 is outside"},
       {"dsmc:\n  dt_DSMCState_out: often\n", "dsmc.dt_DSMCState_out: expected a finite real number"},
       {"dsmc:\n  dt_dsmcstate_out: 1e-5\n", "dsmc.dt_dsmcstate_out: unknown key"},
+      {"dsmc:\n  faces:\n    x_min: periodic\n    x_max: periodic\n", "dsmc.faces: only allowed with dsmc.boundary: specular"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    x_min: periodic\n", "periodic faces come in pairs"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    y_min: wall\n", "dsmc.faces.y_min: a wall needs a map"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    y_min: {type: wall}\n", "dsmc.faces.y_min.temperature_K: required"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    y_min: {type: wall, temperature_K: 300, velocity_mps: [0, 1, 0]}\n",
+       "dsmc.faces.y_min.velocity_mps: must be tangential"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    z_max: {type: specular, temperature_K: 300}\n",
+       "only allowed for type 'wall'"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    z_max: open\n", "dsmc.faces.z_max: invalid value 'open'"},
+      {"dsmc:\n  boundary: specular\n  faces:\n    top: specular\n", "dsmc.faces.top: unknown key"},
   }));
   INFO(needle);
   expect_invalid(he + extra, needle);

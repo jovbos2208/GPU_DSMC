@@ -25,6 +25,11 @@ using IntPolicy = Kokkos::RangePolicy<>;
 // surface interactions in the step.
 constexpr int kStepInteractions = kHistoryTallies;
 constexpr int kStepTallies = kHistoryTallies + 1;
+// Face boundaries in the move kernel (DsmcFace resolved against DsmcSettings::boundary).
+constexpr int kFaceExit = 0, kFaceSpecular = 1, kFacePeriodic = 2, kFaceWall = 3;
+// Wall tallies (only allocated with wall faces): per face px, py, pz, energy.
+constexpr int kWallQuantities = 4;
+constexpr int kWallCols = 6 * kWallQuantities;
 
 constexpr int kMaxChannels = 64;
 constexpr int kMaxDsmcSpecies = 8;
@@ -79,7 +84,9 @@ struct MoveKernel {
   std::uint64_t seed;
   double dt;
   std::uint32_t max_interactions;
-  bool specular_box;
+  Kokkos::Array<int, 6> face_type;               // kFaceExit ... kFaceWall per face
+  Kokkos::Array<SurfaceProperties, 6> face_surface{};  // walls: fully diffuse at T_w, wall velocity
+  int wall_cols = 0;                             // kWallCols with wall faces (tally columns after kStepTallies)
   // Several ranks (M6.7): particles that end the step outside the planes of
   // this rank are recorded here (atomic append; the host restores the
   // storage order). They stay Active until the step reduction has counted them.
@@ -91,7 +98,7 @@ struct MoveKernel {
   Kokkos::View<int*> migrant_count{};
 
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
-    for (int k = 0; k < kStepTallies; ++k) tally(i, k) = 0.0;
+    for (int k = 0; k < kStepTallies + wall_cols; ++k) tally(i, k) = 0.0;
     if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) {
       // ended in an earlier step and not yet compacted: retire (counted once, M5.3)
       p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Free);
@@ -174,7 +181,10 @@ struct MoveKernel {
       if (t_exit <= t) {
         pos = pos + t_exit * vel;
         t -= t_exit;
-        if (!specular_box) {
+        const bool upper = vel[axis] > 0.0;
+        const int face = 2 * axis + (upper ? 1 : 0);
+        const int ft = face_type[face];
+        if (ft == kFaceExit) {
           status = ParticleStatus::Exited;
           break;
         }
@@ -183,9 +193,43 @@ struct MoveKernel {
           break;
         }
         ++in_step;
-        vel[axis] = -vel[axis];
-        pos[axis] = vel[axis] > 0.0 ? box.lo[axis] : box.hi[axis];
         ignore = -1;
+        if (ft == kFacePeriodic) {  // re-enter through the opposite face
+          pos[axis] = upper ? box.lo[axis] : box.hi[axis];
+          continue;
+        }
+        if (ft == kFaceSpecular) {
+          vel[axis] = -vel[axis];
+          pos[axis] = upper ? box.hi[axis] : box.lo[axis];
+          continue;
+        }
+        // diffuse wall (same random stream as a body interaction)
+        const SurfaceProperties& w = face_surface[face];
+        Vec3 n_gas;
+        n_gas[axis] = upper ? -1.0 : 1.0;
+        pos[axis] = upper ? box.hi[axis] : box.lo[axis];
+        RandomStream rng(seed, id, k + 1u, RngStream::SurfaceInteraction);
+        const Vec3 v_in = vel;
+        const double e_int_in = e_rot + e_vib;
+        const ScatteringResult res = scatter_particle(vel, w.wall_velocity, n_gas, sm, e_rot, e_vib, w, rng);
+        vel = res.velocity_out;
+        e_rot = res.e_rot_out;
+        e_vib = res.e_vib_out;
+        ++k;
+        if (!(vel[axis] * n_gas[axis] > 0.0) || !is_finite(vel)) {
+          status = ParticleStatus::Invalid;
+          break;
+        }
+        if (wall_cols > 0) {
+          const Vec3 dp = m * (v_in - vel);
+          const double de = 0.5 * m * (norm2(v_in - w.wall_velocity) - norm2(vel - w.wall_velocity)) +
+                            (e_int_in - e_rot - e_vib);
+          const int c = kStepTallies + kWallQuantities * face;
+          tally(i, c) += dp.x;
+          tally(i, c + 1) += dp.y;
+          tally(i, c + 2) += dp.z;
+          tally(i, c + 3) += de;
+        }
         continue;
       }
       pos = pos + t * vel;
@@ -243,7 +287,7 @@ struct StepReduce {
   using value_type = double[];
   using size_type = std::size_t;
   static constexpr int kGlobal = kStepTallies + kNumParticleStatus;
-  static constexpr int kSlots = kGlobal + kSpeciesSlots * kMaxDsmcSpecies;  // upper bound (host array)
+  static constexpr int kSlots = kGlobal + kSpeciesSlots * kMaxDsmcSpecies + kWallCols;  // upper bound (host array)
   // Sized for the actual number of species: keeps the shared-memory footprint
   // of the reduction small (55 doubles per thread exceeded the LDS budget of
   // small GPUs).
@@ -251,8 +295,10 @@ struct StepReduce {
   Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<const std::uint8_t*> status;
   Kokkos::View<const std::uint32_t*> species;
+  int wall_cols = 0, wall_base = 0;  // wall tallies -> s[wall_base ...]
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
     for (int k = 0; k < kStepTallies; ++k) s[k] += tally(i, k);
+    for (int k = 0; k < wall_cols; ++k) s[wall_base + k] += tally(i, kStepTallies + k);
     const int st = status(i) < kNumParticleStatus ? status(i) : static_cast<int>(ParticleStatus::Invalid);
     s[kStepTallies + st] += 1.0;
     const int sp = static_cast<int>(species(i));
@@ -1074,6 +1120,15 @@ DsmcSettings resolve_dsmc_settings(const SimulationConfig& cfg, const Domain& do
   s.sample_steps = cfg.dsmc.sample_steps;
   s.blocks = cfg.dsmc.blocks;
   s.boundary = cfg.dsmc.boundary == DomainBoundary::Specular ? DsmcBoundary::Specular : DsmcBoundary::Open;
+  for (std::size_t f = 0; f < 6; ++f) {
+    if (!cfg.dsmc.faces[f]) continue;
+    const DomainFace& d = *cfg.dsmc.faces[f];
+    DsmcFaceBoundary& fb = s.faces[f];
+    fb.type = d.type == FaceType::Periodic ? DsmcFace::Periodic : d.type == FaceType::Wall ? DsmcFace::Wall
+                                                                                           : DsmcFace::Specular;
+    fb.temperature_K = d.temperature_K;
+    fb.velocity_mps = d.velocity_mps;
+  }
   switch (cfg.dsmc.collision_kernel) {
     case CollisionKernelMode::PerCell: s.collision_kernel = CollisionKernel::PerCell; break;
     case CollisionKernelMode::Waves: s.collision_kernel = CollisionKernel::Waves; break;
@@ -1135,6 +1190,10 @@ struct DsmcSimulation::Impl {
 
   DsmcCounters counters;
   std::array<std::vector<double>, kHistoryQuantities> series;
+  std::array<std::vector<double>, kWallCols> wall_series;  // per sampled step (wall faces only)
+  int wall_cols = 0;
+  Kokkos::Array<int, 6> face_type{};
+  Kokkos::Array<SurfaceProperties, 6> face_surface{};
   std::uint64_t sampled = 0;
   std::vector<double> particles_sampled;  // active particles of this rank per sampled step
   double max_speed = 0.0;
@@ -1375,6 +1434,7 @@ struct DsmcSimulation::Impl {
   struct Totals {
     DsmcCounters counters;
     std::array<std::vector<double>, kHistoryQuantities> series;
+    std::array<std::vector<double>, kWallCols> wall_series;
     std::vector<double> particles;  // per sampled step
     std::vector<double> species_count, species_E;
     std::vector<Vec3> species_P;
@@ -1385,6 +1445,7 @@ struct DsmcSimulation::Impl {
     Totals t;
     t.counters = counters;
     t.series = series;
+    t.wall_series = wall_series;
     t.particles = particles_sampled;
     t.species_count = species_count_sum;
     t.species_E = species_E_sum;
@@ -1411,6 +1472,7 @@ struct DsmcSimulation::Impl {
     t.sampled_acc = u[9];
     t.sampled_particle_steps = u[10];
     for (auto& v : t.series) comm::sum(v.data(), v.size());  // same length on all ranks
+    for (auto& v : t.wall_series) comm::sum(v.data(), v.size());
     comm::sum(t.particles.data(), t.particles.size());
     comm::sum(t.species_count.data(), t.species_count.size());
     comm::sum(t.species_E.data(), t.species_E.size());
@@ -1450,7 +1512,7 @@ struct DsmcSimulation::Impl {
       Kokkos::resize(dt_cur, cap);
       Kokkos::resize(dt_alt, cap);
     }
-    tally = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_step_tally", cap, kStepTallies);
+    tally = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_step_tally", cap, kStepTallies + wall_cols);
     compact_index = Kokkos::View<std::size_t*>("dsmc_compact_index", cap);
     cell_of_particle = Kokkos::View<int*>("dsmc_cell", cap);
     list = Kokkos::View<int*>("dsmc_cell_list", cap);
@@ -1635,7 +1697,9 @@ struct DsmcSimulation::Impl {
                   cfg.simulation.random_seed,
                   set.timestep_s,
                   set.max_interactions_per_step,
-                  set.boundary == DsmcBoundary::Specular};
+                  face_type,
+                  face_surface,
+                  wall_cols};
     if (decomposed) {
       mk.find_migrants = true;
       mk.grid = grid.grid;
@@ -1656,7 +1720,9 @@ struct DsmcSimulation::Impl {
       red.tally = tally;
       red.status = cur.status;
       red.species = cur.species;
-      red.value_count = static_cast<std::size_t>(StepReduce::kGlobal + kSpeciesSlots * nsp);
+      red.wall_base = StepReduce::kGlobal + kSpeciesSlots * nsp;
+      red.wall_cols = wall_cols;
+      red.value_count = static_cast<std::size_t>(red.wall_base + wall_cols);
       Kokkos::parallel_reduce("vleo::dsmc_step_reduce", policy(0, n), red, s);
     } else if (n > 0) {
       Profiler::Scope ps(prof, "dsmc.step_reduce");
@@ -1684,6 +1750,8 @@ struct DsmcSimulation::Impl {
       series[kQPDrag].push_back(scale * dot(dp, ax.drag));
       series[kQPLift].push_back(scale * dot(dp, ax.lift));
       series[kQPSide].push_back(scale * dot(dp, ax.side));
+      for (int k = 0; k < wall_cols; ++k)
+        wall_series[static_cast<std::size_t>(k)].push_back(scale * s[StepReduce::kGlobal + kSpeciesSlots * nsp + k]);
       for (int q = 0; q < nsp; ++q) {
         const double* v = s + StepReduce::kGlobal + kSpeciesSlots * q;
         species_count_sum[static_cast<std::size_t>(q)] += v[0];
@@ -1790,6 +1858,36 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
   Kokkos::deep_copy(s.sg_max, sg0);
   if (cfg.output.save_surface_fields)
     s.surface = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_surface", geometry.host.size(), kSurfaceTallies);
+
+  // Face boundaries (dsmc.faces): resolved against the box boundary.
+  for (std::size_t f = 0; f < 6; ++f) {
+    const DsmcFaceBoundary& fb = settings.faces[f];
+    const int axis = static_cast<int>(f / 2);
+    if (fb.type != DsmcFace::Default && settings.boundary != DsmcBoundary::Specular)
+      throw std::invalid_argument("DSMC: face boundaries need the closed (specular) box");
+    if (fb.type == DsmcFace::Periodic && settings.faces[f ^ 1u].type != DsmcFace::Periodic)
+      throw std::invalid_argument("DSMC: periodic faces come in pairs");
+    switch (fb.type) {
+      case DsmcFace::Default:
+        s.face_type[f] = settings.boundary == DsmcBoundary::Specular ? kFaceSpecular : kFaceExit;
+        break;
+      case DsmcFace::Specular: s.face_type[f] = kFaceSpecular; break;
+      case DsmcFace::Periodic: s.face_type[f] = kFacePeriodic; break;
+      case DsmcFace::Wall: {
+        if (!(fb.temperature_K > 0.0) || fb.velocity_mps[axis] != 0.0)
+          throw std::invalid_argument("DSMC: a wall face needs T > 0 and a tangential velocity");
+        s.face_type[f] = kFaceWall;
+        SurfaceProperties w;
+        w.model = GSIModel::Maxwell;
+        w.diffuse_fraction = 1.0;
+        w.temperature_K = fb.temperature_K;
+        w.wall_velocity = fb.velocity_mps;
+        s.face_surface[f] = w;
+        s.wall_cols = kWallCols;
+        break;
+      }
+    }
+  }
 
   s.allocate(std::min<std::size_t>(settings.max_particles, 1u << 16));
   s.init_partition();
@@ -2008,6 +2106,34 @@ DsmcResult DsmcSimulation::result() const {
   e.C_L = est(kQPLift, 1.0 / qa);
   e.C_Y = est(kQPSide, 1.0 / qa);
   for (int k = 0; k < 3; ++k) e.C_M[static_cast<std::size_t>(k)] = est(kQLx + k, 1.0 / qal);
+
+  // Wall faces of the box (dsmc.faces).
+  if (s.wall_cols > 0) {
+    const Vec3 ext = s.inflow_host.domain.box.extent();
+    for (std::size_t f = 0; f < 6; ++f) {
+      const DsmcFaceBoundary& fb = s.set.faces[f];
+      if (fb.type != DsmcFace::Wall) continue;
+      const int axis = static_cast<int>(f / 2);
+      DsmcWallResult w;
+      w.face = std::string(kFaceNames[f]);
+      w.area_m2 = ext[(axis + 1) % 3] * ext[(axis + 2) % 3];
+      w.temperature_K = fb.temperature_K;
+      w.velocity_mps = fb.velocity_mps;
+      auto wall_est = [&](int q) {
+        const SeriesStatistics st = analyze_series(tot.wall_series[f * kWallQuantities + static_cast<std::size_t>(q)],
+                                                   s.set.blocks);
+        Estimate we;
+        we.value = st.mean;
+        we.std_error = st.std_error_blocks;
+        we.ci_low = we.value - z * we.std_error;
+        we.ci_high = we.value + z * we.std_error;
+        return we;
+      };
+      for (int k = 0; k < 3; ++k) w.force_N[static_cast<std::size_t>(k)] = wall_est(k);
+      w.heat_rate_W = wall_est(3);
+      r.walls.push_back(w);
+    }
+  }
 
   // Surface fields: event sums over the sampling phase -> rates.
   if (s.surface.extent(0) > 0 && s.sampled > 0) {

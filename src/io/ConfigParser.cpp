@@ -36,6 +36,8 @@ constexpr std::array<EnumEntry<CollisionKernelMode>, 4> kCollKernel{{{"automatic
                                                                    {"hybrid", CollisionKernelMode::Hybrid}}};
 constexpr std::array<EnumEntry<DomainBoundary>, 2> kBoundary{
     {{"open", DomainBoundary::Open}, {"specular", DomainBoundary::Specular}}};
+constexpr std::array<EnumEntry<FaceType>, 3> kFaceTypes{
+    {{"specular", FaceType::Specular}, {"periodic", FaceType::Periodic}, {"wall", FaceType::Wall}}};
 constexpr std::array<EnumEntry<ParameterMode>, 2> kParamMode{
     {{"automatic", ParameterMode::Automatic}, {"fixed", ParameterMode::Fixed}}};
 constexpr std::array<EnumEntry<ConvergenceQuantity>, 7> kConvQuantities{{{"C_D", ConvergenceQuantity::CD},
@@ -332,6 +334,53 @@ void parse_mode_value(const YAML::Node& n, const std::string& p, std::string_vie
   }
 }
 
+// dsmc.faces: per-face boundaries of the closed box. A face is either a
+// scalar (specular | periodic) or a map {type, temperature_K, velocity_mps}.
+void parse_faces(const YAML::Node& n, const std::string& p, DSMCSection& out, Issues& is) {
+  if (!check_map(n, p, {"x_min", "x_max", "y_min", "y_max", "z_min", "z_max"}, is)) return;
+  for (std::size_t f = 0; f < 6; ++f) {
+    const std::string key(kFaceNames[f]);
+    const YAML::Node v = n[key];
+    if (!v.IsDefined()) continue;
+    const std::string fp = p + "." + key;
+    DomainFace face;
+    if (v.IsScalar()) {
+      const auto t = get_enum(n, key, p, is, Need::Required, kFaceTypes);
+      if (!t) continue;
+      if (*t == FaceType::Wall) {
+        is.add(fp, "a wall needs a map: {type: wall, temperature_K: ..., velocity_mps: [...]}", &v);
+        continue;
+      }
+      face.type = *t;
+    } else {
+      if (!check_map(v, fp, {"type", "temperature_K", "velocity_mps"}, is)) continue;
+      const auto t = get_enum(v, "type", fp, is, Need::Required, kFaceTypes);
+      if (!t) continue;
+      face.type = *t;
+      if (face.type == FaceType::Wall) {
+        if (auto T = get_double_in(v, "temperature_K", fp, is, Need::Required, kPositive)) face.temperature_K = *T;
+        if (auto u = get_vec3(v, "velocity_mps", fp, is, Need::Optional)) {
+          const int axis = static_cast<int>(f / 2);
+          if ((*u)[axis] != 0.0)
+            is.add(fp + ".velocity_mps", "must be tangential to the face (component along the face normal = 0)");
+          else
+            face.velocity_mps = *u;
+        }
+      } else if (v["temperature_K"].IsDefined() || v["velocity_mps"].IsDefined()) {
+        is.add(fp, "temperature_K and velocity_mps are only allowed for type 'wall'");
+      }
+    }
+    out.faces[f] = face;
+  }
+  for (std::size_t a = 0; a < 3; ++a) {
+    const bool lo = out.faces[2 * a] && out.faces[2 * a]->type == FaceType::Periodic;
+    const bool hi = out.faces[2 * a + 1] && out.faces[2 * a + 1]->type == FaceType::Periodic;
+    if (lo != hi)
+      is.add(p, "periodic faces come in pairs: " + std::string(kFaceNames[2 * a]) + " and " +
+                    std::string(kFaceNames[2 * a + 1]) + " must both be periodic");
+  }
+}
+
 void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
   const std::string p = "dsmc";
   if (!n.IsDefined()) return;
@@ -339,7 +388,7 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
                  {"collision_model", "timestep_mode", "timestep_s", "cell_size_mode", "cell_size_m", "cell_size_pilot",
                   "particles_per_cell_target", "warmup_steps", "sample_steps", "blocks", "max_particles",
                   "dt_DSMCState_out", "state_sample_every", "boundary", "collision_kernel", "collision_team_size",
-                  "reorder_interval"},
+                  "reorder_interval", "faces"},
                  is))
     return;
   if (auto v = get_enum(n, "collision_model", p, is, Need::Optional, kCollision)) out.collision_model = *v;
@@ -386,6 +435,12 @@ void parse_dsmc(const YAML::Node& n, DSMCSection& out, Issues& is) {
       out.state_sample_every = static_cast<std::uint32_t>(*v);
   }
   if (auto v = get_enum(n, "boundary", p, is, Need::Optional, kBoundary)) out.boundary = *v;
+  if (auto f = child(n, "faces", p, is, Need::Optional)) {
+    if (out.boundary != DomainBoundary::Specular)
+      is.add(p + ".faces", "only allowed with dsmc.boundary: specular (closed box without inflow)");
+    else
+      parse_faces(*f, p + ".faces", out, is);
+  }
   if (auto v = get_enum(n, "collision_kernel", p, is, Need::Optional, kCollKernel)) out.collision_kernel = *v;
   if (auto v = get_uint64(n, "reorder_interval", p, is, Need::Optional)) out.reorder_interval = *v;
   if (auto v = get_uint64(n, "collision_team_size", p, is, Need::Optional)) {

@@ -106,6 +106,30 @@ std::string dsmc_results_json(const DsmcResult& r, const SimulationConfig& cfg, 
     w.end_object();
   }
   w.end_array();
+  if (!r.walls.empty()) {
+    auto est = [&w](const char* key, const Estimate& e) {
+      w.key(key).begin_object();
+      w.field("value", e.value);
+      w.field("std_error", e.std_error);
+      w.field("ci_low", e.ci_low);
+      w.field("ci_high", e.ci_high);
+      w.end_object();
+    };
+    w.key("walls").begin_array();
+    for (const DsmcWallResult& wr : r.walls) {
+      w.begin_object();
+      w.field("face", wr.face);
+      w.field("area_m2", wr.area_m2);
+      w.field("temperature_K", wr.temperature_K);
+      w.field("velocity_mps", wr.velocity_mps);
+      est("force_x_N", wr.force_N[0]);
+      est("force_y_N", wr.force_N[1]);
+      est("force_z_N", wr.force_N[2]);
+      est("heat_rate_W", wr.heat_rate_W);
+      w.end_object();
+    }
+    w.end_array();
+  }
   w.field("wall_time_s", r.wall_time_s);
   w.field("particle_steps", r.particle_steps);
   w.field("particle_steps_per_s", r.wall_time_s > 0 ? r.particle_steps / r.wall_time_s : 0.0);

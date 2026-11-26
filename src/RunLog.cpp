@@ -48,7 +48,7 @@ std::string duration(double s) {
   return o.str();
 }
 
-const char* const kFaceNames[6] = {"-x", "+x", "-y", "+y", "-z", "+z"};
+const char* const kInflowFaceNames[6] = {"-x", "+x", "-y", "+y", "-z", "+z"};
 
 }  // namespace
 
@@ -191,7 +191,7 @@ void RunLog::header(const SimulationConfig& cfg, const Geometry& geometry, const
   for (const auto& c : inflow.channels) face_rate[c.face] += c.rate_per_s;
   for (int f = 0; f < 6; ++f)
     if (face_rate[f] > 0.0)
-      kv(std::string("  face ") + kFaceNames[f],
+      kv(std::string("  face ") + kInflowFaceNames[f],
          num(face_rate[f]) + " /s (" + num(100.0 * face_rate[f] / inflow.total_rate_per_s, 4) + " %)");
   flush();
 }
@@ -213,6 +213,14 @@ void RunLog::dsmc_parameters(const SimulationConfig& cfg, const InflowModel& inf
                               ": min local lambda " + num(pilot.min_local_lambda_m) + " m, " +
                               num(pilot.initial_cell_size_m) + " -> " + num(pilot.cell_size_m) + " m" +
                               (pilot.limited_by_max_cells ? " (limited by max cells)" : ""));
+  }
+  kv("domain boundary", std::string(to_string(d.boundary)));
+  for (std::size_t f = 0; f < 6; ++f) {
+    if (!d.faces[f]) continue;
+    const DomainFace& fc = *d.faces[f];
+    std::string v(to_string(fc.type));
+    if (fc.type == FaceType::Wall) v += ", diffuse, T = " + num(fc.temperature_K) + " K, u = " + vec(fc.velocity_mps) + " m/s";
+    kv(std::string("  face ") + std::string(kFaceNames[f]), v);
   }
   kv("particles per cell (target)", std::to_string(d.particles_per_cell_target));
   kv("MACROPARTICLE FACTOR W (F_N)", num(s.particle_weight, 8) + " real molecules per simulator particle");

@@ -1,5 +1,7 @@
 #include "vleo/io/ConfigWriter.hpp"
 
+#include <algorithm>
+
 #include <yaml-cpp/yaml.h>
 
 #include "YamlHelpers.hpp"
@@ -95,6 +97,21 @@ void walk(const SimulationConfig& c, Sink& s) {
   if (c.dsmc.dt_DSMCState_out) s.dbl("dt_DSMCState_out", *c.dsmc.dt_DSMCState_out);
   if (c.dsmc.state_sample_every != 1) s.u64("state_sample_every", c.dsmc.state_sample_every);
   if (c.dsmc.boundary != DomainBoundary::Open) s.str("boundary", to_string(c.dsmc.boundary));
+  if (std::any_of(c.dsmc.faces.begin(), c.dsmc.faces.end(), [](const auto& f) { return f.has_value(); })) {
+    s.begin("faces");
+    for (std::size_t f = 0; f < 6; ++f) {
+      if (!c.dsmc.faces[f]) continue;
+      const DomainFace& d = *c.dsmc.faces[f];
+      s.begin(kFaceNames[f]);
+      s.str("type", to_string(d.type));
+      if (d.type == FaceType::Wall) {
+        s.dbl("temperature_K", d.temperature_K);
+        s.vec("velocity_mps", d.velocity_mps);
+      }
+      s.end();
+    }
+    s.end();
+  }
   if (c.dsmc.collision_kernel != CollisionKernelMode::Automatic)
     s.str("collision_kernel", to_string(c.dsmc.collision_kernel));
   if (c.dsmc.collision_team_size != 32) s.u64("collision_team_size", c.dsmc.collision_team_size);

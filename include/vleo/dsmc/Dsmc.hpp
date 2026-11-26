@@ -33,6 +33,7 @@
 // run: integer counters are identical, floating-point results differ only by
 // the rounding of the sums over ranks.
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -60,6 +61,18 @@ enum class DsmcBoundary {
   Specular,  // closed box with specular walls, no inflow (homogeneous test cases)
 };
 
+// Boundary of one face of the box (dsmc.faces, docs/dsmc.md section 11.1).
+// Default follows DsmcSettings::boundary (open: particles exit; specular:
+// mirror). Periodic faces re-enter at the opposite face; a wall re-emits
+// fully diffuse at its temperature, moving with its tangential velocity, and
+// the momentum and energy it receives are tallied (DsmcResult::walls).
+enum class DsmcFace { Default, Specular, Periodic, Wall };
+struct DsmcFaceBoundary {
+  DsmcFace type = DsmcFace::Default;
+  double temperature_K = 0.0;
+  Vec3 velocity_mps;
+};
+
 // Resolved numerical parameters of a DSMC run.
 // Collision kernel (results are identical, docs/dsmc.md section 4):
 // PerCell = one thread per cell (default on host backends), Waves = one team
@@ -77,6 +90,12 @@ struct DsmcSettings {
   std::uint64_t max_particles = 0;
   std::uint32_t max_interactions_per_step = 1000;
   DsmcBoundary boundary = DsmcBoundary::Open;
+  std::array<DsmcFaceBoundary, 6> faces{};  // x_min, x_max, y_min, y_max, z_min, z_max
+  bool has_walls() const {
+    for (const auto& f : faces)
+      if (f.type == DsmcFace::Wall) return true;
+    return false;
+  }
   bool initial_fill = true;            // start from free-stream gas (else empty domain)
   bool profile = false;                // phase timings (also VLEO_PROFILE=1)
   bool load_balance = true;            // several ranks: re-split the planes at the end of the warm-up (M6.5)
@@ -184,6 +203,19 @@ struct DsmcDecomposition {
   std::vector<std::map<std::string, double>> rank_profiles;  // per rank: phase -> seconds (profiling only)
 };
 
+// Momentum and energy received by a wall face of the box over the sampling
+// phase (dsmc.faces with type wall): force on the wall and heat rate into the
+// wall (kinetic energy in the wall frame plus internal energy), with block
+// standard errors like the body quantities.
+struct DsmcWallResult {
+  std::string face;                // x_min ... z_max
+  double area_m2 = 0.0;
+  double temperature_K = 0.0;
+  Vec3 velocity_mps;
+  std::array<Estimate, 3> force_N;
+  Estimate heat_rate_W;
+};
+
 struct DsmcResult {
   TpmcEstimates estimates;                 // same quantities as TPMC, SE from block averaging
   std::array<SeriesStatistics, kHistoryQuantities> series;  // per quantity (rates, unscaled)
@@ -200,6 +232,7 @@ struct DsmcResult {
   std::vector<std::string> warnings;
   CellSizePilotReport pilot;               // set by refine_cell_size_with_pilot
   DsmcDecomposition decomposition;
+  std::vector<DsmcWallResult> walls;       // wall faces only, in face order
 };
 
 struct DsmcProgress {

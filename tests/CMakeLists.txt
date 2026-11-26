@@ -10,6 +10,7 @@ else()
 endif()
 math(EXPR _t300 "300 * ${VLEO_TIMEOUT_SCALE}")
 math(EXPR _t900 "900 * ${VLEO_TIMEOUT_SCALE}")
+math(EXPR _t1800 "1800 * ${VLEO_TIMEOUT_SCALE}")
 math(EXPR _t120 "120 * ${VLEO_TIMEOUT_SCALE}")
 
 add_library(vleo_test_main STATIC unit/test_main.cpp)
@@ -50,6 +51,15 @@ vleo_add_unit_test(test_grid      SOURCES unit/test_grid.cpp LIBS vleo_dsmc LABE
 vleo_add_unit_test(test_dsmc      SOURCES unit/test_dsmc.cpp LIBS vleo_dsmc LABELS "dsmc;physics;gate")
 target_compile_definitions(test_dsmc PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
 set_tests_properties(test_dsmc PROPERTIES TIMEOUT ${_t900})
+vleo_add_unit_test(test_dsmc_walls SOURCES unit/test_dsmc_walls.cpp LIBS vleo_dsmc LABELS "dsmc;physics;faces")
+target_compile_definitions(test_dsmc_walls PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
+# fast face tests in test_dsmc_walls; the transport coefficients (Couette / Fourier
+# near the continuum limit, ~5 min on a CPU) run as their own test with the label
+# verification (skip with ctest -LE verification); the Catch tag [.] hides it
+# from the plain test_dsmc_walls run
+set_tests_properties(test_dsmc_walls PROPERTIES TIMEOUT ${_t900})
+add_test(NAME test_dsmc_transport COMMAND test_dsmc_walls "[transport]" --order lex --reporter console --colour-mode none)
+set_tests_properties(test_dsmc_transport PROPERTIES LABELS "unit;dsmc;physics;faces;verification" TIMEOUT ${_t1800})
 vleo_add_unit_test(test_mixture   SOURCES unit/test_mixture.cpp LIBS vleo_dsmc LABELS "dsmc;physics;mixture")
 target_compile_definitions(test_mixture PRIVATE VLEO_TEST_SCALE=$<IF:$<CONFIG:Debug>,4,1>)
 set_tests_properties(test_mixture PROPERTIES TIMEOUT ${_t900})
