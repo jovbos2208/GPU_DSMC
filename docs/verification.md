@@ -13,7 +13,8 @@ runs in `ctest`.
 | 1 | Binary diffusion (O/N, He/Ar; VHS, VSS) vs. Chapman–Enskog | **done** |
 | 1 | Shock thickness vs. experiment (Alsmeyer 1976) | qualitative only (shape of λ/δ(Ma)); the tabulated measurements were not accessible |
 | 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | **done** |
-| 3 | Benchmarks with published data: cylinder in argon at Ma 10 (Lofthouse), sphere drag over Kn, 70° blunted cone | planned |
+| 3 | Hypersonic cylinder in argon (Lofthouse 2008), Ma 10 and 25, Kn 0.25 and 0.05: drag, peak heat flux | **done** (solver runs, section 5) |
+| 3 | Sphere drag over Kn, 70° blunted cone | planned |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
 
 `ctest -L verification` runs the long cases; `ctest -LE verification` skips them.
@@ -322,3 +323,76 @@ coefficients below are converted to λ_μ, τ_μ = λ_μ/c̄ (factor 1.32² = 1.
   quickly away from the body; 8–12 particles per cell in the long-domain runs
   lower the coefficients by up to 1–2 %; Δt/τ ≪ 0.1. These errors are small
   compared with the 15–17 % collision effect on C_D at 120 km.
+
+## 5. Hypersonic cylinder in argon (stage 3)
+
+### Set-up
+
+Reference: Lofthouse, *Nonequilibrium hypersonic aerothermodynamics using the
+direct simulation Monte Carlo and Navier–Stokes models*, PhD thesis, University
+of Michigan 2008, chapter 4 (DSMC code MONACO), tables 4.1–4.4. Cylinder of
+0.3048 m diameter in argon, T∞ = 200 K, U∞ = 2624 m/s (Ma 10, wall 500 K) or
+6585 m/s (Ma 25, wall 1500 K), fully diffuse wall, VHS argon ω = 0.734,
+T_ref = 1000 K, d_ref = 3.595·10⁻¹⁰ m (`gas.collision_data`), n∞ from table 4.1
+(Kn∞ = 0.25: 1.699·10¹⁹ m⁻³, Kn∞ = 0.05: 8.494·10¹⁹ m⁻³).
+
+The 3D solver runs a two-dimensional half model: symmetry plane y = 0 and the z
+faces specular, slab one cell thick, the 360-facet cylinder cut by the box
+(`domain.clip_geometry`), the faces x_min, x_max and y_max are inflow faces with
+the free-stream state. Uniform cells: 1 mm (Kn 0.25, 2.2 M cells, domain
+−6R…6R × 8R) and 0.5 mm (Kn 0.05, 3.3 M cells, −3R…4R × 5R); time step
+min(0.2 τ_wall, Δx/(U + 3c_mp)); 5 flow-throughs warm-up and 5 sampling; about
+10 particles per gas cell on average. The drag per unit length is 2F_x/Δz,
+the peak heat flux the mean over the facets within 2° of the stagnation line.
+
+```bash
+cd verification
+python3 make_cylinder_configs.py --cases ma10_kn0.25 ma10_kn0.05 ma25_kn0.25 ma25_kn0.05
+vleo_solver --batch batch_cylinder.txt --platform <platform.yaml> --skip-existing
+python3 cylinder_eval.py results/cylinder_ma10_kn0p25 results/cylinder_ma10_kn0p05 \
+    results/cylinder_ma25_kn0p25 results/cylinder_ma25_kn0p05 --png results/cylinder.png
+```
+
+### Results (W7700, commit 0eea90f, 2026-11-26)
+
+| Case | Drag [N/m] | Lofthouse | Δ | Peak heat flux [kW/m²] | Lofthouse | Δ |
+| ---- | ---------- | --------- | - | ---------------------- | --------- | - |
+| Ma 10, Kn 0.25 | 2.064 ± 0.001 | 2.092 | −1.3 % | 5.78 | 5.926 | −2.4 % |
+| Ma 10, Kn 0.05 | 8.792 ± 0.003 | 8.866 | −0.8 % | 15.57 | 15.85 | −1.8 % |
+| Ma 25, Kn 0.25 | 13.35 ± 0.004 | 13.19 | +1.2 % | 104.4 | 108.2 | −3.5 % |
+| Ma 25, Kn 0.05 | 56.84 ± 0.02 | 56.92 | −0.1 % | 302.2 | 304.5 | −0.8 % |
+
+- Drag agrees within ±1.3 %, the peak heat flux is 0.8–3.5 % low. The
+  statistical errors (drag 0.03 %) are negligible; the remaining difference
+  is of the size expected between two DSMC codes with different grids, surface
+  resolution and averaging of the peak (MONACO gives no uncertainty).
+- Stagnation pressure p_s/(ρ∞U∞²): 0.98 / 0.92 (Ma 10, Kn 0.25 / 0.05),
+  0.99 / 0.93 (Ma 25), between the continuum Pitot value (≈ 0.88) and the
+  free-molecular value with diffuse re-emission (1.16 at Ma 10, 1.11 at Ma 25),
+  approaching the continuum value as Kn falls. The shear stress peaks at
+  44–48° from the stagnation line.
+- Resolution: next to the stagnation point Δx/λ_local is 0.7 (Ma 10,
+  Kn 0.25) up to 2.4 (Ma 25, Kn 0.05, min λ_local = 0.20 mm); with about 10
+  particles per cell the runs are below the stage-2 recommendation
+  (Δx ≤ λ/2, ≥ 20 per cell) in the shock layer of the Kn 0.05 cases. A
+  4 mm grid at Ma 10, Kn 0.25 gave 5.90 kW/m², i.e. the coarser grid raises
+  the heat flux, consistent with section 4. The good agreement at Ma 25,
+  Kn 0.05 is therefore not a converged result; a refined or adapted grid is
+  needed before the Kn 0.05 heat flux counts as verified to better than a few
+  percent.
+
+Performance (HIP, one W7700, wall time / (mean particles × steps), including
+the cell-state output every 5 steps):
+
+| Case | Particles | Steps | Wall time | ns per particle and step | Collisions per particle and step |
+| ---- | --------- | ----- | --------- | ------------------------ | -------------------------------- |
+| Ma 10, Kn 0.25 | 21.5 M | 26 000 | 1200 s | 2.15 | 0.0035 |
+| Ma 10, Kn 0.05 | 34.7 M | 36 000 | 2644 s | 2.11 | 0.010 |
+| Ma 25, Kn 0.25 | 21.7 M | 22 000 | 1037 s | 2.17 | 0.0026 |
+| Ma 25, Kn 0.05 | 35.2 M | 42 000 | 3022 s | 2.04 | 0.006 |
+
+About 470 M particle steps per second, independent of density and collision
+rate: the cost is set by moving and sorting, not by collisions. The sampling
+phase costs about 15 % more than the warm-up (cell sampling and state output).
+The mean particle count is that of the sampling phase; with the lower count
+of the warm-up the index is about 2.2 ns.
