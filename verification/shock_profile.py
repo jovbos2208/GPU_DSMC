@@ -233,9 +233,17 @@ def main():
         dn = (xs > 15 * lam) & (xs < 25 * lam)
         r, _, t = rankine_hugoniot(d["M"])
         print(f"{run}: Ma {d['M']:.3f}, {len(arr)} files, lambda1 {lam * 1e3:.4f} mm")
-        print(f"  plateaus: n2/n1 {np.nanmean(n_all[dn]) / np.nanmean(n_all[up]):.4f} (RH {r:.4f}), "
-              f"T2/T1 {np.nanmean(T_all[dn]) / np.nanmean(T_all[up]):.4f} (RH {t:.4f}), "
-              f"mass flux ratio {np.nanmean(n_all[dn] * u_all[dn]) / np.nanmean(n_all[up] * u_all[up]):.4f}")
+        # plateaus against the prescribed states (the upstream temperature precursor of strong
+        # shocks reaches far upstream, so a measured T1 is not a clean reference)
+        print(f"  downstream plateau (15-25 lambda1): n2/n1 {np.nanmean(n_all[dn]) / n1:.4f} (RH {r:.4f}), "
+              f"T2/T1 {np.nanmean(T_all[dn]) / T1:.4f} (RH {t:.4f}), "
+              f"mass flux n2 u2 / (n1 u1) {np.nanmean(n_all[dn] * u_all[dn]) / (n1 * d['u1']):.4f}")
+        pre = []
+        for xa, xb in ((-30, -27), (-25, -20), (-20, -15), (-15, -10), (-10, -5)):
+            sel = (xs >= xa * lam) & (xs < xb * lam)
+            if np.any(np.isfinite(T_all[sel])):
+                pre.append(f"[{xa},{xb}] {(np.nanmean(T_all[sel]) - T1) / (T2 - T1):.4f}")
+        print("  upstream precursor (T - T1) / (T2 - T1) over x/lambda1: " + ", ".join(pre))
         print(f"  thickness {delta / lam:.3f} +- {delta_se / lam:.3f} lambda1, Navier-Stokes {delta_ns / lam:.3f}; "
               f"lambda1/delta {lam / delta:.4f} +- {lam * delta_se / delta ** 2:.4f} (NS {lam / delta_ns:.4f})")
         print(f"  max-slope thickness {ms / lam:.3f} lambda1 (NS {ms_ns / lam:.3f}); with lambda_mu = "
