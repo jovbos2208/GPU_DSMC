@@ -599,6 +599,31 @@ TEST_CASE("DSMC options and scope", "[config]") {
   for (const auto& f : d.dsmc.faces) CHECK(!f);  // no face overrides by default
 }
 
+TEST_CASE("Collision data overrides of gas.collision_data", "[config]") {
+  std::string ar = mutate("mode: tpmc", "mode: dsmc");
+  ar.replace(ar.find("    O: 1.0"), 10, "    Ar: 1.0");
+  // the gas block ends before "surface:" in the template: insert the block into it
+  std::string y = ar;
+  y.insert(y.find("surface:"), "  collision_data:\n    Ar: {d_ref_m: 3.595e-10, omega: 0.734, T_ref_K: 1000}\n");
+  const SimulationConfig c = parse_simulation_config(y, kData);
+  const auto& v = c.gas.species[0].vhs;
+  CHECK(v.d_ref_m == 3.595e-10);
+  CHECK(v.omega == 0.734);
+  CHECK(v.T_ref_K == 1000.0);
+  CHECK(v.d_vss_m == 3.595e-10);  // follows d_ref_m
+  CHECK(v.alpha == 1.40);         // database value kept
+  CHECK(c.gas.species[0].collision_data_from_input);
+  const std::string yaml = to_resolved_yaml(c);
+  CHECK_THAT(yaml, ContainsSubstring("collision_data:"));
+  CHECK(to_resolved_yaml(parse_simulation_config(yaml, "/")) == yaml);
+  std::string bad = ar;
+  bad.insert(bad.find("surface:"), "  collision_data:\n    He: {omega: 0.7}\n");
+  expect_invalid(bad, "gas.collision_data.He: species is not listed in gas.species");
+  bad = ar;
+  bad.insert(bad.find("surface:"), "  collision_data:\n    Ar: {omega: 0.3}\n");
+  expect_invalid(bad, "gas.collision_data.Ar.omega");
+}
+
 TEST_CASE("DSMC face boundaries", "[config]") {
   std::string he = mutate("mode: tpmc", "mode: dsmc");
   he.replace(he.find("    O: 1.0"), 10, "    He: 1.0");

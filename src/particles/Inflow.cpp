@@ -34,6 +34,12 @@ Domain make_domain(const DomainSection& cfg, const Aabb& mesh_box, double min_ma
   if (cfg.box_min_m && cfg.box_max_m) {
     d.box.lo = *cfg.box_min_m;
     d.box.hi = *cfg.box_max_m;
+    if (cfg.clip_geometry) {  // the box may cut the geometry, but must overlap it
+      for (int k = 0; k < 3; ++k)
+        if (!(d.box.lo[k] < mesh_box.hi[k] && d.box.hi[k] > mesh_box.lo[k]))
+          throw GeometryError(std::string("domain box does not overlap the geometry along axis ") + "xyz"[k]);
+      return d;
+    }
     for (int k = 0; k < 3; ++k) {
       if (!(d.box.lo[k] <= mesh_box.lo[k] - min_margin && d.box.hi[k] >= mesh_box.hi[k] + min_margin)) {
         std::ostringstream os;

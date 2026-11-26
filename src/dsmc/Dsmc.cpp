@@ -1911,6 +1911,20 @@ DsmcSimulation::DsmcSimulation(const SimulationConfig& cfg, const Geometry& geom
     }
   }
 
+  // domain.clip_geometry: the geometry may cross faces only where they are
+  // specular (the mirror image completes the body: symmetry planes, 2D slabs).
+  if (cfg.domain.clip_geometry) {
+    const Aabb& gb = geometry.host.bbox;
+    const Aabb& box = inflow.domain.box;
+    for (std::size_t f = 0; f < 6; ++f) {
+      const int axis = static_cast<int>(f / 2);
+      const bool crossed = f % 2 == 0 ? gb.lo[axis] < box.lo[axis] : gb.hi[axis] > box.hi[axis];
+      if (crossed && s.face_type[f] != kFaceSpecular)
+        throw std::invalid_argument(std::string("DSMC: the geometry crosses the domain face ") +
+                                    std::string(kFaceNames[f]) + ", which must then be specular (domain.clip_geometry)");
+    }
+  }
+
   // Inflow faces of the closed box replace the free-stream channels (which a
   // closed box never uses).
   s.inject_on = settings.boundary == DsmcBoundary::Open;

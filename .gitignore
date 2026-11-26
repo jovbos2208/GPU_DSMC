@@ -13,3 +13,7 @@ __pycache__/
 /validation/satellites/**/body.surf
 /validation/satellites/**/surface_fields.csv
 /validation/satellites/**/log.debug
+
+# verification: run results and downloaded reference papers (not redistributed)
+verification/results/
+verification/references/

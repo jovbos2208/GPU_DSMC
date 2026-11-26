@@ -31,6 +31,7 @@ void walk(const SimulationConfig& c, Sink& s) {
     if (c.domain.margin_m) s.dbl("margin_m", *c.domain.margin_m);
     if (c.domain.box_min_m) s.vec("box_min_m", *c.domain.box_min_m);
     if (c.domain.box_max_m) s.vec("box_max_m", *c.domain.box_max_m);
+    if (c.domain.clip_geometry) s.boolean("clip_geometry", true);
     s.end();
   }
 
@@ -48,6 +49,21 @@ void walk(const SimulationConfig& c, Sink& s) {
   s.begin("species");
   for (const auto& sp : c.gas.species) s.dbl(sp.name, sp.mole_fraction);
   s.end();
+  if (std::any_of(c.gas.species.begin(), c.gas.species.end(),
+                  [](const auto& sp) { return sp.collision_data_from_input; })) {
+    s.begin("collision_data");
+    for (const auto& sp : c.gas.species) {
+      if (!sp.collision_data_from_input) continue;
+      s.begin(sp.name);
+      s.dbl("d_ref_m", sp.vhs.d_ref_m);
+      s.dbl("omega", sp.vhs.omega);
+      s.dbl("T_ref_K", sp.vhs.T_ref_K);
+      s.dbl("d_vss_m", sp.vhs.d_vss_m);
+      s.dbl("alpha", sp.vhs.alpha);
+      s.end();
+    }
+    s.end();
+  }
   s.end();
 
   s.begin("surface");

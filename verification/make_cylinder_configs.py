@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""Hypersonic argon flow about a cylinder: the reference case of Lofthouse
+(PhD thesis, University of Michigan 2008, chapter 4; DSMC code MONACO).
+
+    verification/make_cylinder_configs.py [--cases ma10_kn0.25 ma10_kn0.05 ...] [--out verification]
+
+Conditions (thesis tables 3.1, 4.1, 4.2): 12-inch (0.3048 m) cylinder, argon,
+T_inf = 200 K, U_inf = 2624 m/s (Ma 10) or 6585 m/s (Ma 25), wall 500 K (Ma 10) or
+1500 K (Ma 25), fully diffuse; Kn_inf = 0.002 ... 0.25 by the hard-sphere mean free
+path, n_inf from table 4.1; VHS argon omega = 0.734, T_ref = 1000 K,
+d_ref = 3.595e-10 m (gas.collision_data).
+
+Set-up in the 3D solver: half model (y >= 0, symmetry plane y = 0 = specular
+face), one cell thick in z with specular z faces (two-dimensional flow), the
+cylinder (360 facets, axis along z) reaching through the slab. The free-stream
+faces x_min, x_max, y_max are inflow faces with the free-stream state (x_max and
+y_max inject only the thermal back-flow). Uniform cells sized from the wall
+density at the stagnation point, n_w / n_inf ~ 0.9 m U^2 / (k T_w).
+
+Writes cylinder_12in.stl, cylinder_<case>.yaml and batch_cylinder.txt. Evaluate
+with verification/cylinder_eval.py results/cylinder_<case>.
+"""
+import argparse
+import math
+import os
+
+K_B = 1.380649e-23
+M_AR = 39.948 * 1.66053906660e-27
+D_CYL = 0.3048
+R_CYL = 0.5 * D_CYL
+OMEGA, T_REF, D_REF = 0.734, 1000.0, 3.595e-10
+N_FACETS = 360
+
+# Lofthouse table 4.1 / 4.2
+N_INF = {"0.002": 2.124e21, "0.01": 4.247e20, "0.05": 8.494e19, "0.25": 1.699e19}
+MACH = {"10": (2624.0, 500.0), "25": (6585.0, 1500.0)}
+# per case: cell size [m], domain [x_min, x_max, y_max] in radii, time step [s] (None: automatic rule)
+SETUP = {
+    "0.25": dict(cell=1.0e-3, box=(-6.0, 6.0, 8.0)),
+    "0.05": dict(cell=0.5e-3, box=(-3.0, 4.0, 5.0)),
+    "0.01": dict(cell=0.2e-3, box=(-2.0, 3.0, 3.5)),
+}
+
+
+def vhs_lambda_tau(n, T):
+    mr = 0.5 * M_AR
+    sg = 2 * math.sqrt(math.pi) * D_REF ** 2 * (T / T_REF) ** (1 - OMEGA) * math.sqrt(2 * K_B * T_REF / mr)
+    return math.sqrt(8 * K_B * T / (math.pi * M_AR)) / (n * sg), 1.0 / (n * sg)
+
+
+def write_stl(path, z0, z1):
+    """Closed cylinder, axis along z, N_FACETS facets (edges at multiples of 360/N deg, so
+    the stagnation line y = 0 is a facet edge), triangles 2i, 2i+1 form facet i."""
+    out = ["solid cylinder"]
+
+    def tri(a, b, c):
+        ux, uy, uz = (b[k] - a[k] for k in range(3))
+        vx, vy, vz = (c[k] - a[k] for k in range(3))
+        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+        ln = math.sqrt(nx * nx + ny * ny + nz * nz)
+        out.append(f" facet normal {nx / ln:.9e} {ny / ln:.9e} {nz / ln:.9e}")
+        out.append("  outer loop")
+        for p in (a, b, c):
+            out.append(f"   vertex {p[0]:.9e} {p[1]:.9e} {p[2]:.9e}")
+        out.append("  endloop")
+        out.append(" endfacet")
+
+    pts = [(R_CYL * math.cos(2 * math.pi * i / N_FACETS), R_CYL * math.sin(2 * math.pi * i / N_FACETS))
+           for i in range(N_FACETS)]
+    for i in range(N_FACETS):  # side facets, outward normals
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % N_FACETS]
+        tri((x0, y0, z0), (x1, y1, z0), (x1, y1, z1))
+        tri((x0, y0, z0), (x1, y1, z1), (x0, y0, z1))
+    for i in range(N_FACETS):  # caps (outside the slab)
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % N_FACETS]
+        tri((0, 0, z0), (x1, y1, z0), (x0, y0, z0))
+        tri((0, 0, z1), (x0, y0, z1), (x1, y1, z1))
+    out.append("endsolid cylinder")
+    with open(path, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--cases", nargs="+", default=["ma10_kn0.25", "ma10_kn0.05"])
+    ap.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
+    ap.add_argument("--ppc", type=int, default=8, help="particles per cell in the free stream")
+    a = ap.parse_args()
+    batch = []
+    for case in a.cases:
+        ma, kn = case.split("_")
+        ma, kn = ma[2:], kn[2:]
+        U, Tw = MACH[ma]
+        T = 200.0
+        n = N_INF[kn]
+        st = SETUP[kn]
+        dx = st["cell"]
+        x0, x1, y1 = (v * R_CYL for v in st["box"])
+        lam, tau = vhs_lambda_tau(n, T)
+        nw = 0.9 * M_AR * U * U / (K_B * Tw) * n
+        lam_w, tau_w = vhs_lambda_tau(nw, Tw)
+        c_mp = math.sqrt(2 * K_B * T / M_AR)
+        dt = min(0.2 * tau_w, dx / (U + 3 * c_mp))
+        L = x1 - x0
+        flow = L / U
+        warm = int(math.ceil(5 * flow / dt / 1000.0)) * 1000
+        sample = int(math.ceil(5 * flow / dt / 1000.0)) * 1000
+        nx, ny = round(L / dx), round(y1 / dx)
+        tag = f"cylinder_ma{ma}_kn{kn}".replace(".", "p")
+        stl = "cylinder_12in.stl"
+        text = f"""# Lofthouse (2008) cylinder, argon, Ma {ma}, Kn {kn} (docs/verification.md), generated by
+# make_cylinder_configs.py. n_inf = {n:.4g} m^-3, T_inf = {T:g} K, U_inf = {U:g} m/s, wall {Tw:g} K diffuse.
+# VHS lambda_inf = {lam * 1e3:.3f} mm; wall at the stagnation point ~ {nw / n:.0f} n_inf, lambda_w ~ {lam_w * 1e3:.3f} mm,
+# tau_w ~ {tau_w:.3g} s. Half model y >= 0, one cell in z: {nx} x {ny} x 1 cells of {dx * 1e3:g} mm.
+# Drag per unit length = 2 F_x / dz, peak heat flux at the stagnation line: cylinder_eval.py.
+simulation:
+  name: {tag}
+  mode: dsmc
+  random_seed: {20261126 + int(float(kn) * 1000) + int(ma)}
+
+geometry:
+  file: {stl}
+  units: m
+
+domain:
+  box_min_m: [{x0:.6g}, 0.0, 0.0]
+  clip_geometry: true          # the cylinder crosses the symmetry plane y = 0 and the z faces
+  box_max_m: [{x1:.6g}, {y1:.6g}, {dx:.6g}]
+
+reference:
+  area_m2: {D_CYL * dx:.6g}        # D x slab thickness (C_D is the half-model value; use cylinder_eval.py)
+  length_m: {D_CYL}
+  moment_center_m: [0.0, 0.0, 0.0]
+  lift_axis_body: [0.0, 1.0, 0.0]
+
+gas:
+  number_density_m3: {n:.6g}
+  translational_temperature_K: {T:g}
+  bulk_velocity_body_mps: [{U:g}, 0.0, 0.0]
+  species:
+    Ar: 1.0
+  collision_data:
+    Ar: {{d_ref_m: {D_REF}, omega: {OMEGA}, T_ref_K: {T_REF}}}
+
+surface:
+  model: maxwell
+  temperature_K: {Tw:g}
+  maxwell:
+    diffuse_fraction: 1.0
+
+dsmc:
+  boundary: specular            # y_min: symmetry plane; z faces: two-dimensional flow
+  faces:
+    x_min: {{type: inflow, number_density_m3: {n:.6g}, temperature_K: {T:g}, velocity_mps: [{U:g}, 0, 0]}}
+    x_max: {{type: inflow, number_density_m3: {n:.6g}, temperature_K: {T:g}, velocity_mps: [{U:g}, 0, 0]}}
+    y_max: {{type: inflow, number_density_m3: {n:.6g}, temperature_K: {T:g}, velocity_mps: [{U:g}, 0, 0]}}
+  collision_model: VHS
+  timestep_mode: fixed
+  timestep_s: {dt:.4g}
+  cell_size_mode: fixed
+  cell_size_m: {dx:.6g}
+  particles_per_cell_target: {a.ppc}
+  warmup_steps: {warm}
+  sample_steps: {sample}
+  blocks: 10
+  dt_DSMCState_out: {sample * dt / 10:.6g}
+  state_sample_every: 5
+
+statistics:
+  confidence_level: 0.95
+  report_uncertainty: true
+
+output:
+  directory: results/{tag}
+  format: json
+  save_surface_fields: true
+"""
+        with open(os.path.join(a.out, tag + ".yaml"), "w") as f:
+            f.write(text)
+        batch.append(f"{tag}.yaml results/{tag}")
+        cells = nx * ny
+        print(f"{tag}: lambda_inf {lam * 1e3:.2f} mm, lambda_w ~ {lam_w * 1e3:.3f} mm (dx/lambda_w {dx / lam_w:.2f}), "
+              f"{nx} x {ny} = {cells / 1e6:.2f} M cells, ~{cells * a.ppc / 1e6:.1f} M free-stream particles, "
+              f"dt {dt:.3g} s, {warm} + {sample} steps")
+    # the cylinder reaches 10 mm beyond the slab on both sides (slab thickness <= 1 mm)
+    write_stl(os.path.join(a.out, "cylinder_12in.stl"), -0.01, 0.012)
+    with open(os.path.join(a.out, "batch_cylinder.txt"), "w") as f:
+        f.write("\n".join(batch) + "\n")
+
+
+if __name__ == "__main__":
+    main()

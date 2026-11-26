@@ -77,6 +77,10 @@ struct DomainSection {
   std::optional<double> margin_m;
   std::optional<Vec3> box_min_m;
   std::optional<Vec3> box_max_m;
+  // The box may cut the geometry (symmetry planes, two-dimensional slabs): only
+  // with box_min_m/box_max_m in DSMC mode; every face the geometry crosses must
+  // be specular (checked by the DSMC solver).
+  bool clip_geometry = false;
 };
 inline constexpr double kDefaultDomainMarginFraction = 0.05;
 
@@ -93,6 +97,7 @@ struct SpeciesFraction {
   double mass_kg = 0.0;
   VhsParameters vhs;
   InternalModes modes;
+  bool collision_data_from_input = false;  // vhs replaced by gas.collision_data
 };
 
 struct GasSection {

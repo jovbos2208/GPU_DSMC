@@ -1,5 +1,6 @@
 #include "vleo/io/ConfigParser.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <limits>
@@ -100,7 +101,13 @@ void parse_geometry(const YAML::Node& n, const fs::path& base_dir, GeometrySecti
 void parse_domain(const YAML::Node& n, DomainSection& out, Issues& is) {
   const std::string p = "domain";
   if (!n.IsDefined()) return;
-  if (!check_map(n, p, {"margin_m", "box_min_m", "box_max_m"}, is)) return;
+  if (!check_map(n, p, {"margin_m", "box_min_m", "box_max_m", "clip_geometry"}, is)) return;
+  if (auto c = get_bool(n, "clip_geometry", p, is, Need::Optional)) {
+    if (!n["box_min_m"].IsDefined())
+      is.add(p + ".clip_geometry", "only allowed with box_min_m / box_max_m");
+    else
+      out.clip_geometry = *c;
+  }
   const bool has_margin = n["margin_m"].IsDefined();
   const bool has_min = n["box_min_m"].IsDefined();
   const bool has_max = n["box_max_m"].IsDefined();
@@ -201,7 +208,10 @@ void parse_species(const YAML::Node& n, const std::string& p, std::vector<Specie
 
 void parse_gas(const YAML::Node& n, GasSection& out, Issues& is) {
   const std::string p = "gas";
-  if (!check_map(n, p, {"number_density_m3", "translational_temperature_K", "bulk_velocity_body_mps", "species"}, is))
+  if (!check_map(n, p,
+                 {"number_density_m3", "translational_temperature_K", "bulk_velocity_body_mps", "species",
+                  "collision_data"},
+                 is))
     return;
   if (auto v = get_double_in(n, "number_density_m3", p, is, Need::Required, kPositive)) out.number_density_m3 = *v;
   if (auto v = get_double_in(n, "translational_temperature_K", p, is, Need::Required, kPositive)) out.translational_temperature_K = *v;
@@ -212,6 +222,46 @@ void parse_gas(const YAML::Node& n, GasSection& out, Issues& is) {
       out.bulk_velocity_body_mps = *v;
   }
   if (auto s = child(n, "species", p, is, Need::Required)) parse_species(*s, p + ".species", out.species, is);
+  // gas.collision_data: VHS / VSS parameters replacing the database values of
+  // listed species, e.g. {Ar: {d_ref_m: 3.595e-10, omega: 0.734, T_ref_K: 1000}}
+  // (literature cases with other molecular models). Keys not given keep the
+  // database value; d_vss_m defaults to d_ref_m when only d_ref_m is given.
+  if (auto c = child(n, "collision_data", p, is, Need::Optional)) {
+    const std::string cp = p + ".collision_data";
+    if (!c->IsMap()) {
+      is.add(cp, "must be a mapping species: {d_ref_m, omega, T_ref_K, d_vss_m, alpha}", &*c);
+      return;
+    }
+    for (auto it = c->begin(); it != c->end(); ++it) {
+      const std::string name = it->first.IsScalar() ? it->first.Scalar() : std::string();
+      const std::string sp = join_path(cp, name);
+      auto f = std::find_if(out.species.begin(), out.species.end(), [&](const auto& x) { return x.name == name; });
+      if (f == out.species.end()) {
+        is.add(sp, "species is not listed in gas.species", &it->first);
+        continue;
+      }
+      const YAML::Node v = it->second;
+      if (!check_map(v, sp, {"d_ref_m", "omega", "T_ref_K", "d_vss_m", "alpha"}, is)) continue;
+      VhsParameters q = f->vhs;
+      bool d_given = false, dvss_given = false;
+      if (auto d = get_double_in(v, "d_ref_m", sp, is, Need::Optional, kPositive)) {
+        q.d_ref_m = *d;
+        d_given = true;
+      }
+      if (auto w = get_double_in(v, "omega", sp, is, Need::Optional, Range{0.5, 1.0, true, true})) q.omega = *w;
+      if (auto t = get_double_in(v, "T_ref_K", sp, is, Need::Optional, kPositive)) q.T_ref_K = *t;
+      if (auto d = get_double_in(v, "d_vss_m", sp, is, Need::Optional, kPositive)) {
+        q.d_vss_m = *d;
+        dvss_given = true;
+      }
+      if (auto a = get_double_in(v, "alpha", sp, is, Need::Optional, Range{1.0, 2.0, true, true})) q.alpha = *a;
+      if (d_given && !dvss_given) q.d_vss_m = q.d_ref_m;
+      q.available = true;
+      q.source = "gas.collision_data";
+      f->vhs = q;
+      f->collision_data_from_input = true;
+    }
+  }
 }
 
 void parse_surface_block(const YAML::Node& n, const std::string& p, SurfaceSection& out, Issues& is) {
@@ -547,6 +597,8 @@ SimulationConfig parse_root(const YAML::Node& root, const fs::path& base_dir) {
   parse_output(section(root, "output", is, Need::Optional), cfg.output, is);
 
   // DSMC: every species needs collision data; at most 8 species.
+  if (cfg.domain.clip_geometry && cfg.simulation.mode != SolverMode::DSMC)
+    is.add("domain.clip_geometry", "only supported in DSMC mode (symmetry planes and slabs need specular faces)");
   if (cfg.simulation.mode == SolverMode::DSMC && !cfg.gas.species.empty()) {
     if (cfg.gas.species.size() > 8) is.add("gas.species", "DSMC supports at most 8 species");
     for (const auto& sp : cfg.gas.species)
