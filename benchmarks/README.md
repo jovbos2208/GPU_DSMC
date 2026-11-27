@@ -408,3 +408,19 @@ OMP_NUM_THREADS=32 OMP_PROC_BIND=spread OMP_PLACES=threads \
 python3 scripts/benchmark.py compare benchmarks/results/cpu32.json benchmarks/results/w7700.json
 ```
 
+## Scaling with the particle number (S*)
+
+`--cases S`: the sphere of verification stage 3 (argon, Ma 4, Kn 0.3,
+`verification/sphere_ma4_kn0p3.yaml`) with 10 particles per cell and the cell
+size reduced from 20 mm to 2 mm, i.e. about 0.04, 0.2, 0.66, 2.7, 7.9, 22 and
+42 M particles. Physics and time step stay the same; the number of steps is
+chosen so that each point does about 10⁹ particle steps (200 … 20 000 steps).
+
+```bash
+python3 scripts/benchmark.py run build/hip-gfx1101/vleo_solver w7700-scaling --cases S --repeat 1
+OMP_NUM_THREADS=32 OMP_PROC_BIND=spread OMP_PLACES=threads \
+    python3 scripts/benchmark.py run build/cpu-release/vleo_solver cpu32-scaling --cases S --repeat 1
+python3 scripts/benchmark.py plot benchmarks/results/cpu32-scaling.json benchmarks/results/w7700-scaling.json \
+    --png benchmarks/results/scaling.png
+```
+
