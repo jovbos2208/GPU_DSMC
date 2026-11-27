@@ -18,3 +18,4 @@ __pycache__/
 verification/results/
 verification/references/
 verification/sphere_d100mm.stl
+verification/cone70.stl

@@ -1,0 +1,4 @@
+cone_case1_dx0p4.yaml results/cone_case1_dx0p4
+cone_case1_dx0p25.yaml results/cone_case1_dx0p25
+cone_case2_dx0p4.yaml results/cone_case2_dx0p4
+cone_case2_dx0p25.yaml results/cone_case2_dx0p25
