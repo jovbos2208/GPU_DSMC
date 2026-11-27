@@ -15,7 +15,7 @@ runs in `ctest`.
 | 2 | Discretisation: error vs. Δt, Δx and particles per cell on the Couette / Fourier cases | **done** |
 | 3 | Hypersonic cylinder in argon (Lofthouse 2008), Ma 10 and 25, Kn 0.25 and 0.05: drag, peak heat flux | **done** (solver runs, section 5) |
 | 3 | Sphere drag over Kn in argon (Ma 4, Kn 10 … 0.03, free-molecular limit) vs. exact theory and correlations | **done** (solver runs, section 6) |
-| 3 | 70° blunted cone | planned |
+| 3 | 70° blunted cone in Mach 20 nitrogen (Moss, Dogra & Wilmoth, NASA TM-107762): drag, stagnation heating, surface distributions | **done** (solver runs, section 7) |
 | 4 | VLEO: C_D(h) DSMC vs. TPMC with upstream-length convergence (GOCE altitude series) | runs exist, not yet a test |
 
 `ctest -L verification` runs the long cases; `ctest -LE verification` skips them.
@@ -421,8 +421,9 @@ vleo_solver --batch batch_sphere.txt --platform <platform.yaml> --skip-existing
 python3 sphere_eval.py results/sphere_ma4_fm results/sphere_ma4_kn* --png results/sphere.png
 ```
 
-The Kn 0.03 case (32 M particles) does not fit on one 16 GB GPU because of the
-per-particle step tally; it ran with `mpirun -n 2` on two W7700. A 1-rank and a
+The Kn 0.03 case (32 M particles) did not fit on one 16 GB GPU with the
+per-particle step tally of commit 0eea90f (removed in f6b5ae7); it ran with
+`mpirun -n 2` on two W7700. A 1-rank and a
 2-rank run of the same case give bitwise identical results (checked on the
 CPU), so the inflow faces and the clipped geometry are decomposition-safe.
 
@@ -468,3 +469,68 @@ the original 2/s² is used here, which gives Henderson's free-molecular limit
 Performance: 1.7–2.0 ns per particle and step on one W7700 (Kn 10 … 0.1),
 1.09 ns on two W7700 for Kn 0.03 (32 M particles), i.e. a parallel efficiency
 of about 0.9 for two GPUs.
+
+## 7. 70° blunted cone in Mach 20 nitrogen (stage 3)
+
+### Set-up
+
+Reference: Moss, Dogra & Wilmoth, *DSMC simulations of Mach 20 nitrogen flows
+about a 70° blunted cone and its wake*, NASA TM-107762 (1993): the SR3
+wind-tunnel conditions (CNRS Meudon), computed with Bird's DSMC code. Nitrogen,
+wall 300 K, fully diffuse; VHS d_ref = 4.07·10⁻¹⁰ m, T_ref = 300 K, viscosity
+exponent 0.75 (`gas.collision_data`); Larsen–Borgnakke with Z_rot = 5 (as the
+reference; vibration from the species database, TM-107762 used Z_vib = 50 –
+vibration is frozen at T₀ ≈ 1100 K).
+
+| Case | ρ∞ [kg/m³] | V∞ [m/s] | T∞ [K] | Ma | Kn∞ (d = 0.05 m) |
+| ---- | ---------- | -------- | ------ | -- | ---------------- |
+| 1 | 1.729·10⁻⁵ | 1502 | 13.32 | 20.2 | 0.032 |
+| 2 | 5.19·10⁻⁵ | 1502 | 14.0 | 19.7 | 0.011 |
+
+(Case 3, Kn 0.001, needs cells far below what a uniform grid allows.)
+Geometry reconstructed from the surface coordinates of table 5 of the report:
+base diameter 50 mm, spherical nose R_n = 12.5 mm, 70° half-angle cone, corner
+radius 1.25 mm, flat base at x = 10.42 mm; no sting (the reference's "forebody
+& wake" runs). Quarter model (symmetry planes specular, `domain.clip_geometry`),
+inflow faces with the free stream on the other four faces, uniform cells of
+0.4 and 0.25 mm, 5 particles per cell in the free stream.
+
+```bash
+cd verification
+python3 make_cone_configs.py           # configs, cone70.stl (not in the repo), batch_cone.txt
+vleo_solver --batch batch_cone.txt --platform <platform.yaml> --skip-existing
+python3 cone_eval.py results/cone_case1_dx0p4 results/cone_case1_dx0p25 \
+    results/cone_case2_dx0p4 results/cone_case2_dx0p25 --png results/cone.png
+```
+
+C_H = 2q/(ρ∞V∞³) at the stagnation point is the mean over the facets within
+r < 1.5 mm of the axis.
+
+### Results (W7700, 2026-11-27)
+
+| Case | Δx | Δx/λ_wall | C_D | TM-107762 | Δ | C_H | TM-107762 | Δ |
+| ---- | -- | --------- | --- | --------- | - | --- | --------- | - |
+| 1 | 0.8 mm (laptop) | 8 | 1.628 | 1.62–1.63 | +0.2 % | 0.358 | 0.350–0.353 | +1.8 % |
+| 1 | 0.4 mm | 4 | 1.624 | 1.62–1.63 | −0.1 % | 0.354 | 0.350–0.353 | +0.7 % |
+| 1 | 0.25 mm | 2.5 | 1.623 | 1.62–1.63 | −0.1 % | 0.353 | 0.350–0.353 | +0.5 % |
+| 2 | 0.4 mm | 13 | 1.557 | 1.56 | −0.2 % | 0.225 | 0.203 | +10.6 % |
+| 2 | 0.25 mm | 8 | 1.553 | 1.56 | −0.5 % | 0.216 | 0.203 | +6.2 % |
+
+(λ_wall: smallest local mean free path of the resolved cells at the
+stagnation point, 0.10 mm in case 1 and 0.03 mm in case 2.)
+
+- Drag: within 0.5 % of the reference in both cases and on all grids.
+- Case 1: the stagnation heating converges to the reference (+1.8 → +0.7 →
+  +0.5 %); the pressure distribution along the forebody agrees within about
+  1 %, the heat flux within 1–4 % (the cone flank is slightly high), and the
+  steep drop around the 1.25 mm corner radius is reproduced.
+- Case 2: the cells are 8–13 local mean free paths; the stagnation heating is
+  too high by 10.6 % and 6.2 % and falls with Δx as in section 4. Extrapolated
+  to Δx → 0 (linear or quadratic in Δx) it lies between −1 % and +3 % of the
+  reference. Heating at Kn ≤ 0.01 needs local refinement near the wall, which
+  the uniform grid does not offer.
+
+Performance (one W7700): 2.30–2.34 ns per particle and step with the
+per-particle step tally (0.4 mm runs, commit 0eea90f), 2.10–2.13 ns with the
+fused move/reduction kernel (0.25 mm runs, f6b5ae7; 31 M and 47 M particles on
+one GPU, which the step tally did not allow).
