@@ -377,3 +377,34 @@ after 40; fill and collide slow down slightly). Default changed to 20 (W7700:
 ±1 %). GOCE 244 km on the RTX without cell-state output: 12.06 ms per step;
 phases measured on both GPUs (move, collide, binning, reorder, reduce): 11.3 ms
 vs. 24.2 ms on the W7700 (2.15×).
+
+## Verification cases: GPU versus CPU (V*)
+
+`--cases V` runs the solver configurations of the verification stages
+(docs/verification.md), shortened to a fixed number of steps and without
+cell-state output, so that every backend does the same work:
+
+| Case | Stage | Content | Steps |
+| ---- | ----- | ------- | ----- |
+| V1-couette, V1-fourier | 1 (and 2) | argon channel, Kn 0.05, 24 k particles | 2000 + 2000 |
+| V1-shock | 1 | normal shock, argon, Ma 3, ~0.2 M particles | 1000 + 1000 |
+| V3-cylinder | 3 | Lofthouse cylinder, Ma 10, Kn 0.25, ~18 M particles | 200 + 200 |
+| V3-sphere | 3 | sphere, argon, Ma 4, Kn 0.1, ~6 M particles | 300 + 300 |
+| V3-sphere-fm | 3 | sphere, free-molecular, TPMC, 2·10⁷ histories | – |
+| V3-cone | 3 | 70° cone, N2 (rotation), Ma 20, Kn 0.032, ~9 M particles | 200 + 200 |
+
+The diffusion and discretisation studies run inside test binaries and have no
+solver configuration; stage 2 uses the Couette / Fourier cases. The runs start
+from the free-stream fill, so the particle number is below the steady-state
+value; both backends see the same.
+
+**Performance index**: time of the step loop (`run.steps` of the profile,
+set-up excluded) per particle and step (DSMC) or per history (TPMC), in ns.
+
+```bash
+python3 scripts/benchmark.py run build/hip-gfx1101/vleo_solver w7700 --cases V --repeat 1
+OMP_NUM_THREADS=32 OMP_PROC_BIND=spread OMP_PLACES=threads \
+    python3 scripts/benchmark.py run build/cpu-release/vleo_solver cpu32 --cases V --repeat 1
+python3 scripts/benchmark.py compare benchmarks/results/cpu32.json benchmarks/results/w7700.json
+```
+
