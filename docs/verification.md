@@ -542,6 +542,9 @@ The verification cases of stages 1–3 as benchmarks (`scripts/benchmark.py run
 the same configurations, shortened to a fixed number of steps, on one
 Radeon PRO W7700 (HIP) and on 32 CPU threads of the same host (Kokkos OpenMP,
 `OMP_PROC_BIND=spread`, `OMP_PLACES=threads`), commit f37af3e, 2026-11-27.
+The host has 2 × AMD EPYC 7543 (2 × 32 cores, no SMT, 2 NUMA nodes); with
+`spread` the 32 threads sit on every second core of both sockets, i.e. half of
+the node across both memory domains.
 Performance index: time of the step loop (set-up excluded) per particle and
 step, or per history for TPMC.
 
