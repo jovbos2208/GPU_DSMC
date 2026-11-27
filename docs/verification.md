@@ -565,7 +565,7 @@ step, or per history for TPMC.
 - Where the time goes: on the GPU the move kernel (ray tracing against the
   body, 58–71 %) dominates the large cases; on the CPU the cell binning
   (`bin.fill` + `bin.histogram`, 30–70 %) is the largest item, i.e. the CPU path
-  has room for optimisation (the binning uses atomics designed for the GPU).
+  has room for optimisation.
 - The runs start from the free-stream fill, with fewer particles and
   collisions near the body than at steady state; the full runs of sections 5–7
   give 2.0–2.3 ns per particle and step on the W7700.
