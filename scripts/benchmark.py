@@ -258,7 +258,9 @@ def compare_cmd(args):
         if name not in b["cases"]:
             continue
         x, y = a["cases"][name], b["cases"][name]
-        z = abs(x["C_D"] - y["C_D"]) / math.hypot(x["C_D_std_error"], y["C_D_std_error"])
+        se = math.hypot(x["C_D_std_error"], y["C_D_std_error"])
+        diff = abs(x["C_D"] - y["C_D"])
+        z = diff / se if se > 0 else (0.0 if diff == 0 else math.inf)  # cases without a body force: C_D = 0
         tp = f"{y['throughput']:.4g} {y['throughput_unit']}" if y.get("throughput") else "n/a"
         # same case and run length: the speed-up is the ratio of the (median) wall times
         print(f"| {name} | {x['wall_time_s']:.2f} | {y['wall_time_s']:.2f} | {tp} | "

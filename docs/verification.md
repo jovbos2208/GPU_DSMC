@@ -534,3 +534,38 @@ Performance (one W7700): 2.30–2.34 ns per particle and step with the
 per-particle step tally (0.4 mm runs, commit 0eea90f), 2.10–2.13 ns with the
 fused move/reduction kernel (0.25 mm runs, f6b5ae7; 31 M and 47 M particles on
 one GPU, which the step tally did not allow).
+
+## 8. Performance: GPU versus CPU
+
+The verification cases of stages 1–3 as benchmarks (`scripts/benchmark.py run
+<solver> <label> --cases V`, [benchmarks/README.md](../benchmarks/README.md)):
+the same configurations, shortened to a fixed number of steps, on one
+Radeon PRO W7700 (HIP) and on 32 CPU threads of the same host (Kokkos OpenMP,
+`OMP_PROC_BIND=spread`, `OMP_PLACES=threads`), commit f37af3e, 2026-11-27.
+Performance index: time of the step loop (set-up excluded) per particle and
+step, or per history for TPMC.
+
+| Case | Particles | CPU, 32 threads [ns] | W7700 [ns] | GPU speed-up |
+| ---- | --------- | -------------------- | ---------- | ------------ |
+| V1-couette (stages 1, 2) | 24 k | 85.2 | 44.3 | 1.9 |
+| V1-fourier (stages 1, 2) | 24 k | 83.1 | 45.5 | 1.8 |
+| V1-shock, Ma 3 | 0.2 M | 20.7 | 4.55 | 4.5 |
+| V3-sphere, Kn 0.1 | 6 M | 6.46 | 1.88 | 3.4 |
+| V3-cone, N2 with rotation | 9 M | 6.27 | 2.13 | 2.9 |
+| V3-cylinder, Kn 0.25 | 18 M | 4.96 | 1.60 | 3.1 |
+| V3-sphere-fm (TPMC, per history) | 2·10⁷ histories | 48.7 | 25.9 | 1.9 |
+
+- C_D is identical on both backends in every case (z = 0): the CPU and GPU
+  builds produce the same results, not only statistically equivalent ones.
+- One W7700 replaces about 3–4.5 times 32 CPU threads for DSMC cases of
+  realistic size; for the tiny channel cases (24 k particles, the GPU is not
+  filled) and for TPMC the factor is about 2. The set-up (geometry, cut cells,
+  fill) is not in the index; it is a further 2.5–6 times faster on the GPU
+  (cylinder: 14.1 s CPU, 2.3 s GPU).
+- Where the time goes: on the GPU the move kernel (ray tracing against the
+  body, 58–71 %) dominates the large cases; on the CPU the cell binning
+  (`bin.fill` + `bin.histogram`, 30–70 %) is the largest item, i.e. the CPU path
+  has room for optimisation (the binning uses atomics designed for the GPU).
+- The runs start from the free-stream fill, with fewer particles and
+  collisions near the body than at steady state; the full runs of sections 5–7
+  give 2.0–2.3 ns per particle and step on the W7700.
