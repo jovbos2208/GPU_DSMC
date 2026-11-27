@@ -579,3 +579,25 @@ of realistic size are therefore bound by memory bandwidth on the CPU.
 - The runs start from the free-stream fill, with fewer particles and
   collisions near the body than at steady state; the full runs of sections 5–7
   give 2.0–2.3 ns per particle and step on the W7700.
+
+### Scaling with the particle number
+
+`scripts/benchmark.py run <solver> <label> --cases S`: the sphere of section 6
+at Kn 0.3 (argon, Ma 4) with 10 particles per cell and cells from 20 mm down to
+2.2 mm, about 2.5·10⁸ particle steps per point; CPU 32 cores spread over both
+sockets, 2026-11-27.
+
+| Particles | 0.044 M | 0.21 M | 0.67 M | 2.7 M | 7.9 M | 22 M | 32 M |
+| --------- | ------- | ------ | ------ | ----- | ----- | ---- | ---- |
+| CPU, 32 cores [ns] | 12.9 | 9.66 | 7.82 | 7.27 | 6.63 | 6.48 | 6.44 |
+| W7700 [ns] | 19.7 | 6.21 | 2.88 | 2.38 | 1.85 | 1.76 | 1.78 |
+| GPU speed-up | 0.65 | 1.56 | 2.72 | 3.05 | 3.58 | 3.68 | 3.62 |
+
+- Below about 0.1 M particles the CPU is faster: the GPU pays a fixed cost per
+  kernel launch and synchronisation (about a dozen kernels per step).
+- The GPU is saturated from about 8 M particles (1.8 ns per particle and step);
+  the CPU improves only slowly with the size (13 → 6.4 ns).
+- 32 M particles is the largest point that fits on the 16 GB W7700 from the
+  start; 42 M failed to allocate. C_D is identical on both platforms in
+  every point.
+
