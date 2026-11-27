@@ -387,7 +387,7 @@ cell-state output, so that every backend does the same work:
 | Case | Stage | Content | Steps |
 | ---- | ----- | ------- | ----- |
 | V1-couette, V1-fourier | 1 (and 2) | argon channel, Kn 0.05, 24 k particles | 2000 + 2000 |
-| V1-shock | 1 | normal shock, argon, Ma 3, ~0.2 M particles | 1000 + 1000 |
+| V1-shock | 1 | normal shock, argon, Ma 3, ~0.5 M particles | 1000 + 1000 |
 | V3-cylinder | 3 | Lofthouse cylinder, Ma 10, Kn 0.25, ~18 M particles | 200 + 200 |
 | V3-sphere | 3 | sphere, argon, Ma 4, Kn 0.1, ~6 M particles | 300 + 300 |
 | V3-sphere-fm | 3 | sphere, free-molecular, TPMC, 2·10⁷ histories | – |

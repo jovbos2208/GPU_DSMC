@@ -548,20 +548,27 @@ the node across both memory domains.
 Performance index: time of the step loop (set-up excluded) per particle and
 step, or per history for TPMC.
 
-| Case | Particles | CPU, 32 threads [ns] | W7700 [ns] | GPU speed-up |
-| ---- | --------- | -------------------- | ---------- | ------------ |
-| V1-couette (stages 1, 2) | 24 k | 85.2 | 44.3 | 1.9 |
-| V1-fourier (stages 1, 2) | 24 k | 83.1 | 45.5 | 1.8 |
-| V1-shock, Ma 3 | 0.2 M | 20.7 | 4.55 | 4.5 |
-| V3-sphere, Kn 0.1 | 6 M | 6.46 | 1.88 | 3.4 |
-| V3-cone, N2 with rotation | 9 M | 6.27 | 2.13 | 2.9 |
-| V3-cylinder, Kn 0.25 | 18 M | 4.96 | 1.60 | 3.1 |
-| V3-sphere-fm (TPMC, per history) | 2·10⁷ histories | 48.7 | 25.9 | 1.9 |
+| Case | Particles | CPU, 32 cores on both sockets [ns] | CPU, 32 cores on one socket [ns] | W7700 [ns] | GPU speed-up (both / one socket) |
+| ---- | --------- | ---------------------------------- | -------------------------------- | ---------- | -------------------------------- |
+| V1-couette (stages 1, 2) | 24 k | 85.2 | 89.0 | 44.3 | 1.9 / 2.0 |
+| V1-fourier (stages 1, 2) | 24 k | 83.1 | 81.1 | 45.5 | 1.8 / 1.8 |
+| V1-shock, Ma 3 | 0.48 M | 20.7 | 28.3 | 4.55 | 4.5 / 6.2 |
+| V3-sphere, Kn 0.1 | 6.4 M | 6.46 | 8.89 | 1.88 | 3.4 / 4.7 |
+| V3-cone, N2 with rotation | 8.4 M | 6.27 | 9.28 | 2.13 | 2.9 / 4.4 |
+| V3-cylinder, Kn 0.25 | 17.6 M | 4.96 | 6.83 | 1.60 | 3.1 / 4.3 |
+| V3-sphere-fm (TPMC, per history) | 2·10⁷ histories | 48.7 | 70.0 | 25.9 | 1.9 / 2.7 |
+
+One socket: `OMP_PROC_BIND=close OMP_PLACES=cores numactl --cpunodebind=0
+--membind=0`. Spreading the 32 threads over both sockets is about 1.4 times
+faster for every case above the cache size (twice the memory channels and L3);
+the 24 k-particle channel cases fit into the cache and do not gain. The cases
+of realistic size are therefore bound by memory bandwidth on the CPU.
 
 - C_D is identical on both backends in every case (z = 0): the CPU and GPU
   builds produce the same results, not only statistically equivalent ones.
-- One W7700 replaces about 3–4.5 times 32 CPU threads for DSMC cases of
-  realistic size; for the tiny channel cases (24 k particles, the GPU is not
+- One W7700 is 4.3–6.2 times as fast as one 32-core EPYC 7543 socket, and
+  2.9–4.5 times as fast as 32 cores spread over both sockets, for DSMC cases
+  of realistic size; for the tiny channel cases (24 k particles, the GPU is not
   filled) and for TPMC the factor is about 2. The set-up (geometry, cut cells,
   fill) is not in the index; it is a further 2.5–6 times faster on the GPU
   (cylinder: 14.1 s CPU, 2.3 s GPU).

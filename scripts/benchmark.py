@@ -127,7 +127,7 @@ VERIFICATION = ROOT / "verification"
 VERIFICATION_CASES = {
     "V1-couette": ("stage 1: Couette flow, argon, Kn 0.05 (24 k particles)", "couette_argon.yaml", 2000, 2000),
     "V1-fourier": ("stage 1: Fourier flow, argon, Kn 0.05 (24 k particles)", "fourier_argon.yaml", 2000, 2000),
-    "V1-shock": ("stage 1: normal shock, argon, Ma 3 (~0.2 M particles)", "shock_ma3.yaml", 1000, 1000),
+    "V1-shock": ("stage 1: normal shock, argon, Ma 3 (~0.5 M particles)", "shock_ma3.yaml", 1000, 1000),
     "V3-cylinder": ("stage 3: cylinder, argon, Ma 10, Kn 0.25 (~18 M particles)", "cylinder_ma10_kn0p25.yaml", 200, 200),
     "V3-sphere": ("stage 3: sphere, argon, Ma 4, Kn 0.1 (~6 M particles)", "sphere_ma4_kn0p1.yaml", 300, 300),
     "V3-sphere-fm": ("stage 3: sphere, free-molecular (TPMC, 2e7 histories)", "sphere_ma4_fm.yaml", 0, 0),
