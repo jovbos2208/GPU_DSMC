@@ -412,9 +412,10 @@ python3 scripts/benchmark.py compare benchmarks/results/cpu32.json benchmarks/re
 
 `--cases S`: the sphere of verification stage 3 (argon, Ma 4, Kn 0.3,
 `verification/sphere_ma4_kn0p3.yaml`) with 10 particles per cell and the cell
-size reduced from 20 mm to 2 mm, i.e. about 0.04, 0.2, 0.66, 2.7, 7.9, 22 and
-42 M particles. Physics and time step stay the same; the number of steps is
-chosen so that each point does about 10⁹ particle steps (200 … 20 000 steps).
+size reduced from 20 mm to 2.2 mm, i.e. about 0.04, 0.2, 0.66, 2.7, 7.9, 22 and
+32 M particles (42 M at 2 mm do not fit on a 16 GB W7700). Physics and time
+step stay the same; the number of steps is chosen so that each point does about
+2.5·10⁸ particle steps (200 … 6000 steps).
 
 ```bash
 python3 scripts/benchmark.py run build/hip-gfx1101/vleo_solver w7700-scaling --cases S --repeat 1

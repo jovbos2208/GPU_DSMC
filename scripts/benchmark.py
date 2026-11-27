@@ -24,8 +24,9 @@ verification/make_sphere_configs.py and make_cone_configs.py.
 
 Scaling with the particle number (S*): the sphere of verification stage 3
 (argon, Ma 4, Kn 0.3) with 10 particles per cell and cells from 20 mm down to
-2 mm, i.e. ~40 k to ~40 M particles; same physics and time step, the number of
-steps chosen so that every point does ~1e9 particle steps (200 ... 20 000):
+2.2 mm, i.e. ~40 k to ~32 M particles (42 M at 2 mm do not fit on a 16 GB GPU);
+same physics and time step, steps chosen for ~2.5e8 particle steps per point
+(200 ... 6000):
   benchmark.py run <solver> <label> --cases S --repeat 1
   benchmark.py plot benchmarks/results/<cpu>.json benchmarks/results/<gpu>.json --png scaling.png
 
@@ -144,13 +145,13 @@ VERIFICATION_CASES = {
 
 # name: cell size [m] of the scaling series (sphere_ma4_kn0p3.yaml, box 0.43 x 0.28 x 0.28 m, 10 per cell)
 SCALING_CASES = {f"S{k + 1}-dx{int(round(dx * 1e4))}": dx
-                 for k, dx in enumerate((0.02, 0.012, 0.008, 0.005, 0.0035, 0.0025, 0.002))}
+                 for k, dx in enumerate((0.02, 0.012, 0.008, 0.005, 0.0035, 0.0025, 0.0022))}
 
 
 def scaling_case(name):
     dx = SCALING_CASES[name]
     n_est = 0.43 * 0.28 * 0.28 / dx ** 3 * 10
-    steps = int(min(20000, max(200, round(1e9 / n_est / 100) * 100)))
+    steps = int(min(6000, max(200, round(2.5e8 / n_est / 100) * 100)))
     text = (VERIFICATION / "sphere_ma4_kn0p3.yaml").read_text()
     stl = VERIFICATION / "sphere_d100mm.stl"
     if not stl.exists():
