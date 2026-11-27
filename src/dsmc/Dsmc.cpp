@@ -21,8 +21,8 @@ namespace {
 using policy = Kokkos::RangePolicy<Kokkos::IndexType<std::size_t>>;
 using IntPolicy = Kokkos::RangePolicy<>;
 
-// Per-particle step tally: the 9 TPMC history tallies plus the number of
-// surface interactions in the step.
+// Step sums (reduction slots of the move kernel): the 9 TPMC history tallies
+// plus the number of surface interactions in the step.
 constexpr int kStepInteractions = kHistoryTallies;
 constexpr int kStepTallies = kHistoryTallies + 1;
 // Face boundaries in the move kernel (DsmcFace resolved against DsmcSettings::boundary).
@@ -70,10 +70,26 @@ struct MigrantRecord {
   int dest, slot;
 };
 
+// Sums of the step tallies and the final status counts (reduction slots of MoveKernel).
+// Per-species slots after the global ones: particle count, momentum (3), energy.
+constexpr int kSpeciesSlots = 5;
+constexpr int kStepGlobal = kStepTallies + kNumParticleStatus;
+constexpr int kStepSlots = kStepGlobal + kSpeciesSlots * kMaxDsmcSpecies + kWallCols;  // upper bound (host array)
+
+// Move step and its reduction in one kernel: every particle adds its surface
+// tallies and final status to the step sums directly, so no per-particle tally
+// array is stored (it cost 10 doubles per particle slot, the largest DSMC
+// buffer). Slots: [0, kStepTallies) tallies, kStepTallies + status counts, then
+// (sampling only) per-species slots and the wall tallies at wall_base.
 struct MoveKernel {
+  using value_type = double[];
+  using size_type = std::size_t;
+  // Sized for the actual number of species and wall columns: keeps the
+  // shared-memory footprint of the reduction small (55 doubles per thread
+  // exceeded the LDS budget of small GPUs).
+  size_type value_count = kStepGlobal;
   ParticleStorage p;
   Kokkos::View<double*> dt_rem;
-  Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<double**, Kokkos::LayoutLeft> surface;  // empty unless sampling with surface fields
   DeviceGeometry geo;
   Aabb box;
@@ -86,7 +102,9 @@ struct MoveKernel {
   std::uint32_t max_interactions;
   Kokkos::Array<int, 6> face_type;               // kFaceExit ... kFaceWall per face
   Kokkos::Array<SurfaceProperties, 6> face_surface{};  // walls: fully diffuse at T_w, wall velocity
-  int wall_cols = 0;                             // kWallCols with wall faces (tally columns after kStepTallies)
+  int wall_cols = 0;                             // kWallCols with wall faces (sampling only)
+  int wall_base = 0;                             // first wall slot
+  bool per_species = false;                      // sampling: per-species slots after kStepGlobal
   // Several ranks (M6.7): particles that end the step outside the planes of
   // this rank are recorded here (atomic append; the host restores the
   // storage order). They stay Active until the step reduction has counted them.
@@ -97,11 +115,18 @@ struct MoveKernel {
   Kokkos::View<MigrantRecord*> migrants{};
   Kokkos::View<int*> migrant_count{};
 
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
-    for (int k = 0; k < kStepTallies + wall_cols; ++k) tally(i, k) = 0.0;
+  KOKKOS_INLINE_FUNCTION void init(value_type s) const {
+    for (std::size_t k = 0; k < value_count; ++k) s[k] = 0.0;
+  }
+  KOKKOS_INLINE_FUNCTION void join(value_type d, const value_type s) const {
+    for (std::size_t k = 0; k < value_count; ++k) d[k] += s[k];
+  }
+
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
     if (p.status(i) != static_cast<std::uint8_t>(ParticleStatus::Active)) {
       // ended in an earlier step and not yet compacted: retire (counted once, M5.3)
       p.status(i) = static_cast<std::uint8_t>(ParticleStatus::Free);
+      s[kStepTallies + static_cast<int>(ParticleStatus::Free)] += 1.0;
       return;
     }
     Vec3 pos = p.position(i);
@@ -224,11 +249,11 @@ struct MoveKernel {
           const Vec3 dp = m * (v_in - vel);
           const double de = 0.5 * m * (norm2(v_in - w.wall_velocity) - norm2(vel - w.wall_velocity)) +
                             (e_int_in - e_rot - e_vib);
-          const int c = kStepTallies + kWallQuantities * face;
-          tally(i, c) += dp.x;
-          tally(i, c + 1) += dp.y;
-          tally(i, c + 2) += dp.z;
-          tally(i, c + 3) += de;
+          const int c = wall_base + kWallQuantities * face;
+          s[c] += dp.x;
+          s[c + 1] += dp.y;
+          s[c + 2] += dp.z;
+          s[c + 3] += de;
         }
         continue;
       }
@@ -266,76 +291,28 @@ struct MoveKernel {
         }
       }
     }
-    tally(i, kTallyPx) = dp_sum.x;
-    tally(i, kTallyPy) = dp_sum.y;
-    tally(i, kTallyPz) = dp_sum.z;
-    tally(i, kTallyLx) = dl_sum.x;
-    tally(i, kTallyLy) = dl_sum.y;
-    tally(i, kTallyLz) = dl_sum.z;
-    tally(i, kTallyE) = de_sum;
-    tally(i, kTallyEPos) = de_pos;
-    tally(i, kTallyENeg) = de_neg;
-    tally(i, kStepInteractions) = static_cast<double>(in_step);
-  }
-};
-
-// Sums of the step tallies and the final status counts.
-// Per-species slots after the global ones: particle count, momentum (3), energy.
-constexpr int kSpeciesSlots = 5;
-
-struct StepReduce {
-  using value_type = double[];
-  using size_type = std::size_t;
-  static constexpr int kGlobal = kStepTallies + kNumParticleStatus;
-  static constexpr int kSlots = kGlobal + kSpeciesSlots * kMaxDsmcSpecies + kWallCols;  // upper bound (host array)
-  // Sized for the actual number of species: keeps the shared-memory footprint
-  // of the reduction small (55 doubles per thread exceeded the LDS budget of
-  // small GPUs).
-  size_type value_count = kSlots;
-  Kokkos::View<double**, Kokkos::LayoutLeft> tally;
-  Kokkos::View<const std::uint8_t*> status;
-  Kokkos::View<const std::uint32_t*> species;
-  int wall_cols = 0, wall_base = 0;  // wall tallies -> s[wall_base ...]
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
-    for (int k = 0; k < kStepTallies; ++k) s[k] += tally(i, k);
-    for (int k = 0; k < wall_cols; ++k) s[wall_base + k] += tally(i, kStepTallies + k);
-    const int st = status(i) < kNumParticleStatus ? status(i) : static_cast<int>(ParticleStatus::Invalid);
+    s[kTallyPx] += dp_sum.x;
+    s[kTallyPy] += dp_sum.y;
+    s[kTallyPz] += dp_sum.z;
+    s[kTallyLx] += dl_sum.x;
+    s[kTallyLy] += dl_sum.y;
+    s[kTallyLz] += dl_sum.z;
+    s[kTallyE] += de_sum;
+    s[kTallyEPos] += de_pos;
+    s[kTallyENeg] += de_neg;
+    s[kStepInteractions] += static_cast<double>(in_step);
+    const int st = static_cast<int>(status) < kNumParticleStatus ? static_cast<int>(status)
+                                                                 : static_cast<int>(ParticleStatus::Invalid);
     s[kStepTallies + st] += 1.0;
-    const int sp = static_cast<int>(species(i));
-    double* q = s + kGlobal + kSpeciesSlots * sp;
-    // active particles only (slots of ended particles wait for compaction)
-    q[0] += st == static_cast<int>(ParticleStatus::Active) ? 1.0 : 0.0;
-    q[1] += tally(i, kTallyPx);
-    q[2] += tally(i, kTallyPy);
-    q[3] += tally(i, kTallyPz);
-    q[4] += tally(i, kTallyE);
-  }
-  KOKKOS_INLINE_FUNCTION void init(value_type s) const {
-    for (std::size_t k = 0; k < value_count; ++k) s[k] = 0.0;
-  }
-  KOKKOS_INLINE_FUNCTION void join(value_type d, const value_type s) const {
-    for (std::size_t k = 0; k < value_count; ++k) d[k] += s[k];
-  }
-};
-
-// Status counts and interactions only (steps outside the sampling phase).
-struct StatusReduce {
-  using value_type = double[];
-  using size_type = std::size_t;
-  static constexpr int kSlots = kNumParticleStatus + 1;
-  size_type value_count = kSlots;
-  Kokkos::View<const std::uint8_t*> status;
-  Kokkos::View<double**, Kokkos::LayoutLeft> tally;
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i, value_type s) const {
-    const int st = status(i) < kNumParticleStatus ? status(i) : static_cast<int>(ParticleStatus::Invalid);
-    s[st] += 1.0;
-    s[kNumParticleStatus] += tally(i, kStepInteractions);
-  }
-  KOKKOS_INLINE_FUNCTION void init(value_type s) const {
-    for (int k = 0; k < kSlots; ++k) s[k] = 0.0;
-  }
-  KOKKOS_INLINE_FUNCTION void join(value_type d, const value_type s) const {
-    for (int k = 0; k < kSlots; ++k) d[k] += s[k];
+    if (per_species) {
+      // active particles only (slots of ended particles wait for compaction)
+      double* q = s + kStepGlobal + kSpeciesSlots * static_cast<int>(sp);
+      q[0] += status == ParticleStatus::Active ? 1.0 : 0.0;
+      q[1] += dp_sum.x;
+      q[2] += dp_sum.y;
+      q[3] += dp_sum.z;
+      q[4] += de_sum;
+    }
   }
 };
 
@@ -1175,7 +1152,6 @@ struct DsmcSimulation::Impl {
   std::uint64_t step_index = 0;
   ParticleStorage cur, alt;
   Kokkos::View<double*> dt_cur, dt_alt;
-  Kokkos::View<double**, Kokkos::LayoutLeft> tally;
   Kokkos::View<std::size_t*> compact_index;
   Kokkos::View<int*> cell_of_particle, list, list_unsorted;
   Kokkos::View<std::uint64_t*> list_key;  // GPU backends, several ranks  // list_unsorted: GPU backends only
@@ -1521,7 +1497,6 @@ struct DsmcSimulation::Impl {
       Kokkos::resize(dt_cur, cap);
       Kokkos::resize(dt_alt, cap);
     }
-    tally = Kokkos::View<double**, Kokkos::LayoutLeft>("dsmc_step_tally", cap, kStepTallies + wall_cols);
     compact_index = Kokkos::View<std::size_t*>("dsmc_compact_index", cap);
     cell_of_particle = Kokkos::View<int*>("dsmc_cell", cap);
     list = Kokkos::View<int*>("dsmc_cell_list", cap);
@@ -1693,9 +1668,9 @@ struct DsmcSimulation::Impl {
       inject();
     }
     total_particle_steps += static_cast<double>(n_active);
-    MoveKernel mk{cur,
+    MoveKernel mk{kStepGlobal,
+                  cur,
                   dt_cur,
-                  tally,
                   sample ? surface : Kokkos::View<double**, Kokkos::LayoutLeft>(),
                   geo,
                   inflow_host.domain.box,
@@ -1707,8 +1682,13 @@ struct DsmcSimulation::Impl {
                   set.timestep_s,
                   set.max_interactions_per_step,
                   face_type,
-                  face_surface,
-                  wall_cols};
+                  face_surface};
+    if (sample) {
+      mk.per_species = true;
+      mk.wall_cols = wall_cols;
+      mk.wall_base = kStepGlobal + kSpeciesSlots * nsp;
+      mk.value_count = static_cast<std::size_t>(mk.wall_base + wall_cols);
+    }
     if (decomposed) {
       mk.find_migrants = true;
       mk.grid = grid.grid;
@@ -1717,31 +1697,10 @@ struct DsmcSimulation::Impl {
       mk.migrants = move_migrants;
       mk.migrant_count = move_migrant_count;
     }
-    {
+    double s[kStepSlots] = {};
+    if (n > 0) {
       Profiler::Scope ps(prof, "dsmc.move");
-      Kokkos::parallel_for("vleo::dsmc_move", policy(0, n), mk);
-    }
-
-    double s[StepReduce::kSlots] = {};
-    if (n > 0 && sample) {
-      Profiler::Scope ps(prof, "dsmc.step_reduce");
-      StepReduce red;
-      red.tally = tally;
-      red.status = cur.status;
-      red.species = cur.species;
-      red.wall_base = StepReduce::kGlobal + kSpeciesSlots * nsp;
-      red.wall_cols = wall_cols;
-      red.value_count = static_cast<std::size_t>(red.wall_base + wall_cols);
-      Kokkos::parallel_reduce("vleo::dsmc_step_reduce", policy(0, n), red, s);
-    } else if (n > 0) {
-      Profiler::Scope ps(prof, "dsmc.step_reduce");
-      double c[StatusReduce::kSlots] = {};
-      StatusReduce red;
-      red.status = cur.status;
-      red.tally = tally;
-      Kokkos::parallel_reduce("vleo::dsmc_status_reduce", policy(0, n), red, c);
-      for (int k = 0; k < kNumParticleStatus; ++k) s[kStepTallies + k] = c[k];
-      s[kStepInteractions] = c[kNumParticleStatus];
+      Kokkos::parallel_reduce("vleo::dsmc_move", policy(0, n), mk, s);
     }
     n_active = static_cast<std::size_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Active)]);
     counters.exited += static_cast<std::uint64_t>(s[kStepTallies + static_cast<int>(ParticleStatus::Exited)]);
@@ -1760,9 +1719,9 @@ struct DsmcSimulation::Impl {
       series[kQPLift].push_back(scale * dot(dp, ax.lift));
       series[kQPSide].push_back(scale * dot(dp, ax.side));
       for (int k = 0; k < wall_cols; ++k)
-        wall_series[static_cast<std::size_t>(k)].push_back(scale * s[StepReduce::kGlobal + kSpeciesSlots * nsp + k]);
+        wall_series[static_cast<std::size_t>(k)].push_back(scale * s[kStepGlobal + kSpeciesSlots * nsp + k]);
       for (int q = 0; q < nsp; ++q) {
-        const double* v = s + StepReduce::kGlobal + kSpeciesSlots * q;
+        const double* v = s + kStepGlobal + kSpeciesSlots * q;
         species_count_sum[static_cast<std::size_t>(q)] += v[0];
         species_P_sum[static_cast<std::size_t>(q)] += scale * Vec3(v[1], v[2], v[3]);
         species_E_sum[static_cast<std::size_t>(q)] += scale * v[4];
