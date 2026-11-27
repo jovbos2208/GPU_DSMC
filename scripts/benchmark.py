@@ -204,6 +204,11 @@ def run_cmd(args):
     version = subprocess.run([args.solver, "--version"], stdout=subprocess.PIPE, universal_newlines=True).stdout
     out = {"label": args.label, "host": platform.node(), "solver_version": version, "ranks": args.ranks,
            "scale": args.scale, "cases": {}}
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    path = RESULTS / f"{args.label}.json"
+    if args.append and path.exists():  # add to / replace cases of an earlier run with the same label
+        out["cases"] = json.loads(path.read_text()).get("cases", {})
+    failed = []
     for name in selected:
         desc, text = (verification_case(name, tmp) if name in VERIFICATION_CASES else
                       scaling_case(name) if name in SCALING_CASES else all_cases[name])
@@ -218,13 +223,20 @@ def run_cmd(args):
             prof = [] if args.no_profile else ["--profile"]
             launch = [] if args.ranks == 1 and not args.mpiexec_flags and args.mpiexec is None else \
                 [args.mpiexec or "mpiexec", *shlex.split(args.mpiexec_flags), "-n", str(args.ranks)]
-            subprocess.run([*launch, args.solver, "-q", *prof, "-c", str(cfg), "-o", str(tmp / name)], check=True,
-                           stderr=subprocess.DEVNULL)
+            run = subprocess.run([*launch, args.solver, "-q", *prof, "-c", str(cfg), "-o", str(tmp / name)],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, universal_newlines=True)
+            if run.returncode != 0:
+                break
             r = json.loads((tmp / name / "results.json").read_text())
             d = r["diagnostics"]
             steps_s = d.get("profile", {}).get("run.steps", {}).get("seconds")
             walls.append(d["wall_time_s"])
             loops.append(steps_s if steps_s else d["wall_time_s"])
+        if run.returncode != 0:  # keep going with the other cases; the error goes into the summary
+            tail = [l for l in run.stderr.splitlines() if l.strip()][-3:]
+            print(f"    FAILED (exit {run.returncode}): " + " | ".join(tail), flush=True)
+            failed.append(name)
+            continue
         walls.sort()
         loops.sort()
         wall = walls[len(walls) // 2]  # median of the repetitions
@@ -255,10 +267,9 @@ def run_cmd(args):
         tp = f"{entry['throughput']:.4g}" if entry["throughput"] else "n/a"
         pi = f", index {entry['performance_index_ns']:.4g} {entry['index_unit']}" if entry["performance_index_ns"] else ""
         print(f"    {wall:.2f} s, {tp} {entry['throughput_unit']}{pi}, C_D = {entry['C_D']:.5f} ± {se:.2g}", flush=True)
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    path = RESULTS / f"{args.label}.json"
+        path.write_text(json.dumps(out, indent=2) + "\n")  # after every case: an interrupted run keeps its results
     path.write_text(json.dumps(out, indent=2) + "\n")
-    print(f"wrote {path}")
+    print(f"wrote {path}" + (f"  (failed: {', '.join(failed)})" if failed else ""))
     for name, e in out["cases"].items():
         phases = {k: v for k, v in e["profile"].items() if not k.startswith("run.")}
         tot = sum(p["seconds"] for p in phases.values()) or 1.0
@@ -354,6 +365,7 @@ def main():
     r.add_argument("--mpiexec", help="MPI launcher (default: mpiexec when --ranks > 1)")
     r.add_argument("--mpiexec-flags", default="", help="extra launcher flags")
     r.add_argument("--scale", type=int, default=1, help="problem size factor (weak scaling)")
+    r.add_argument("--append", action="store_true", help="keep the other cases of an existing <label>.json")
     c = sub.add_parser("compare")
     c.add_argument("before")
     c.add_argument("after")
